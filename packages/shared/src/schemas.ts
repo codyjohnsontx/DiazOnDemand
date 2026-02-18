@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AccessLevel, EntitlementTier, Role } from './enums';
+import { AccessLevel, EntitlementTier, Role } from './enums.js';
 
 export const lessonSummarySchema = z.object({
   id: z.string().uuid(),

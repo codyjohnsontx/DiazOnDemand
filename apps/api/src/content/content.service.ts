@@ -1,5 +1,6 @@
 import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { EntitlementTier } from '@diaz/shared';
+import type { Tag } from '@diaz/db';
 import type { AuthUser } from '../common/request-with-user.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -82,7 +83,7 @@ export class ContentService {
 
     return {
       ...lesson,
-      tags: lesson.tags.map((entry) => entry.tag),
+      tags: lesson.tags.map((entry: { tag: Tag }) => entry.tag),
       playbackUrl: lesson.muxPlaybackId
         ? `https://stream.mux.com/${lesson.muxPlaybackId}.m3u8`
         : null,

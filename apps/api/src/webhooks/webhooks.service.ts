@@ -10,7 +10,7 @@ export class WebhooksService {
 
   constructor(private readonly prisma: PrismaService) {
     if (process.env.STRIPE_SECRET_KEY) {
-      this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-01-27.acacia' });
+      this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-02-24.acacia' });
     }
   }
 

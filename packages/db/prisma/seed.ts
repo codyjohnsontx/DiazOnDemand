@@ -59,7 +59,7 @@ async function main() {
     },
     {
       id: '33333333-3333-3333-3333-333333333332',
-      title: 'Hip Escape to Recover Guard',
+      title: 'Hip Escape from Bottom Side Control to Guard Recovery',
       orderIndex: 2,
       accessLevel: AccessLevel.PAID,
       muxPlaybackId: 'seedplaybackpaid234',
@@ -72,6 +72,10 @@ async function main() {
       muxPlaybackId: 'seedplaybackpaid345',
     },
   ];
+  const [lessonOne, lessonTwo, lessonThree] = lessons;
+  if (!lessonOne || !lessonTwo || !lessonThree) {
+    throw new Error('Seed lessons are not fully defined');
+  }
 
   for (const lesson of lessons) {
     await prisma.lesson.upsert({
@@ -104,19 +108,19 @@ async function main() {
   ]);
 
   await prisma.lessonTag.upsert({
-    where: { lessonId_tagId: { lessonId: lessons[0].id, tagId: tagGuard.id } },
+    where: { lessonId_tagId: { lessonId: lessonOne.id, tagId: tagGuard.id } },
     update: {},
-    create: { lessonId: lessons[0].id, tagId: tagGuard.id },
+    create: { lessonId: lessonOne.id, tagId: tagGuard.id },
   });
   await prisma.lessonTag.upsert({
-    where: { lessonId_tagId: { lessonId: lessons[1].id, tagId: tagMobility.id } },
+    where: { lessonId_tagId: { lessonId: lessonTwo.id, tagId: tagMobility.id } },
     update: {},
-    create: { lessonId: lessons[1].id, tagId: tagMobility.id },
+    create: { lessonId: lessonTwo.id, tagId: tagMobility.id },
   });
   await prisma.lessonTag.upsert({
-    where: { lessonId_tagId: { lessonId: lessons[2].id, tagId: tagAdvanced.id } },
+    where: { lessonId_tagId: { lessonId: lessonThree.id, tagId: tagAdvanced.id } },
     update: {},
-    create: { lessonId: lessons[2].id, tagId: tagAdvanced.id },
+    create: { lessonId: lessonThree.id, tagId: tagAdvanced.id },
   });
 
   console.log('Seed complete', { userId: user.id, programId: program.id, courseId: course.id });

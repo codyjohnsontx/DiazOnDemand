@@ -1,5 +1,6 @@
 node_modules
 .pnpm-store
+.turbo
 .next
 dist
 build
@@ -11,3 +12,4 @@ coverage
 apps/mobile/.expo
 apps/mobile/dist
 packages/db/prisma/dev.db
+DiazMartialArts/
