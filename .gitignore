@@ -1,0 +1,13 @@
+node_modules
+.pnpm-store
+.next
+dist
+build
+coverage
+.env
+.env.*
+!.env.example
+.DS_Store
+apps/mobile/.expo
+apps/mobile/dist
+packages/db/prisma/dev.db

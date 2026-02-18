@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  COACH
+  STUDENT
+}
+
+enum AccessLevel {
+  FREE
+  PAID
+}
+
+enum EntitlementTier {
+  FREE
+  PREMIUM
+}
+
+model User {
+  id           String         @id @default(uuid())
+  clerkUserId  String         @unique
+  role         Role           @default(STUDENT)
+  createdAt    DateTime       @default(now())
+  progress     Progress[]
+  favorites    Favorite[]
+  subscription Subscription?
+  entitlement  Entitlement?
+}
+
+model Program {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  orderIndex  Int      @default(0)
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  courses     Course[]
+}
+
+model Course {
+  id          String   @id @default(uuid())
+  programId   String
+  title       String
+  description String?
+  orderIndex  Int      @default(0)
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  lessons     Lesson[]
+
+  @@index([programId])
+}
+
+model Lesson {
+  id              String       @id @default(uuid())
+  courseId         String
+  title            String
+  description      String?
+  orderIndex       Int          @default(0)
+  isPublished      Boolean      @default(false)
+  accessLevel      AccessLevel  @default(FREE)
+  muxAssetId       String?
+  muxPlaybackId    String?
+  durationSeconds  Int?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  course           Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  tags             LessonTag[]
+  progress         Progress[]
+  favorites        Favorite[]
+
+  @@index([courseId])
+}
+
+model Tag {
+  id      String      @id @default(uuid())
+  name    String      @unique
+  lessons LessonTag[]
+}
+
+model LessonTag {
+  lessonId String
+  tagId    String
+  lesson   Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([lessonId, tagId])
+  @@index([tagId])
+}
+
+model Progress {
+  id                  String   @id @default(uuid())
+  userId              String
+  lessonId            String
+  lastPositionSeconds Int      @default(0)
+  completed           Boolean  @default(false)
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson              Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([lessonId])
+}
+
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  lessonId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([lessonId])
+}
+
+model Subscription {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  stripeCustomerId     String
+  stripeSubscriptionId String    @unique
+  status               String
+  currentPeriodEnd     DateTime?
+  planId               String?
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
+}
+
+model Entitlement {
+  id         String          @id @default(uuid())
+  userId     String          @unique
+  tier       EntitlementTier @default(FREE)
+  validUntil DateTime?
+  updatedAt  DateTime        @updatedAt
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

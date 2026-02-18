@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Diaz On Demand",
+    "slug": "diaz-ondemand-mobile",
+    "scheme": "diazondemand",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "plugins": []
+  }
+}
