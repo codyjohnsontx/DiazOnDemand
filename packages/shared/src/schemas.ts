@@ -124,6 +124,13 @@ export const meSchema = z.object({
   entitlementTier: z.nativeEnum(EntitlementTier),
 });
 
+export const entitlementsResponseSchema = z.object({
+  gymMember: z.boolean(),
+  vod: z.boolean(),
+  tier: z.enum(['FREE', 'GYM_MEMBER', 'VOD']),
+  validUntil: z.string().datetime().nullable().optional(),
+});
+
 export const checkoutSessionSchema = z.object({
   url: z.string().url().nullable().optional(),
 });
@@ -144,4 +151,5 @@ export type AdminUpdateCourseDto = z.infer<typeof adminUpdateCourseSchema>;
 export type AdminCreateLessonDto = z.infer<typeof adminCreateLessonSchema>;
 export type AdminUpdateLessonDto = z.infer<typeof adminUpdateLessonSchema>;
 export type MeDto = z.infer<typeof meSchema>;
+export type EntitlementsResponse = z.infer<typeof entitlementsResponseSchema>;
 export type CheckoutSessionDto = z.infer<typeof checkoutSessionSchema>;

@@ -169,3 +169,37 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 - Better admin UX for tags and ordering controls
 - Offline-safe mobile progress queueing
 - CI pipeline for lint/typecheck/test + deploy previews
+
+## Entitlements Endpoints
+
+### GET /me/entitlements (Clerk-authenticated)
+Returns current user entitlements using Clerk auth (or `DEV_BYPASS_AUTH=true` in local dev).
+
+Example response:
+```json
+{
+  "gymMember": true,
+  "vod": true,
+  "tier": "VOD",
+  "validUntil": "2026-12-31T23:59:59.000Z"
+}
+```
+
+MVP truth mapping:
+- `gymMember`: true if a `User` row exists (endpoint upserts user on first request)
+- `vod`: true when `Entitlement.tier === PREMIUM` and `validUntil` is null or in the future
+- `tier`: `VOD` if `vod=true`, else `GYM_MEMBER` if `gymMember=true`, else `FREE`
+
+### GET /users/:clerkUserId/entitlements (Server-to-server)
+Internal endpoint for the marketing site redirect logic.
+
+Security:
+- Requires header `x-diaz-api-key`
+- Must match API env var `DIAZ_INTERNAL_API_KEY`
+- Returns `401` if missing/invalid
+
+Example:
+```bash
+curl -H "x-diaz-api-key: $DIAZ_INTERNAL_API_KEY" \
+  http://localhost:4000/users/user_123/entitlements
+```

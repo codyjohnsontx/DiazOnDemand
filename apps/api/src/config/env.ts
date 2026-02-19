@@ -16,6 +16,7 @@ const apiEnvSchema = z
     STRIPE_PRICE_ID_YEARLY: z.string().optional(),
     MUX_TOKEN_ID: z.string().optional(),
     MUX_TOKEN_SECRET: z.string().optional(),
+    DIAZ_INTERNAL_API_KEY: z.string().optional(),
   })
   .superRefine((value, context) => {
     if (value.DEV_BYPASS_AUTH === 'false' && !value.CLERK_SECRET_KEY) {
