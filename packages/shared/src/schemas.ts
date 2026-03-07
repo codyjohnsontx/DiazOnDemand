@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { AccessLevel, EntitlementTier, Role } from './enums.js';
+import { fundamentalsCurriculumSchema } from './curriculum';
+import { AccessLevel, EntitlementTier, Role } from './enums';
+
+export const curriculumSchema = fundamentalsCurriculumSchema;
 
 export const lessonSummarySchema = z.object({
   id: z.string().uuid(),
@@ -11,6 +14,7 @@ export const lessonSummarySchema = z.object({
   accessLevel: z.nativeEnum(AccessLevel),
   muxPlaybackId: z.string().nullable().optional(),
   durationSeconds: z.number().int().nonnegative().nullable().optional(),
+  curriculum: curriculumSchema.nullable().optional(),
 });
 
 export const courseSchema = z.object({
@@ -44,7 +48,6 @@ export const lessonDetailSchema = lessonSummarySchema.extend({
     .default([]),
   playbackUrl: z.string().nullable().optional(),
   signedPlaybackToken: z.string().nullable().optional(),
-  playbackTokenTodo: z.string().nullable().optional(),
 });
 
 export const programWithContentSchema = programSchema.extend({
@@ -106,6 +109,7 @@ const adminBaseLessonSchema = z.object({
   muxAssetId: z.string().optional().nullable(),
   muxPlaybackId: z.string().optional().nullable(),
   durationSeconds: z.number().int().nonnegative().optional().nullable(),
+  curriculum: curriculumSchema.optional().nullable(),
 });
 
 export const adminCreateProgramSchema = adminBaseProgramSchema;
@@ -122,6 +126,8 @@ export const meSchema = z.object({
   clerkUserId: z.string(),
   role: z.nativeEnum(Role),
   entitlementTier: z.nativeEnum(EntitlementTier),
+  subscriptionStatus: z.string().nullable().optional(),
+  currentPeriodEnd: z.string().datetime().nullable().optional(),
 });
 
 export const entitlementsResponseSchema = z.object({

@@ -15,7 +15,7 @@ export class MeService {
   async getMeByClerkId(clerkUserId: string) {
     const user = await this.prisma.client.user.findUnique({
       where: { clerkUserId },
-      include: { entitlement: true },
+      include: { entitlement: true, subscription: true },
     });
 
     if (!user) {
@@ -38,6 +38,8 @@ export class MeService {
       clerkUserId: user.clerkUserId,
       role,
       entitlementTier,
+      subscriptionStatus: user.subscription?.status ?? null,
+      currentPeriodEnd: user.subscription?.currentPeriodEnd?.toISOString() ?? null,
     };
   }
 

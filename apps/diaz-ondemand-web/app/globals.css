@@ -2,10 +2,136 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gray-50 text-gray-900;
+@layer base {
+  :root {
+    --bg: #08090b;
+    --surface: #12151a;
+    --surface-2: #1b1f26;
+    --surface-3: #232934;
+    --text: #f3f0e8;
+    --text-muted: #9aa3af;
+    --line: rgba(255, 255, 255, 0.08);
+    --accent: #c44a2d;
+    --accent-strong: #e0643f;
+    --progress: #35e0a1;
+    --premium: #f2c14e;
+    --danger: #e36d6d;
+    --font-display: 'Avenir Next Condensed', 'DIN Condensed', 'Bebas Neue', 'Arial Narrow', sans-serif;
+    --font-body: 'Avenir Next', 'Manrope', 'Helvetica Neue', sans-serif;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top, rgba(228, 100, 63, 0.14), transparent 28%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 16%),
+      var(--bg);
+    color: var(--text);
+    font-family: var(--font-body), 'Helvetica Neue', sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    border-color: var(--line);
+  }
+
+  ::selection {
+    background: rgba(228, 100, 63, 0.35);
+    color: var(--text);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(53, 224, 161, 0.95);
+    outline-offset: 2px;
+  }
 }
 
-a {
-  @apply text-blue-600 hover:text-blue-700;
+@layer components {
+  .font-display {
+    font-family: var(--font-display), 'Arial Narrow', sans-serif;
+  }
+
+  .student-shell {
+    @apply mx-auto w-full max-w-[1480px] px-4 sm:px-6 lg:px-10;
+  }
+
+  .surface-panel {
+    @apply rounded-[28px] border border-white/10;
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
+  }
+
+  .surface-panel-muted {
+    @apply rounded-[24px] border border-white/10;
+    background: color-mix(in srgb, var(--surface-2) 75%, transparent);
+  }
+
+  .nav-link {
+    @apply relative rounded-full px-4 py-2 text-sm font-medium tracking-[0.12em] transition-colors duration-200;
+    color: var(--text-muted);
+  }
+
+  .nav-link::after {
+    content: '';
+    @apply absolute inset-x-4 bottom-1 h-px origin-left scale-x-0 transition-transform duration-300;
+    background: var(--progress);
+  }
+
+  .nav-link:hover {
+    color: var(--text);
+  }
+
+  .nav-link-active {
+    @apply bg-white/5;
+    color: var(--text);
+  }
+
+  .nav-link-active::after {
+    @apply scale-x-100;
+  }
+
+  .page-enter {
+    animation: page-enter 420ms ease-out both;
+  }
+
+  .poster-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+}
+
+@layer utilities {
+  .text-muted {
+    color: var(--text-muted);
+  }
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

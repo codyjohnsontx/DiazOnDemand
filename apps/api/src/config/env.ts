@@ -10,15 +10,23 @@ const apiEnvSchema = z
     DEV_BYPASS_AUTH: z.enum(['true', 'false']).default('false'),
     DEFAULT_DEV_CLERK_USER_ID: z.string().default('dev_clerk_user'),
     CLERK_SECRET_KEY: z.string().optional(),
+    CLERK_JWT_ISSUER: z.string().url().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     STRIPE_PRICE_ID_MONTHLY: z.string().optional(),
-    STRIPE_PRICE_ID_YEARLY: z.string().optional(),
     MUX_TOKEN_ID: z.string().optional(),
     MUX_TOKEN_SECRET: z.string().optional(),
     DIAZ_INTERNAL_API_KEY: z.string().optional(),
   })
   .superRefine((value, context) => {
+    if (value.NODE_ENV === 'production' && value.DEV_BYPASS_AUTH === 'true') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DEV_BYPASS_AUTH'],
+        message: 'must be false in production',
+      });
+    }
+
     if (value.DEV_BYPASS_AUTH === 'false' && !value.CLERK_SECRET_KEY) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -32,6 +40,22 @@ const apiEnvSchema = z
         code: z.ZodIssueCode.custom,
         path: ['STRIPE_PRICE_ID_MONTHLY'],
         message: 'required when STRIPE_SECRET_KEY is set',
+      });
+    }
+
+    if (value.STRIPE_WEBHOOK_SECRET && !value.STRIPE_SECRET_KEY) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['STRIPE_SECRET_KEY'],
+        message: 'required when STRIPE_WEBHOOK_SECRET is set',
+      });
+    }
+
+    if ((value.MUX_TOKEN_ID && !value.MUX_TOKEN_SECRET) || (!value.MUX_TOKEN_ID && value.MUX_TOKEN_SECRET)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MUX_TOKEN_ID'],
+        message: 'MUX_TOKEN_ID and MUX_TOKEN_SECRET must be provided together',
       });
     }
   });

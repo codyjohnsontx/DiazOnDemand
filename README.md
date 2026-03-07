@@ -58,7 +58,6 @@ Stripe:
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_ID_MONTHLY`
-- `STRIPE_PRICE_ID_YEARLY`
 - `WEB_APP_URL`
 
 Mux (optional now):
@@ -119,8 +118,7 @@ After seed:
 ## Clerk Setup Notes (Web + Expo)
 - Current MVP supports `DEV_BYPASS_AUTH=true` in development.
 - API reads `x-dev-user-id` header and auto-upserts a user.
-- For real Clerk auth, provide `CLERK_SECRET_KEY` + client publishable keys and pass bearer token from clients.
-- TODO: wire real Clerk session token forwarding from web/mobile clients to API in production.
+- For real Clerk auth, provide `CLERK_SECRET_KEY` + client publishable keys and the web/mobile clients will forward bearer tokens to the API.
 
 ## Stripe + Webhooks
 Create checkout session endpoint:
@@ -143,8 +141,8 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 
 ## Mux Notes
 - Lessons store `muxAssetId` and `muxPlaybackId`.
-- API currently returns `playbackUrl` using playbackId.
-- TODO in API response for signed playback token generation using Mux signing keys.
+- API returns `playbackUrl` for clients to treat as an opaque playback source.
+- Free lessons use a public playback URL; paid lessons use a signed playback URL when Mux signing keys are configured.
 - `POST /webhooks/mux` exists as a minimal stub.
 
 ## Vercel Deployment Notes
@@ -164,8 +162,6 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 - `pnpm db:seed`
 
 ## MVP TODO / Roadmap
-- Real Clerk bearer token forwarding from web/mobile clients
-- Signed Mux playback token endpoint
 - Better admin UX for tags and ordering controls
 - Offline-safe mobile progress queueing
 - CI pipeline for lint/typecheck/test + deploy previews

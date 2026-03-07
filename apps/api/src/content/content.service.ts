@@ -1,15 +1,15 @@
 import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { EntitlementTier } from '@diaz/shared';
-import type { Tag } from '@diaz/db';
 import type { AuthUser } from '../common/request-with-user.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { mapLessonDetail, mapLessonSummary } from './lesson-presentation.js';
 
 @Injectable()
 export class ContentService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listPrograms() {
-    return this.prisma.client.program.findMany({
+    const programs = await this.prisma.client.program.findMany({
       where: { isPublished: true },
       orderBy: { orderIndex: 'asc' },
       include: {
@@ -20,11 +20,24 @@ export class ContentService {
             lessons: {
               where: { isPublished: true },
               orderBy: { orderIndex: 'asc' },
+              include: {
+                tags: {
+                  include: { tag: true },
+                },
+              },
             },
           },
         },
       },
     });
+
+    return programs.map((program) => ({
+      ...program,
+      courses: program.courses.map((course) => ({
+        ...course,
+        lessons: course.lessons.map((lesson) => mapLessonSummary(lesson)),
+      })),
+    }));
   }
 
   async getProgram(programId: string) {
@@ -34,6 +47,17 @@ export class ContentService {
         courses: {
           where: { isPublished: true },
           orderBy: { orderIndex: 'asc' },
+          include: {
+            lessons: {
+              where: { isPublished: true },
+              orderBy: { orderIndex: 'asc' },
+              include: {
+                tags: {
+                  include: { tag: true },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -42,7 +66,13 @@ export class ContentService {
       throw new NotFoundException('Program not found');
     }
 
-    return program;
+    return {
+      ...program,
+      courses: program.courses.map((course) => ({
+        ...course,
+        lessons: course.lessons.map((lesson) => mapLessonSummary(lesson)),
+      })),
+    };
   }
 
   async getCourse(courseId: string) {
@@ -52,6 +82,11 @@ export class ContentService {
         lessons: {
           where: { isPublished: true },
           orderBy: { orderIndex: 'asc' },
+          include: {
+            tags: {
+              include: { tag: true },
+            },
+          },
         },
       },
     });
@@ -60,7 +95,10 @@ export class ContentService {
       throw new NotFoundException('Course not found');
     }
 
-    return course;
+    return {
+      ...course,
+      lessons: course.lessons.map((lesson) => mapLessonSummary(lesson)),
+    };
   }
 
   async getLesson(lessonId: string, user: AuthUser | null) {
@@ -81,16 +119,6 @@ export class ContentService {
       throw new HttpException('Premium subscription required', 402);
     }
 
-    return {
-      ...lesson,
-      tags: lesson.tags.map((entry: { tag: Tag }) => entry.tag),
-      playbackUrl: lesson.muxPlaybackId
-        ? `https://stream.mux.com/${lesson.muxPlaybackId}.m3u8`
-        : null,
-      signedPlaybackToken: null,
-      playbackTokenTodo: lesson.muxPlaybackId
-        ? 'TODO: sign Mux playback tokens server-side for production'
-        : null,
-    };
+    return mapLessonDetail(lesson);
   }
 }

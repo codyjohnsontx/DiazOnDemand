@@ -3,7 +3,11 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": ["esnext"],
-    "types": ["react", "react-native", "node"]
+    "types": ["react", "react-native", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@diaz/shared": ["../../packages/shared/src/index.ts"]
+    }
   },
   "include": ["App.tsx", "src"]
 }

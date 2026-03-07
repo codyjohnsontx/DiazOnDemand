@@ -84,23 +84,23 @@ export class AdminController {
   @Post('lessons')
   createLesson(@Body() body: unknown) {
     const payload = adminCreateLessonSchema.parse(body);
-    const { courseId, ...rest } = payload;
+    const { courseId, curriculum, ...rest } = payload;
 
     return this.adminService.createLesson({
       ...rest,
       course: { connect: { id: courseId } },
-    });
+    }, curriculum);
   }
 
   @Patch('lessons/:id')
   updateLesson(@Param('id') id: string, @Body() body: unknown) {
     const payload = adminUpdateLessonSchema.parse(body);
-    const { courseId, ...rest } = payload;
+    const { courseId, curriculum, ...rest } = payload;
 
     return this.adminService.updateLesson(id, {
       ...rest,
       ...(courseId ? { course: { connect: { id: courseId } } } : {}),
-    });
+    }, curriculum);
   }
 
   @Patch('lessons/:id/publish')

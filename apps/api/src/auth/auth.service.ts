@@ -34,6 +34,7 @@ export class AuthService {
     try {
       const payload = await verifyToken(token, {
         secretKey: process.env.CLERK_SECRET_KEY,
+        ...(process.env.CLERK_JWT_ISSUER ? { jwtIssuer: process.env.CLERK_JWT_ISSUER } : {}),
       });
 
       if (!payload.sub) {

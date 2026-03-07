@@ -9,7 +9,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <AuthProvider>
           <Nav />
-          <main className="mx-auto max-w-5xl p-6">{children}</main>
+          <main className="pb-28 pt-28 sm:pb-20 sm:pt-32">{children}</main>
         </AuthProvider>
       </body>
     </html>
