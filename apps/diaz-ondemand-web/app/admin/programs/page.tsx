@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
-import type { ProgramWithContentDto } from '@diaz/shared';
+import { Discipline, getDisciplineLabel, type ProgramWithContentDto } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
@@ -13,7 +13,11 @@ import { ApiError } from '@/lib/api-shared';
 export default function AdminProgramsPage() {
   const apiFetch = useApiClient();
   const [programs, setPrograms] = useState<ProgramWithContentDto[]>([]);
-  const [title, setTitle] = useState('');
+  const [form, setForm] = useState({
+    title: '',
+    discipline: Discipline.BJJ,
+    isFeaturedDemo: false,
+  });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,13 +47,19 @@ export default function AdminProgramsPage() {
       await apiFetch('/admin/programs', {
         method: 'POST',
         body: JSON.stringify({
-          title,
+          title: form.title,
           description: '',
           orderIndex: programs.length + 1,
+          discipline: form.discipline,
+          isFeaturedDemo: form.isFeaturedDemo,
           isPublished: false,
         }),
       });
-      setTitle('');
+      setForm({
+        title: '',
+        discipline: Discipline.BJJ,
+        isFeaturedDemo: false,
+      });
       await load();
     } finally {
       setSubmitting(false);
@@ -70,18 +80,42 @@ export default function AdminProgramsPage() {
         <section className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
           <form className="surface-panel space-y-5 p-6" onSubmit={onSubmit}>
             <div className="space-y-2">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Create program</p>
-              <h2 className="font-display text-3xl uppercase tracking-[0.03em] text-[var(--text)]">New program</h2>
+              <p className="type-kicker text-[var(--text-muted)]">Create program</p>
+              <h2 className="type-title-lg text-[var(--text)]">New program</h2>
             </div>
             <input
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               placeholder="New program title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              value={form.title}
+              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
             />
+            <select
+              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+              value={form.discipline}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, discipline: event.target.value as Discipline }))
+              }
+            >
+              {Object.values(Discipline).map((discipline) => (
+                <option key={discipline} value={discipline}>
+                  {getDisciplineLabel(discipline)}
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
+              <input
+                checked={form.isFeaturedDemo}
+                className="h-4 w-4 rounded border-white/10 bg-[var(--surface-2)]"
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, isFeaturedDemo: event.target.checked }))
+                }
+                type="checkbox"
+              />
+              Featured demo program
+            </label>
             <button
               className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60"
-              disabled={submitting || !title.trim()}
+              disabled={submitting || !form.title.trim()}
               type="submit"
             >
               {submitting ? 'Creating...' : 'Create program'}
@@ -91,8 +125,8 @@ export default function AdminProgramsPage() {
           <div className="surface-panel space-y-4 p-6">
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Program list</p>
-                <h2 className="font-display text-3xl uppercase tracking-[0.03em] text-[var(--text)]">
+                <p className="type-kicker text-[var(--text-muted)]">Program list</p>
+                <h2 className="type-title-lg text-[var(--text)]">
                   {programs.length} programs
                 </h2>
               </div>
@@ -111,9 +145,9 @@ export default function AdminProgramsPage() {
                   <div className="surface-panel-muted flex items-center justify-between gap-4 p-4" key={program.id}>
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-display text-2xl uppercase tracking-[0.03em] text-[var(--text)]">
-                          {program.title}
-                        </h3>
+                        <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{program.title}</h3>
+                        <PremiumBadge label={getDisciplineLabel(program.discipline)} />
+                        {program.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
                         <PremiumBadge label={program.isPublished ? 'Published' : 'Draft'} tone={program.isPublished ? 'accent' : 'neutral'} />
                       </div>
                       <p className="text-sm text-[var(--text-muted)]">

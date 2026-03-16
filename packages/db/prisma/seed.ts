@@ -1,54 +1,85 @@
-import { PrismaClient, EntitlementTier, Role } from '@prisma/client';
-import { fundamentalsCurriculumSeed } from './seed-curriculum/fundamentals.js';
+import {
+  PrismaClient,
+  Discipline,
+  EntitlementTier,
+  Role,
+  VideoProvider,
+} from '@prisma/client';
+import { curriculumProgramsSeed } from './seed-curriculum/programs.js';
 
 const prisma = new PrismaClient();
 
-async function seedFundamentalsCurriculum() {
-  const { program, courses } = fundamentalsCurriculumSeed;
+type CurriculumMetadata = {
+  discipline: 'bjj' | 'muay-thai' | 'haganah';
+  phase: string;
+  track: string;
+  skill?: string;
+  level: 'intro' | 'core' | 'advanced';
+};
 
-  const seededProgram = await prisma.program.upsert({
-    where: { id: program.id },
-    update: {
-      title: program.title,
-      description: program.description,
-      orderIndex: program.orderIndex,
-      isPublished: program.isPublished,
-    },
-    create: {
-      id: program.id,
-      title: program.title,
-      description: program.description,
-      orderIndex: program.orderIndex,
-      isPublished: program.isPublished,
-    },
-  });
+function createCurriculumTags(curriculum: CurriculumMetadata) {
+  return [
+    `discipline:${curriculum.discipline}`,
+    `phase:${curriculum.phase}`,
+    `track:${curriculum.track}`,
+    `level:${curriculum.level}`,
+    ...(curriculum.skill ? [`skill:${curriculum.skill}`] : []),
+  ];
+}
 
-  for (const course of courses) {
-    await prisma.course.upsert({
-      where: { id: course.id },
+async function seedPrograms() {
+  for (const program of curriculumProgramsSeed) {
+    await prisma.program.upsert({
+      where: { id: program.id },
       update: {
-        programId: seededProgram.id,
-        title: course.title,
-        description: course.description,
-        orderIndex: course.orderIndex,
-        isPublished: true,
+        title: program.title,
+        description: program.description,
+        orderIndex: program.orderIndex,
+        discipline: program.discipline as Discipline,
+        isFeaturedDemo: program.isFeaturedDemo,
+        isPublished: program.isPublished,
       },
       create: {
-        id: course.id,
-        programId: seededProgram.id,
-        title: course.title,
-        description: course.description,
-        orderIndex: course.orderIndex,
-        isPublished: true,
+        id: program.id,
+        title: program.title,
+        description: program.description,
+        orderIndex: program.orderIndex,
+        discipline: program.discipline as Discipline,
+        isFeaturedDemo: program.isFeaturedDemo,
+        isPublished: program.isPublished,
       },
     });
+
+    for (const course of program.courses) {
+      await prisma.course.upsert({
+        where: { id: course.id },
+        update: {
+          programId: program.id,
+          title: course.title,
+          description: course.description,
+          orderIndex: course.orderIndex,
+          isPublished: true,
+        },
+        create: {
+          id: course.id,
+          programId: program.id,
+          title: course.title,
+          description: course.description,
+          orderIndex: course.orderIndex,
+          isPublished: true,
+        },
+      });
+    }
   }
 
-  const seededLessons = courses.flatMap((course) =>
-    course.lessons.map((lesson) => ({
-      ...lesson,
-      courseId: course.id,
-    })),
+  const seededLessons = curriculumProgramsSeed.flatMap((program) =>
+    program.courses.flatMap((course) =>
+      course.lessons.map((lesson) => ({
+        ...lesson,
+        courseId: course.id,
+        tags: createCurriculumTags(lesson.curriculum),
+      })),
+    ),
   );
 
   for (const lesson of seededLessons) {
@@ -60,7 +91,10 @@ async function seedFundamentalsCurriculum() {
         description: lesson.description,
         orderIndex: lesson.orderIndex,
         accessLevel: lesson.accessLevel,
+        videoProvider: lesson.videoProvider as VideoProvider,
         muxPlaybackId: lesson.muxPlaybackId,
+        youtubeVideoId: lesson.youtubeVideoId,
+        durationSeconds: lesson.durationSeconds,
         isPublished: true,
       },
       create: {
@@ -70,7 +104,10 @@ async function seedFundamentalsCurriculum() {
         description: lesson.description,
         orderIndex: lesson.orderIndex,
         accessLevel: lesson.accessLevel,
+        videoProvider: lesson.videoProvider as VideoProvider,
         muxPlaybackId: lesson.muxPlaybackId,
+        youtubeVideoId: lesson.youtubeVideoId,
+        durationSeconds: lesson.durationSeconds,
         isPublished: true,
       },
     });
@@ -115,8 +152,8 @@ async function seedFundamentalsCurriculum() {
   }
 
   return {
-    programId: seededProgram.id,
-    courseCount: courses.length,
+    programCount: curriculumProgramsSeed.length,
+    courseCount: curriculumProgramsSeed.reduce((sum, program) => sum + program.courses.length, 0),
     lessonCount: seededLessons.length,
     tagCount: uniqueTagNames.length,
   };
@@ -136,7 +173,7 @@ async function main() {
     include: { entitlement: true },
   });
 
-  const curriculum = await seedFundamentalsCurriculum();
+  const curriculum = await seedPrograms();
 
   console.log('Seed complete', {
     userId: user.id,

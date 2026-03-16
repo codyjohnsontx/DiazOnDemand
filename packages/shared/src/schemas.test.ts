@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AccessLevel } from './enums';
+import { AccessLevel, Discipline, VideoProvider } from './enums';
 import { lessonSummarySchema } from './schemas';
 import { buildRecommendation } from './progression';
 
@@ -12,10 +12,12 @@ describe('lessonSummarySchema', () => {
       orderIndex: 1,
       isPublished: true,
       accessLevel: AccessLevel.FREE,
+      videoProvider: VideoProvider.MUX,
       curriculum: {
-        block: 'fundamentals',
-        position: 'guard-retention',
-        track: 'defense',
+        discipline: 'bjj',
+        phase: 'fundamentals',
+        track: 'guard-retention-defense',
+        level: 'core',
       },
     });
 
@@ -30,6 +32,8 @@ describe('buildRecommendation', () => {
       title: 'Fundamentals',
       description: null,
       orderIndex: 1,
+      discipline: Discipline.BJJ,
+      isFeaturedDemo: false,
       isPublished: true,
       courses: [
         {
@@ -47,10 +51,12 @@ describe('buildRecommendation', () => {
               orderIndex: 1,
               isPublished: true,
               accessLevel: AccessLevel.FREE,
+              videoProvider: VideoProvider.MUX,
               curriculum: {
-                block: 'fundamentals',
-                position: 'guard-retention',
-                track: 'defense',
+                discipline: 'bjj',
+                phase: 'fundamentals',
+                track: 'guard-retention-defense',
+                level: 'core',
               },
             },
             {
@@ -60,10 +66,12 @@ describe('buildRecommendation', () => {
               orderIndex: 2,
               isPublished: true,
               accessLevel: AccessLevel.FREE,
+              videoProvider: VideoProvider.MUX,
               curriculum: {
-                block: 'fundamentals',
-                position: 'guard-retention',
-                track: 'defense',
+                discipline: 'bjj',
+                phase: 'fundamentals',
+                track: 'guard-retention-defense',
+                level: 'core',
               },
             },
           ],
@@ -83,10 +91,12 @@ describe('buildRecommendation', () => {
               orderIndex: 1,
               isPublished: true,
               accessLevel: AccessLevel.FREE,
+              videoProvider: VideoProvider.MUX,
               curriculum: {
-                block: 'fundamentals',
-                position: 'guard-retention',
-                track: 'offense',
+                discipline: 'bjj',
+                phase: 'fundamentals',
+                track: 'guard-retention-offense',
+                level: 'core',
               },
             },
           ],

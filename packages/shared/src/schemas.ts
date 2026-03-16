@@ -1,8 +1,15 @@
 import { z } from 'zod';
-import { fundamentalsCurriculumSchema } from './curriculum';
-import { AccessLevel, EntitlementTier, Role } from './enums';
+import { curriculumMetadataSchema } from './curriculum.js';
+import { AccessLevel, Discipline, EntitlementTier, Role, VideoProvider } from './enums.js';
 
-export const curriculumSchema = fundamentalsCurriculumSchema;
+export const curriculumSchema = curriculumMetadataSchema;
+export const videoSchema = z.object({
+  provider: z.nativeEnum(VideoProvider),
+  playbackUrl: z.string().url().nullable().optional(),
+  muxPlaybackId: z.string().nullable().optional(),
+  youtubeVideoId: z.string().nullable().optional(),
+  embedUrl: z.string().url().nullable().optional(),
+});
 
 export const lessonSummarySchema = z.object({
   id: z.string().uuid(),
@@ -12,7 +19,9 @@ export const lessonSummarySchema = z.object({
   orderIndex: z.number().int().nonnegative(),
   isPublished: z.boolean(),
   accessLevel: z.nativeEnum(AccessLevel),
+  videoProvider: z.nativeEnum(VideoProvider).default(VideoProvider.MUX),
   muxPlaybackId: z.string().nullable().optional(),
+  youtubeVideoId: z.string().nullable().optional(),
   durationSeconds: z.number().int().nonnegative().nullable().optional(),
   curriculum: curriculumSchema.nullable().optional(),
 });
@@ -32,6 +41,8 @@ export const programSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable().optional(),
   orderIndex: z.number().int().nonnegative(),
+  discipline: z.nativeEnum(Discipline),
+  isFeaturedDemo: z.boolean().default(false),
   isPublished: z.boolean(),
   courses: z.array(courseSchema).optional(),
 });
@@ -46,8 +57,7 @@ export const lessonDetailSchema = lessonSummarySchema.extend({
       }),
     )
     .default([]),
-  playbackUrl: z.string().nullable().optional(),
-  signedPlaybackToken: z.string().nullable().optional(),
+  video: videoSchema,
 });
 
 export const programWithContentSchema = programSchema.extend({
@@ -88,6 +98,8 @@ const adminBaseProgramSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional().nullable(),
   orderIndex: z.number().int().default(0),
+  discipline: z.nativeEnum(Discipline).default(Discipline.BJJ),
+  isFeaturedDemo: z.boolean().default(false),
   isPublished: z.boolean().default(false),
 });
 
@@ -106,8 +118,10 @@ const adminBaseLessonSchema = z.object({
   orderIndex: z.number().int().default(0),
   isPublished: z.boolean().default(false),
   accessLevel: z.nativeEnum(AccessLevel).default(AccessLevel.FREE),
+  videoProvider: z.nativeEnum(VideoProvider).default(VideoProvider.MUX),
   muxAssetId: z.string().optional().nullable(),
   muxPlaybackId: z.string().optional().nullable(),
+  youtubeVideoId: z.string().optional().nullable(),
   durationSeconds: z.number().int().nonnegative().optional().nullable(),
   curriculum: curriculumSchema.optional().nullable(),
 });

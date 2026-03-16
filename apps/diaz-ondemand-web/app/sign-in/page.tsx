@@ -36,12 +36,12 @@ export default function SignInPage() {
               colorText: '#F3F0E8',
               colorTextSecondary: '#9AA3AF',
               borderRadius: '24px',
-              fontFamily: 'Avenir Next, Helvetica Neue, sans-serif',
+              fontFamily: 'Manrope, Helvetica Neue, sans-serif',
             },
             elements: {
               rootBox: 'w-full max-w-[440px]',
               card: 'w-full border border-white/10 bg-transparent shadow-none',
-              headerTitle: 'font-display uppercase tracking-[0.04em] text-3xl text-[#F3F0E8]',
+              headerTitle: 'font-display text-3xl text-[#F3F0E8]',
               headerSubtitle: 'text-[#9AA3AF]',
               socialButtonsBlockButton:
                 'border border-white/10 bg-white/5 text-[#F3F0E8] hover:bg-white/10 transition-colors duration-200',

@@ -35,10 +35,10 @@ export function TopNav() {
         <div className="flex min-h-[72px] items-center justify-between gap-4">
           <Link className="min-w-0" href="/library">
             <div className="space-y-1">
-              <p className="font-display text-xl uppercase leading-none tracking-[0.18em] text-[var(--text)] sm:text-2xl">
+              <p className="font-display text-xl leading-none tracking-[0.04em] text-[var(--text)] sm:text-2xl">
                 Diaz
               </p>
-              <p className="text-[10px] uppercase tracking-[0.34em] text-[var(--text-muted)] sm:text-xs">On Demand</p>
+              <p className="type-kicker text-[10px] text-[var(--text-muted)] sm:text-xs">On Demand</p>
             </div>
           </Link>
 

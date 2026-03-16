@@ -1,4 +1,12 @@
-import { AccessLevel, type CourseDto, type LessonDetailDto, type ProgramWithContentDto, type ProgressDto } from '@diaz/shared';
+import {
+  AccessLevel,
+  Discipline,
+  VideoProvider,
+  type CourseDto,
+  type LessonDetailDto,
+  type ProgramWithContentDto,
+  type ProgressDto,
+} from '@diaz/shared';
 
 const programId = '11111111-1111-1111-1111-111111111111';
 const courseId = '22222222-2222-2222-2222-222222222222';
@@ -12,8 +20,17 @@ const lessons = [
     orderIndex: 1,
     isPublished: true,
     accessLevel: AccessLevel.FREE,
+    videoProvider: VideoProvider.NONE,
     muxPlaybackId: null,
+    youtubeVideoId: null,
     durationSeconds: 720,
+    curriculum: {
+      discipline: 'bjj',
+      phase: 'fundamentals',
+      track: 'guard-retention-defense',
+      skill: 'retention',
+      level: 'core',
+    },
     tags: [
       {
         id: '44444444-4444-4444-4444-444444444441',
@@ -29,8 +46,17 @@ const lessons = [
     orderIndex: 2,
     isPublished: true,
     accessLevel: AccessLevel.PAID,
+    videoProvider: VideoProvider.NONE,
     muxPlaybackId: null,
+    youtubeVideoId: null,
     durationSeconds: 930,
+    curriculum: {
+      discipline: 'bjj',
+      phase: 'fundamentals',
+      track: 'guard-retention-defense',
+      skill: 'escape',
+      level: 'core',
+    },
     tags: [
       {
         id: '44444444-4444-4444-4444-444444444442',
@@ -46,8 +72,17 @@ const lessons = [
     orderIndex: 3,
     isPublished: true,
     accessLevel: AccessLevel.PAID,
+    videoProvider: VideoProvider.NONE,
     muxPlaybackId: null,
+    youtubeVideoId: null,
     durationSeconds: 840,
+    curriculum: {
+      discipline: 'bjj',
+      phase: 'fundamentals',
+      track: 'guard-retention-defense',
+      skill: 'transition',
+      level: 'core',
+    },
     tags: [
       {
         id: '44444444-4444-4444-4444-444444444443',
@@ -55,7 +90,7 @@ const lessons = [
       },
     ],
   },
-] satisfies LessonDetailDto[];
+] as const;
 
 export const mockPrograms: ProgramWithContentDto[] = [
   {
@@ -63,6 +98,8 @@ export const mockPrograms: ProgramWithContentDto[] = [
     title: 'Diaz Fundamentals',
     description: 'Core BJJ structure for students building dependable escapes, frames, and recovery habits.',
     orderIndex: 1,
+    discipline: Discipline.BJJ,
+    isFeaturedDemo: false,
     isPublished: true,
     courses: [
       {
@@ -96,7 +133,13 @@ export function getMockLesson(id: string) {
 
   return {
     ...lesson,
-    playbackUrl: null,
-    signedPlaybackToken: null,
+    tags: lesson.tags.map((tag) => ({ ...tag })),
+    video: {
+      provider: VideoProvider.NONE,
+      playbackUrl: null,
+      muxPlaybackId: null,
+      youtubeVideoId: null,
+      embedUrl: null,
+    },
   } satisfies LessonDetailDto;
 }

@@ -13,14 +13,12 @@ export function CourseCard({ course }: { course: CourseCardModel }) {
 
   return (
     <Link className="block h-full" href={course.href}>
-      <PosterSurface className="h-full min-h-[320px]" monogram={monogram} seed={course.posterIndex}>
-        <div className="flex h-full flex-col justify-between gap-8 p-5 sm:p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="font-display text-xs uppercase tracking-[0.24em] text-white/70">{course.programTitle}</p>
-              <h3 className="font-display text-3xl uppercase leading-none tracking-[0.03em] text-[var(--text)]">
-                {course.title}
-              </h3>
+      <PosterSurface className="h-full min-h-[360px]" monogram={monogram} seed={course.posterIndex}>
+        <div className="flex h-full flex-col justify-between">
+          <div className="flex items-start justify-between gap-3 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <PremiumBadge label={course.disciplineLabel} />
+              {course.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
             </div>
             <PremiumBadge
               label={course.accessLabel}
@@ -28,22 +26,35 @@ export function CourseCard({ course }: { course: CourseCardModel }) {
             />
           </div>
 
-          <div className="space-y-5">
-            {course.description ? <p className="max-w-sm text-sm leading-6 text-white/78">{course.description}</p> : null}
-            <div className="flex flex-wrap gap-4 text-xs uppercase tracking-[0.2em] text-white/60">
-              <span>{course.lessonCount} lessons</span>
-              {course.totalDurationLabel ? <span>{course.totalDurationLabel}</span> : null}
+          <div className="space-y-4 rounded-t-[28px] border-t border-white/10 bg-[linear-gradient(180deg,rgba(8,9,11,0.18),rgba(8,9,11,0.92)_16%,rgba(8,9,11,0.98)_100%)] p-5 sm:p-6">
+            {course.progressPercent !== null ? (
+              <ProgressBar label="Progress" value={course.progressPercent} />
+            ) : (
+              <div className="flex items-center justify-between text-xs uppercase tracking-[0.22em] text-white/60">
+                <span>Ready to start</span>
+                <span>{course.lessonCount} lessons</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="type-kicker text-white/60">{course.programTitle}</p>
+              <h3 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">{course.title}</h3>
             </div>
+
+            <div className="space-y-3">
+              {course.description ? <p className="type-meta text-white/78">{course.description}</p> : null}
+              <div className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.18em] text-white/58">
+                <span>{course.lessonCount} lessons</span>
+                {course.totalDurationLabel ? <span>{course.totalDurationLabel}</span> : null}
+              </div>
+            </div>
+
             {course.nextLessonTitle ? (
-              <div className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/72">
-                Next up: {course.nextLessonTitle}
+              <div className="rounded-[18px] border border-white/10 bg-white/5 px-4 py-3">
+                <p className="type-kicker text-white/50">Up next</p>
+                <p className="mt-2 text-base text-white/88">{course.nextLessonTitle}</p>
               </div>
             ) : null}
-            {course.progressPercent !== null ? (
-              <ProgressBar className="max-w-xs" label="Course progress" value={course.progressPercent} />
-            ) : (
-              <div className="text-xs uppercase tracking-[0.22em] text-white/55">Start course</div>
-            )}
           </div>
         </div>
       </PosterSurface>

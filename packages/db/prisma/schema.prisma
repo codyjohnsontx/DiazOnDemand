@@ -13,9 +13,21 @@ enum Role {
   STUDENT
 }
 
+enum Discipline {
+  BJJ
+  MUAY_THAI
+  HAGANAH
+}
+
 enum AccessLevel {
   FREE
   PAID
+}
+
+enum VideoProvider {
+  MUX
+  YOUTUBE
+  NONE
 }
 
 enum EntitlementTier {
@@ -39,6 +51,8 @@ model Program {
   title       String
   description String?
   orderIndex  Int      @default(0)
+  discipline  Discipline @default(BJJ)
+  isFeaturedDemo Boolean @default(false)
   isPublished Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -68,8 +82,10 @@ model Lesson {
   orderIndex       Int          @default(0)
   isPublished      Boolean      @default(false)
   accessLevel      AccessLevel  @default(FREE)
+  videoProvider    VideoProvider @default(MUX)
   muxAssetId       String?
   muxPlaybackId    String?
+  youtubeVideoId   String?
   durationSeconds  Int?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt

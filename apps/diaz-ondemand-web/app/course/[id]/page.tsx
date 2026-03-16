@@ -14,7 +14,15 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
     ]);
     const program = findProgramForCourse(programs, course.programId);
 
-    return <CourseDetailView course={course} programTitle={program?.title ?? null} programs={programs} />;
+    return (
+      <CourseDetailView
+        course={course}
+        isFeaturedDemo={program?.isFeaturedDemo ?? false}
+        programDiscipline={program?.discipline ?? null}
+        programTitle={program?.title ?? null}
+        programs={programs}
+      />
+    );
   } catch (error) {
     return (
       <AppShell>

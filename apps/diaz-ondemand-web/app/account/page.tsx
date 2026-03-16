@@ -20,8 +20,8 @@ export default async function AccountPage() {
 
         <section className="grid gap-6 lg:grid-cols-3">
           <div className="surface-panel space-y-5 p-6">
-            <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Entitlement</p>
-            <h2 className="font-display text-4xl uppercase leading-none text-[var(--text)]">{me.entitlementTier}</h2>
+            <p className="type-kicker text-[var(--text-muted)]">Entitlement</p>
+            <h2 className="font-display text-4xl leading-none text-[var(--text)]">{me.entitlementTier}</h2>
             <p className="text-sm leading-7 text-[var(--text-muted)]">
               {me.entitlementTier === 'PREMIUM'
                 ? 'Premium access is active across the guided library, favorites, and saved progress.'
@@ -31,8 +31,8 @@ export default async function AccountPage() {
           </div>
 
           <div className="surface-panel space-y-5 p-6">
-            <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Subscription</p>
-            <h2 className="font-display text-4xl uppercase leading-none text-[var(--text)]">
+            <p className="type-kicker text-[var(--text-muted)]">Subscription</p>
+            <h2 className="font-display text-4xl leading-none text-[var(--text)]">
               {me.subscriptionStatus ?? 'Not started'}
             </h2>
             <p className="text-sm leading-7 text-[var(--text-muted)]">
@@ -43,8 +43,8 @@ export default async function AccountPage() {
           </div>
 
           <div className="surface-panel space-y-5 p-6">
-            <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Next action</p>
-            <h2 className="font-display text-4xl uppercase leading-none text-[var(--text)]">
+            <p className="type-kicker text-[var(--text-muted)]">Next action</p>
+            <h2 className="font-display text-4xl leading-none text-[var(--text)]">
               {me.entitlementTier === 'PREMIUM' ? 'Keep training' : 'Go premium'}
             </h2>
             <p className="text-sm leading-7 text-[var(--text-muted)]">

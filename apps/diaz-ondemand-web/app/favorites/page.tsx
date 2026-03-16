@@ -70,7 +70,7 @@ export default function FavoritesPage() {
                   <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Saved lesson</span>
                 </div>
                 <div className="space-y-3">
-                  <h2 className="font-display text-4xl uppercase leading-none tracking-[0.03em] text-[var(--text)]">
+                  <h2 className="font-display text-4xl leading-none text-[var(--text)]">
                     {favorite.lesson?.title ?? 'Lesson'}
                   </h2>
                   {favorite.lesson?.description ? (

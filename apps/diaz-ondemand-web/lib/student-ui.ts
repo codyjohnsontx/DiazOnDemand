@@ -5,6 +5,8 @@ export {
   findProgramForCourse,
   formatCurriculumLabel,
   formatDuration,
+  getCurriculumPhaseLabel,
+  getDisciplineLabel,
   getAccessLabel,
   getLessonProgressPercent,
   getPosterIndex,
@@ -16,6 +18,7 @@ import type { ProgramWithContentDto, ProgressDto } from '@diaz/shared';
 import {
   buildCourseProgress,
   formatDuration,
+  getDisciplineLabel,
   getLessonProgressPercent,
   getPosterIndex,
 } from '@diaz/shared';
@@ -25,6 +28,8 @@ export type CourseCardModel = {
   href: string;
   title: string;
   programTitle: string;
+  disciplineLabel: string;
+  isFeaturedDemo: boolean;
   description: string | null;
   lessonCount: number;
   totalDurationLabel: string | null;
@@ -67,6 +72,8 @@ export function buildCourseCardModel(
     href: `/course/${course.id}`,
     title: course.title,
     programTitle: program.title,
+    disciplineLabel: getDisciplineLabel(program.discipline),
+    isFeaturedDemo: program.isFeaturedDemo,
     description: course.description ?? null,
     lessonCount: course.lessons.length,
     totalDurationLabel,

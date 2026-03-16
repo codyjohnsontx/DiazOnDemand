@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import {
+  VideoProvider,
   buildCourseProgress,
   buildLessonQueue,
   formatCurriculumLabel,
@@ -278,7 +279,11 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
     );
   }
 
-  const source = lesson.playbackUrl ?? (lesson.muxPlaybackId ? `https://stream.mux.com/${lesson.muxPlaybackId}.m3u8` : null);
+  const source =
+    lesson.video.provider === VideoProvider.MUX
+      ? lesson.video.playbackUrl ??
+        (lesson.video.muxPlaybackId ? `https://stream.mux.com/${lesson.video.muxPlaybackId}.m3u8` : null)
+      : null;
   const queue = course ? buildLessonQueue(course, progress, lesson.id) : [];
 
   return (
@@ -301,6 +306,11 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
             positionRef.current = status.positionMillis / 1000;
             durationRef.current = status.durationMillis ? status.durationMillis / 1000 : 0;
           }}
+        />
+      ) : lesson.video.provider === VideoProvider.YOUTUBE ? (
+        <Button
+          onPress={() => lesson.video.embedUrl && Linking.openURL(lesson.video.embedUrl)}
+          title="Open demo video"
         />
       ) : (
         <Text>No playback source configured for this lesson.</Text>

@@ -1,5 +1,6 @@
-import { AccessLevel } from './enums';
-import type { CourseDto, LessonSummary, ProgramWithContentDto, ProgressDto } from './schemas';
+import { AccessLevel } from './enums.js';
+import { formatCurriculumMetadataLabel } from './curriculum.js';
+import type { CourseDto, LessonSummary, ProgramWithContentDto, ProgressDto } from './schemas.js';
 
 type CourseWithLessons = ProgramWithContentDto['courses'][number] | CourseDto;
 
@@ -112,19 +113,7 @@ export function formatCurriculumLabel(lesson: LessonSummary) {
     return null;
   }
 
-  const position = lesson.curriculum.position
-    .split('-')
-    .map((part) => `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}`)
-    .join(' ');
-
-  const track =
-    lesson.curriculum.track === 'offense'
-      ? 'Offense'
-      : lesson.curriculum.track === 'defense'
-        ? 'Defense'
-        : lesson.curriculum.track;
-
-  return `${position} / ${track}`;
+  return formatCurriculumMetadataLabel(lesson.curriculum);
 }
 
 export function buildCourseProgress(course: CourseWithLessons, progress: ProgressDto[]): CourseProgressModel {

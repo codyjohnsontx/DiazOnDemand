@@ -3,7 +3,14 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import type { ProgramWithContentDto } from '@diaz/shared';
+import {
+  VideoProvider,
+  createDefaultCurriculum,
+  formatCurriculumLabel,
+  getDisciplineLabel,
+  programDisciplineToCurriculumDiscipline,
+  type ProgramWithContentDto,
+} from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
@@ -17,13 +24,17 @@ export default function AdminCourseDetailPage() {
   const [newLessonTitle, setNewLessonTitle] = useState('');
   const [status, setStatus] = useState<string | null>(null);
 
-  const course = useMemo(() => {
+  const courseContext = useMemo(() => {
     for (const program of programs) {
       const found = program.courses.find((entry) => entry.id === courseId);
-      if (found) return found;
+      if (found) {
+        return { course: found, program };
+      }
     }
     return null;
   }, [courseId, programs]);
+  const course = courseContext?.course ?? null;
+  const program = courseContext?.program ?? null;
 
   const load = async () => {
     const data = await apiFetch<ProgramWithContentDto[]>('/admin/programs');
@@ -45,11 +56,12 @@ export default function AdminCourseDetailPage() {
         orderIndex: (course?.lessons.length ?? 0) + 1,
         isPublished: false,
         accessLevel: 'FREE',
-        curriculum: course?.lessons[0]?.curriculum ?? {
-          block: 'fundamentals',
-          position: 'guard-retention',
-          track: 'defense',
-        },
+        videoProvider: VideoProvider.NONE,
+        curriculum:
+          course?.lessons[0]?.curriculum ??
+          createDefaultCurriculum(
+            program ? programDisciplineToCurriculumDiscipline(program.discipline) : 'bjj',
+          ),
       }),
     });
     setNewLessonTitle('');
@@ -107,23 +119,27 @@ export default function AdminCourseDetailPage() {
         <section className="surface-panel space-y-5 p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-2">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Course summary</p>
-              <h1 className="font-display text-4xl uppercase tracking-[0.03em] text-[var(--text)]">{course.title}</h1>
+              <p className="type-kicker text-[var(--text-muted)]">Course summary</p>
+              <h1 className="font-display text-4xl leading-none text-[var(--text)]">{course.title}</h1>
             </div>
-            <PremiumBadge label={course.isPublished ? 'Published' : 'Draft'} tone={course.isPublished ? 'accent' : 'neutral'} />
+            <div className="flex flex-wrap items-center gap-2">
+              {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
+              {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
+              <PremiumBadge label={course.isPublished ? 'Published' : 'Draft'} tone={course.isPublished ? 'accent' : 'neutral'} />
+            </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="surface-panel-muted p-4">
-              <p className="font-display text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Lessons</p>
-              <p className="mt-3 font-display text-4xl uppercase text-[var(--text)]">{course.lessons.length}</p>
+              <p className="type-kicker text-[var(--text-muted)]">Lessons</p>
+              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{course.lessons.length}</p>
             </div>
             <div className="surface-panel-muted p-4">
-              <p className="font-display text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Published</p>
-              <p className="mt-3 font-display text-4xl uppercase text-[var(--text)]">{publishedLessons}</p>
+              <p className="type-kicker text-[var(--text-muted)]">Published</p>
+              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{publishedLessons}</p>
             </div>
             <div className="surface-panel-muted p-4">
-              <p className="font-display text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Premium</p>
-              <p className="mt-3 font-display text-4xl uppercase text-[var(--text)]">
+              <p className="type-kicker text-[var(--text-muted)]">Premium</p>
+              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
                 {course.lessons.filter((lesson) => lesson.accessLevel === 'PAID').length}
               </p>
             </div>
@@ -141,8 +157,8 @@ export default function AdminCourseDetailPage() {
         <section className="space-y-5">
           <form className="surface-panel space-y-4 p-6" onSubmit={createLesson}>
             <div className="space-y-2">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Add lesson</p>
-              <h2 className="font-display text-3xl uppercase tracking-[0.03em] text-[var(--text)]">Lesson queue</h2>
+              <p className="type-kicker text-[var(--text-muted)]">Add lesson</p>
+              <h2 className="type-title-lg text-[var(--text)]">Lesson queue</h2>
             </div>
             <input
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
@@ -165,13 +181,14 @@ export default function AdminCourseDetailPage() {
                 <div className="surface-panel-muted flex items-center justify-between gap-4 p-4" key={lesson.id}>
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-display text-2xl uppercase tracking-[0.03em] text-[var(--text)]">{lesson.title}</h3>
+                      <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{lesson.title}</h3>
+                      <PremiumBadge label={lesson.videoProvider === 'YOUTUBE' ? 'YouTube' : lesson.videoProvider === 'MUX' ? 'Mux' : 'No video'} />
                       <PremiumBadge label={lesson.accessLevel === 'PAID' ? 'Premium' : 'Free'} tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'} />
                       <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
                     </div>
                     <p className="text-sm text-[var(--text-muted)]">
                       {lesson.curriculum
-                        ? `${lesson.curriculum.position.replaceAll('-', ' ')} / ${lesson.curriculum.track}`
+                        ? `${formatCurriculumLabel(lesson)} / ${lesson.curriculum.level}`
                         : 'Curriculum metadata not set'}
                     </p>
                   </div>

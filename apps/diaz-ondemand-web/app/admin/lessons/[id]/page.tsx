@@ -3,8 +3,21 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import type { AccessLevel, FundamentalsCurriculum, ProgramWithContentDto } from '@diaz/shared';
-import { fundamentalsPositionKeys, fundamentalsSkillKeys, fundamentalsTrackKeys } from '@diaz/shared';
+import type {
+  AccessLevel,
+  CurriculumMetadata,
+  ProgramWithContentDto,
+} from '@diaz/shared';
+import {
+  VideoProvider,
+  createDefaultCurriculum,
+  getCurriculumLevelKeys,
+  getCurriculumPhaseKeys,
+  getCurriculumSkillKeys,
+  getCurriculumTrackKeys,
+  getDisciplineLabel,
+  programDisciplineToCurriculumDiscipline,
+} from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
@@ -14,9 +27,11 @@ type LessonEditorForm = {
   title: string;
   description: string;
   accessLevel: AccessLevel;
+  videoProvider: VideoProvider;
   muxPlaybackId: string;
+  youtubeVideoId: string;
   durationSeconds: string;
-  curriculum: FundamentalsCurriculum;
+  curriculum: CurriculumMetadata;
 };
 
 export default function AdminLessonDetailPage() {
@@ -29,25 +44,26 @@ export default function AdminLessonDetailPage() {
     title: '',
     description: '',
     accessLevel: 'FREE' as AccessLevel,
+    videoProvider: VideoProvider.NONE,
     muxPlaybackId: '',
+    youtubeVideoId: '',
     durationSeconds: '',
-    curriculum: {
-      block: 'fundamentals' as const,
-      position: fundamentalsPositionKeys[0],
-      track: fundamentalsTrackKeys[0],
-      skill: fundamentalsSkillKeys[0],
-    },
+    curriculum: createDefaultCurriculum('bjj'),
   });
 
-  const lesson = useMemo(() => {
+  const lessonContext = useMemo(() => {
     for (const program of programs) {
       for (const course of program.courses) {
         const found = course.lessons.find((entry) => entry.id === lessonId);
-        if (found) return found;
+        if (found) {
+          return { lesson: found, course, program };
+        }
       }
     }
     return null;
   }, [lessonId, programs]);
+  const lesson = lessonContext?.lesson ?? null;
+  const program = lessonContext?.program ?? null;
 
   const load = async () => {
     const data = await apiFetch<ProgramWithContentDto[]>('/admin/programs');
@@ -64,16 +80,17 @@ export default function AdminLessonDetailPage() {
       title: lesson.title,
       description: lesson.description ?? '',
       accessLevel: lesson.accessLevel,
+      videoProvider: lesson.videoProvider,
       muxPlaybackId: lesson.muxPlaybackId ?? '',
+      youtubeVideoId: lesson.youtubeVideoId ?? '',
       durationSeconds: lesson.durationSeconds ? String(lesson.durationSeconds) : '',
-      curriculum: lesson.curriculum ?? {
-        block: 'fundamentals',
-        position: fundamentalsPositionKeys[0],
-        track: fundamentalsTrackKeys[0],
-        skill: fundamentalsSkillKeys[0],
-      },
+      curriculum:
+        lesson.curriculum ??
+        createDefaultCurriculum(
+          program ? programDisciplineToCurriculumDiscipline(program.discipline) : 'bjj',
+        ),
     });
-  }, [lesson]);
+  }, [lesson, program]);
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
@@ -83,7 +100,9 @@ export default function AdminLessonDetailPage() {
         title: form.title,
         description: form.description,
         accessLevel: form.accessLevel,
-        muxPlaybackId: form.muxPlaybackId || null,
+        videoProvider: form.videoProvider,
+        muxPlaybackId: form.videoProvider === 'MUX' ? form.muxPlaybackId || null : null,
+        youtubeVideoId: form.videoProvider === 'YOUTUBE' ? form.youtubeVideoId || null : null,
         durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
         curriculum: {
           ...form.curriculum,
@@ -113,16 +132,25 @@ export default function AdminLessonDetailPage() {
     );
   }
 
+  const phaseOptions = getCurriculumPhaseKeys(form.curriculum.discipline);
+  const trackOptions = getCurriculumTrackKeys(form.curriculum.discipline, form.curriculum.phase);
+  const skillOptions = getCurriculumSkillKeys(form.curriculum.discipline);
+  const levelOptions = getCurriculumLevelKeys(form.curriculum.discipline);
+
   return (
     <AppShell className="space-y-8">
       <form className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]" onSubmit={onSave}>
         <section className="surface-panel space-y-5 p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-2">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Lesson editor</p>
-              <h1 className="font-display text-4xl uppercase tracking-[0.03em] text-[var(--text)]">{lesson.title}</h1>
+              <p className="type-kicker text-[var(--text-muted)]">Lesson editor</p>
+              <h1 className="font-display text-4xl leading-none text-[var(--text)]">{lesson.title}</h1>
             </div>
-            <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
+            <div className="flex flex-wrap items-center gap-2">
+              {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
+              {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
+              <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
+            </div>
           </div>
 
           <input
@@ -154,12 +182,31 @@ export default function AdminLessonDetailPage() {
               onChange={(event) => setForm((prev) => ({ ...prev, durationSeconds: event.target.value }))}
             />
           </div>
-          <input
+          <select
             className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-            placeholder="Mux playback ID"
-            value={form.muxPlaybackId}
-            onChange={(event) => setForm((prev) => ({ ...prev, muxPlaybackId: event.target.value }))}
-          />
+            value={form.videoProvider}
+            onChange={(event) => setForm((prev) => ({ ...prev, videoProvider: event.target.value as VideoProvider }))}
+          >
+            <option value="NONE">No video source</option>
+            <option value="MUX">Mux playback</option>
+            <option value="YOUTUBE">YouTube demo video</option>
+          </select>
+          {form.videoProvider === 'MUX' ? (
+            <input
+              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+              placeholder="Mux playback ID"
+              value={form.muxPlaybackId}
+              onChange={(event) => setForm((prev) => ({ ...prev, muxPlaybackId: event.target.value }))}
+            />
+          ) : null}
+          {form.videoProvider === 'YOUTUBE' ? (
+            <input
+              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+              placeholder="YouTube video ID"
+              value={form.youtubeVideoId}
+              onChange={(event) => setForm((prev) => ({ ...prev, youtubeVideoId: event.target.value }))}
+            />
+          ) : null}
           <div className="flex flex-wrap gap-3">
             <button
               className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
@@ -187,23 +234,43 @@ export default function AdminLessonDetailPage() {
         <section className="space-y-5">
           <div className="surface-panel space-y-5 p-6">
             <div className="space-y-2">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Curriculum metadata</p>
-              <h2 className="font-display text-3xl uppercase tracking-[0.03em] text-[var(--text)]">Guided path</h2>
+              <p className="type-kicker text-[var(--text-muted)]">Curriculum metadata</p>
+              <h2 className="type-title-lg text-[var(--text)]">Guided path</h2>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <select
                 className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                value={form.curriculum.position}
+                value={form.curriculum.discipline}
                 onChange={(event) =>
                   setForm((prev) => ({
                     ...prev,
-                    curriculum: { ...prev.curriculum, position: event.target.value as typeof fundamentalsPositionKeys[number] },
+                    curriculum: createDefaultCurriculum(event.target.value as CurriculumMetadata['discipline']),
                   }))
                 }
               >
-                {fundamentalsPositionKeys.map((position) => (
-                  <option key={position} value={position}>
-                    {position.replaceAll('-', ' ')}
+                {['bjj', 'muay-thai', 'haganah'].map((discipline) => (
+                  <option key={discipline} value={discipline}>
+                    {discipline === 'bjj' ? 'BJJ' : discipline === 'muay-thai' ? 'Muay Thai' : 'Haganah'}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                value={form.curriculum.phase}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    curriculum: {
+                      ...prev.curriculum,
+                      phase: event.target.value,
+                      track: getCurriculumTrackKeys(prev.curriculum.discipline, event.target.value)[0] ?? prev.curriculum.track,
+                    },
+                  }))
+                }
+              >
+                {phaseOptions.map((phase) => (
+                  <option key={phase} value={phase}>
+                    {phase.replaceAll('-', ' ')}
                   </option>
                 ))}
               </select>
@@ -213,29 +280,46 @@ export default function AdminLessonDetailPage() {
                 onChange={(event) =>
                   setForm((prev) => ({
                     ...prev,
-                    curriculum: { ...prev.curriculum, track: event.target.value as typeof fundamentalsTrackKeys[number] },
+                    curriculum: { ...prev.curriculum, track: event.target.value },
                   }))
                 }
               >
-                {fundamentalsTrackKeys.map((track) => (
+                {trackOptions.map((track) => (
                   <option key={track} value={track}>
-                    {track}
+                    {track.replaceAll('-', ' ')}
                   </option>
                 ))}
               </select>
               <select
                 className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                value={form.curriculum.skill}
+                value={form.curriculum.skill ?? ''}
                 onChange={(event) =>
                   setForm((prev) => ({
                     ...prev,
-                    curriculum: { ...prev.curriculum, skill: event.target.value as typeof fundamentalsSkillKeys[number] },
+                    curriculum: { ...prev.curriculum, skill: event.target.value || undefined },
                   }))
                 }
               >
-                {fundamentalsSkillKeys.map((skill) => (
+                <option value="">No skill tag</option>
+                {skillOptions.map((skill) => (
                   <option key={skill} value={skill}>
-                    {skill}
+                    {skill.replaceAll('-', ' ')}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                value={form.curriculum.level}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    curriculum: { ...prev.curriculum, level: event.target.value as CurriculumMetadata['level'] },
+                  }))
+                }
+              >
+                {levelOptions.map((level) => (
+                  <option key={level} value={level}>
+                    {level}
                   </option>
                 ))}
               </select>
@@ -243,12 +327,13 @@ export default function AdminLessonDetailPage() {
           </div>
 
           <div className="surface-panel-muted space-y-3 p-5">
-            <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Generated tags</p>
+            <p className="type-kicker text-[var(--text-muted)]">Generated tags</p>
             <div className="flex flex-wrap gap-2">
-              <PremiumBadge label={`block:${form.curriculum.block}`} />
-              <PremiumBadge label={`position:${form.curriculum.position}`} />
+              <PremiumBadge label={`discipline:${form.curriculum.discipline}`} />
+              <PremiumBadge label={`phase:${form.curriculum.phase}`} />
               <PremiumBadge label={`track:${form.curriculum.track}`} />
-              <PremiumBadge label={`skill:${form.curriculum.skill}`} />
+              {form.curriculum.skill ? <PremiumBadge label={`skill:${form.curriculum.skill}`} /> : null}
+              <PremiumBadge label={`level:${form.curriculum.level}`} />
             </div>
             <p className="text-sm leading-7 text-[var(--text-muted)]">
               These tags drive guided recommendations across the library and keep the taxonomy consistent without free-form entry.

@@ -1,6 +1,6 @@
 # Diaz on Demand Monorepo
 
-Video-on-demand product monorepo for Diaz on Demand (separate from the Diaz Martial Arts marketing site). This repo contains:
+Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `apps/diaz-ondemand-web`: Next.js web app (admin portal + student web player)
 - `apps/api`: NestJS REST API
 - `apps/mobile`: Expo React Native student app
@@ -36,6 +36,9 @@ Video-on-demand product monorepo for Diaz on Demand (separate from the Diaz Mart
 - `/packages/db`
 - `/packages/shared`
 - `/packages/ui`
+
+Separate website repo:
+- `git@github.com:codyjohnsontx/DiazMartialArts.git`
 
 ## Environment Variables
 Use root `.env.example` as source of truth.
@@ -187,7 +190,7 @@ MVP truth mapping:
 - `tier`: `VOD` if `vod=true`, else `GYM_MEMBER` if `gymMember=true`, else `FREE`
 
 ### GET /users/:clerkUserId/entitlements (Server-to-server)
-Internal endpoint for the marketing site redirect logic.
+Internal endpoint for external website redirect logic.
 
 Security:
 - Requires header `x-diaz-api-key`

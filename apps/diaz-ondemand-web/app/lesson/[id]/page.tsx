@@ -3,8 +3,17 @@
 import MuxPlayer from '@mux/mux-player-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import type { CourseDto, FavoriteDto, LessonDetailDto, ProgramWithContentDto, ProgressDto } from '@diaz/shared';
+import { useEffect, useRef, useState } from 'react';
+import {
+  VideoProvider,
+  getCurriculumPhaseLabel,
+  getDisciplineLabel,
+  type CourseDto,
+  type FavoriteDto,
+  type LessonDetailDto,
+  type ProgramWithContentDto,
+  type ProgressDto,
+} from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { LessonRow } from '@/components/lesson-row';
@@ -33,7 +42,7 @@ export default function LessonPage() {
   const apiFetch = useApiClient();
   const [lesson, setLesson] = useState<LessonDetailDto | null>(null);
   const [course, setCourse] = useState<CourseDto | null>(null);
-  const [programTitle, setProgramTitle] = useState<string | null>(null);
+  const [program, setProgram] = useState<ProgramWithContentDto | null>(null);
   const [progress, setProgress] = useState<ProgressDto[]>([]);
   const [isFavorite, setIsFavorite] = useState(false);
   const [error, setError] = useState<ApiError | Error | null>(null);
@@ -41,9 +50,21 @@ export default function LessonPage() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const playerRef = useRef<PlayerHandle | null>(null);
+  const lessonRef = useRef<LessonDetailDto | null>(null);
+  const lessonIdRef = useRef<string>(lessonId);
+  const apiFetchRef = useRef(apiFetch);
 
-  const saveProgress = useEffectEvent(async () => {
-    if (!playerRef.current || !lessonId || !lesson) {
+  useEffect(() => {
+    lessonRef.current = lesson;
+    lessonIdRef.current = lessonId;
+    apiFetchRef.current = apiFetch;
+  }, [lesson, lessonId, apiFetch]);
+
+  async function saveProgress() {
+    const currentLesson = lessonRef.current;
+    const currentLessonId = lessonIdRef.current;
+
+    if (!playerRef.current || !currentLessonId || !currentLesson) {
       return;
     }
 
@@ -52,7 +73,7 @@ export default function LessonPage() {
 
     try {
       setSaveState('saving');
-      await apiFetch(`/progress/${lessonId}`, {
+      await apiFetchRef.current(`/progress/${currentLessonId}`, {
         method: 'POST',
         body: JSON.stringify({
           lastPositionSeconds: current,
@@ -62,24 +83,24 @@ export default function LessonPage() {
       setSaveState('saved');
       setLastSavedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
       setProgress((currentProgress) => {
-        const existing = currentProgress.find((entry) => entry.lessonId === lessonId);
+        const existing = currentProgress.find((entry) => entry.lessonId === currentLessonId);
         const nextEntry = {
-          id: existing?.id ?? `local-${lessonId}`,
+          id: existing?.id ?? `local-${currentLessonId}`,
           userId: existing?.userId ?? 'pending',
-          lessonId,
+          lessonId: currentLessonId,
           lastPositionSeconds: current,
           completed: complete,
           updatedAt: new Date().toISOString(),
         };
 
         return existing
-          ? currentProgress.map((entry) => (entry.lessonId === lessonId ? nextEntry : entry))
+          ? currentProgress.map((entry) => (entry.lessonId === currentLessonId ? nextEntry : entry))
           : [nextEntry, ...currentProgress];
       });
     } catch {
       setSaveState('error');
     }
-  });
+  }
 
   useEffect(() => {
     let active = true;
@@ -113,7 +134,7 @@ export default function LessonPage() {
 
         setLesson(nextLesson);
         setCourse(nextCourse);
-        setProgramTitle(findProgramForCourse(programs, nextCourse.programId)?.title ?? null);
+        setProgram(findProgramForCourse(programs, nextCourse.programId));
         setProgress(nextProgress);
         setIsFavorite(favorites.some((favorite) => favorite.lessonId === nextLesson.id));
       } catch (requestError) {
@@ -147,7 +168,7 @@ export default function LessonPage() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       void saveProgress();
     };
-  }, [lessonId, saveProgress]);
+  }, [lessonId]);
 
   const toggleFavorite = async () => {
     if (!lesson) {
@@ -162,6 +183,40 @@ export default function LessonPage() {
 
     await apiFetch(`/favorites/${lesson.id}`, { method: 'POST' });
     setIsFavorite(true);
+  };
+
+  const markLessonComplete = async () => {
+    if (!lesson) {
+      return;
+    }
+
+    const lastPositionSeconds = lesson.durationSeconds ?? Math.max(progress.find((entry) => entry.lessonId === lesson.id)?.lastPositionSeconds ?? 0, 1);
+
+    await apiFetch(`/progress/${lesson.id}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        lastPositionSeconds,
+        completed: true,
+      }),
+    });
+
+    setSaveState('saved');
+    setLastSavedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+    setProgress((currentProgress) => {
+      const existing = currentProgress.find((entry) => entry.lessonId === lesson.id);
+      const nextEntry = {
+        id: existing?.id ?? `manual-${lesson.id}`,
+        userId: existing?.userId ?? 'pending',
+        lessonId: lesson.id,
+        lastPositionSeconds,
+        completed: true,
+        updatedAt: new Date().toISOString(),
+      };
+
+      return existing
+        ? currentProgress.map((entry) => (entry.lessonId === lesson.id ? nextEntry : entry))
+        : [nextEntry, ...currentProgress];
+    });
   };
 
   if (error instanceof ApiError && error.status === 402) {
@@ -202,13 +257,13 @@ export default function LessonPage() {
     return (
       <AppShell>
         <div className="surface-panel p-8">
-          <p className="font-display text-2xl uppercase tracking-[0.04em] text-[var(--text-muted)]">Loading lesson...</p>
+          <p className="font-display text-2xl leading-tight text-[var(--text-muted)]">Loading lesson...</p>
         </div>
       </AppShell>
     );
   }
 
-  const playbackSrc = lesson.playbackUrl;
+  const video = lesson.video;
   const currentProgress = progress.find((entry) => entry.lessonId === lesson.id);
   const currentProgressPercent = getLessonProgressPercent(lesson, currentProgress);
   const queue = course ? buildLessonQueue(course, progress, lesson.id) : [];
@@ -218,6 +273,7 @@ export default function LessonPage() {
   const nextLesson =
     currentLessonIndex >= 0 && course?.lessons ? course.lessons[currentLessonIndex + 1] ?? null : null;
   const curriculumLabel = formatCurriculumLabel(lesson);
+  const currentCompleted = Boolean(currentProgress?.completed);
 
   return (
     <AppShell className="space-y-8">
@@ -229,42 +285,60 @@ export default function LessonPage() {
                 label={lesson.accessLevel === 'PAID' ? 'Premium lesson' : 'Free lesson'}
                 tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'}
               />
-              {programTitle ? <PremiumBadge label={programTitle} /> : null}
+              {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
+              {program?.isFeaturedDemo ? <PremiumBadge label="Demo video" tone="accent" /> : null}
+              {program ? <PremiumBadge label={program.title} /> : null}
               {course ? <PremiumBadge label={course.title} /> : null}
+              {lesson.curriculum ? (
+                <PremiumBadge
+                  label={getCurriculumPhaseLabel(lesson.curriculum.discipline, lesson.curriculum.phase)}
+                />
+              ) : null}
               {curriculumLabel ? <PremiumBadge label={curriculumLabel} /> : null}
               {formatDuration(lesson.durationSeconds) ? <PremiumBadge label={formatDuration(lesson.durationSeconds) ?? ''} /> : null}
             </div>
             <div className="space-y-3">
-              <h1 className="font-display text-5xl uppercase leading-none tracking-[0.03em] text-[var(--text)] sm:text-6xl">
+              <h1 className="type-title-xl max-w-4xl text-[var(--text)]">
                 {lesson.title}
               </h1>
-              <p className="max-w-3xl text-base leading-7 text-[var(--text-muted)]">
+              <p className="type-body max-w-3xl text-[var(--text-muted)]">
                 {lesson.description ?? 'Train the key details, keep your place automatically, and move directly into the next lesson from the queue.'}
               </p>
             </div>
           </div>
 
           <div className="surface-panel overflow-hidden">
-            {playbackSrc && lesson.muxPlaybackId ? (
+            {video.provider === VideoProvider.MUX && video.playbackUrl && video.muxPlaybackId ? (
               <MuxPlayer
                 ref={playerRef as never}
                 accentColor="#35e0a1"
                 className="aspect-video w-full"
                 metadata={{ video_id: lesson.id, video_title: lesson.title }}
-                playbackId={lesson.muxPlaybackId}
+                playbackId={video.muxPlaybackId}
                 preferPlayback="mse"
-                src={playbackSrc}
+                src={video.playbackUrl}
                 streamType="on-demand"
                 onError={() => setPlaybackError('Playback failed. Verify the Mux playback ID and signed playback configuration.')}
                 onTimeUpdate={(event) => {
                   playerRef.current = event.currentTarget as unknown as PlayerHandle;
                 }}
               />
+            ) : video.provider === VideoProvider.YOUTUBE && video.embedUrl ? (
+              <div className="aspect-video w-full bg-black">
+                <iframe
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="h-full w-full"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  src={video.embedUrl}
+                  title={lesson.title}
+                />
+              </div>
             ) : (
               <div className="flex aspect-video items-end bg-[linear-gradient(135deg,#1f242d_0%,#0f1217_55%,#08090b_100%)] p-6 sm:p-8">
                 <div className="space-y-3">
-                  <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Playback source missing</p>
-                  <h2 className="font-display text-4xl uppercase leading-none text-[var(--text)]">No video source yet</h2>
+                  <p className="type-kicker text-[var(--text-muted)]">Playback source missing</p>
+                  <h2 className="font-display text-4xl leading-none text-[var(--text)]">No video source yet</h2>
                   <p className="max-w-xl text-sm leading-7 text-[var(--text-muted)]">
                     Add a valid Mux playback ID in admin and this lesson will render inside the player automatically.
                   </p>
@@ -280,29 +354,44 @@ export default function LessonPage() {
           <div className="surface-panel space-y-5 p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-1">
-                <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Playback status</p>
+                <p className="type-kicker text-[var(--text-muted)]">Playback status</p>
                 <p className="text-sm text-[var(--text-muted)]">
-                  {saveState === 'saving'
-                    ? 'Saving progress...'
-                    : saveState === 'saved'
-                      ? `Progress saved ${lastSavedAt ? `at ${lastSavedAt}` : 'just now'}.`
-                      : saveState === 'error'
-                        ? 'Progress save failed. We will retry automatically.'
-                        : 'Progress sync starts once playback begins.'}
+                  {video.provider === VideoProvider.YOUTUBE
+                    ? currentCompleted
+                      ? `Marked complete${lastSavedAt ? ` at ${lastSavedAt}` : ''}.`
+                      : 'Demo video progress is not time-synced. Mark this lesson complete when you finish the walkthrough.'
+                    : saveState === 'saving'
+                      ? 'Saving progress...'
+                      : saveState === 'saved'
+                        ? `Progress saved ${lastSavedAt ? `at ${lastSavedAt}` : 'just now'}.`
+                        : saveState === 'error'
+                          ? 'Progress save failed. We will retry automatically.'
+                          : 'Progress sync starts once playback begins.'}
                 </p>
               </div>
-              <button
-                className={[
-                  'inline-flex items-center rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
-                  isFavorite
-                    ? 'border-[var(--premium)]/40 bg-[var(--premium)]/12 text-[var(--text)]'
-                    : 'border-white/10 bg-white/5 text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--text)]',
-                ].join(' ')}
-                onClick={() => void toggleFavorite()}
-                type="button"
-              >
-                {isFavorite ? 'Saved to favorites' : 'Save to favorites'}
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                {video.provider === VideoProvider.YOUTUBE ? (
+                  <button
+                    className="inline-flex items-center rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+                    onClick={() => void markLessonComplete()}
+                    type="button"
+                  >
+                    {currentCompleted ? 'Completed' : 'Mark lesson complete'}
+                  </button>
+                ) : null}
+                <button
+                  className={[
+                    'inline-flex items-center rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
+                    isFavorite
+                      ? 'border-[var(--premium)]/40 bg-[var(--premium)]/12 text-[var(--text)]'
+                      : 'border-white/10 bg-white/5 text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--text)]',
+                  ].join(' ')}
+                  onClick={() => void toggleFavorite()}
+                  type="button"
+                >
+                  {isFavorite ? 'Saved to favorites' : 'Save to favorites'}
+                </button>
+              </div>
             </div>
             <ProgressBar label="Lesson progress" value={currentProgressPercent} />
             {courseProgress ? <ProgressBar label="Course progress" value={courseProgress.percent} /> : null}
@@ -313,10 +402,10 @@ export default function LessonPage() {
                   href={`/lesson/${previousLesson.id}`}
                 >
                   <div>
-                    <p className="font-display text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Previous</p>
+                    <p className="type-kicker text-[var(--text-muted)]">Previous</p>
                     <p className="mt-2 text-sm font-semibold text-[var(--text)]">{previousLesson.title}</p>
                   </div>
-                  <span className="font-display text-xs uppercase tracking-[0.18em] text-white/60">Open</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Open</span>
                 </Link>
               ) : (
                 <div className="surface-panel-muted p-4 text-sm text-[var(--text-muted)]">Start of course.</div>
@@ -328,10 +417,10 @@ export default function LessonPage() {
                   href={`/lesson/${nextLesson.id}`}
                 >
                   <div>
-                    <p className="font-display text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Next</p>
+                    <p className="type-kicker text-[var(--text-muted)]">Next</p>
                     <p className="mt-2 text-sm font-semibold text-[var(--text)]">{nextLesson.title}</p>
                   </div>
-                  <span className="font-display text-xs uppercase tracking-[0.18em] text-white/60">Open</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Open</span>
                 </Link>
               ) : (
                 <div className="surface-panel-muted p-4 text-sm text-[var(--text-muted)]">End of course.</div>
@@ -343,8 +432,8 @@ export default function LessonPage() {
         <aside className="space-y-4">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Course queue</p>
-              <h2 className="font-display text-3xl uppercase tracking-[0.03em] text-[var(--text)]">
+              <p className="type-kicker text-[var(--text-muted)]">Course queue</p>
+              <h2 className="type-title-lg text-[var(--text)]">
                 {course?.title ?? 'Current course'}
               </h2>
             </div>
