@@ -42,6 +42,9 @@ export default function AdminLessonDetailPage() {
   const params = useParams<{ id: string }>();
   const lessonId = params.id;
   const apiFetch = useApiClient();
+  const videoProviderId = 'video-provider';
+  const muxPlaybackId = 'mux-playback-id';
+  const youtubeVideoId = 'youtube-video-id';
   const [programs, setPrograms] = useState<ProgramWithContentDto[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState<LessonEditorForm>({
@@ -98,6 +101,19 @@ export default function AdminLessonDetailPage() {
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
+    const normalizedMuxPlaybackId = form.muxPlaybackId.trim();
+    const normalizedYoutubeVideoId = form.youtubeVideoId.trim();
+
+    if (form.videoProvider === VideoProvider.MUX && !normalizedMuxPlaybackId) {
+      setStatus('Mux playback ID is required when the lesson uses Mux.');
+      return;
+    }
+
+    if (form.videoProvider === VideoProvider.YOUTUBE && !normalizedYoutubeVideoId) {
+      setStatus('YouTube video ID is required when the lesson uses YouTube.');
+      return;
+    }
+
     await apiFetch(`/admin/lessons/${lessonId}`, {
       method: 'PATCH',
       body: JSON.stringify({
@@ -105,8 +121,9 @@ export default function AdminLessonDetailPage() {
         description: form.description,
         accessLevel: form.accessLevel,
         videoProvider: form.videoProvider,
-        muxPlaybackId: form.videoProvider === VideoProvider.MUX ? form.muxPlaybackId || null : null,
-        youtubeVideoId: form.videoProvider === VideoProvider.YOUTUBE ? form.youtubeVideoId || null : null,
+        muxPlaybackId: form.videoProvider === VideoProvider.MUX ? normalizedMuxPlaybackId : null,
+        youtubeVideoId:
+          form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
         durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
         curriculum: {
           ...form.curriculum,
@@ -186,30 +203,54 @@ export default function AdminLessonDetailPage() {
               onChange={(event) => setForm((prev) => ({ ...prev, durationSeconds: event.target.value }))}
             />
           </div>
-          <select
-            className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-            value={form.videoProvider}
-            onChange={(event) => setForm((prev) => ({ ...prev, videoProvider: event.target.value as VideoProvider }))}
-          >
-            <option value="NONE">No video source</option>
-            <option value="MUX">Mux playback</option>
-            <option value="YOUTUBE">YouTube demo video</option>
-          </select>
-          {form.videoProvider === VideoProvider.MUX ? (
-            <input
+          <div className="space-y-2">
+            <label className="type-kicker text-[var(--text-muted)]" htmlFor={videoProviderId}>
+              Video source
+            </label>
+            <select
+              id={videoProviderId}
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-              placeholder="Mux playback ID"
-              value={form.muxPlaybackId}
-              onChange={(event) => setForm((prev) => ({ ...prev, muxPlaybackId: event.target.value }))}
-            />
+              value={form.videoProvider}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, videoProvider: event.target.value as VideoProvider }))
+              }
+            >
+              <option value={VideoProvider.NONE}>No video source</option>
+              <option value={VideoProvider.MUX}>Mux playback</option>
+              <option value={VideoProvider.YOUTUBE}>YouTube demo video</option>
+            </select>
+          </div>
+          {form.videoProvider === VideoProvider.MUX ? (
+            <div className="space-y-2">
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={muxPlaybackId}>
+                Mux playback ID
+              </label>
+              <input
+                id={muxPlaybackId}
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                placeholder="Mux playback ID"
+                value={form.muxPlaybackId}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, muxPlaybackId: event.target.value }))
+                }
+              />
+            </div>
           ) : null}
           {form.videoProvider === VideoProvider.YOUTUBE ? (
-            <input
-              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-              placeholder="YouTube video ID"
-              value={form.youtubeVideoId}
-              onChange={(event) => setForm((prev) => ({ ...prev, youtubeVideoId: event.target.value }))}
-            />
+            <div className="space-y-2">
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={youtubeVideoId}>
+                YouTube video ID
+              </label>
+              <input
+                id={youtubeVideoId}
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                placeholder="YouTube video ID"
+                value={form.youtubeVideoId}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, youtubeVideoId: event.target.value }))
+                }
+              />
+            </div>
           ) : null}
           <div className="flex flex-wrap gap-3">
             <button

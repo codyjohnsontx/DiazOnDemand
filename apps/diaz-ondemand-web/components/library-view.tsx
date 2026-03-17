@@ -52,7 +52,9 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   const filteredPrograms = trainingPrograms.filter((program) =>
     deferredDiscipline === 'all' ? true : program.discipline === deferredDiscipline,
   );
-  const continueWatching = buildContinueWatching(filteredPrograms, progress);
+  const continueWatching = buildContinueWatching(filteredPrograms, progress).filter(
+    (item) => item.progressPercent < 100,
+  );
   const courseCards = filteredPrograms.flatMap((program) =>
     program.courses.map((course) => buildCourseCardModel(program, course, progress)),
   );
@@ -72,6 +74,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         <div className="flex flex-wrap gap-2">
           {(['all', ...disciplineOrder] as const).map((discipline) => (
             <button
+              aria-pressed={deferredDiscipline === discipline}
               key={discipline}
               className={[
                 'rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200',
@@ -193,7 +196,11 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         </section>
       ) : null}
 
-      {error ? <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]">{error}</div> : null}
+      {error ? (
+        <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       {(deferredDiscipline === 'all' ? disciplineOrder : [deferredDiscipline]).map((discipline) => {
         const programsForDiscipline = filteredPrograms.filter((program) => program.discipline === discipline);

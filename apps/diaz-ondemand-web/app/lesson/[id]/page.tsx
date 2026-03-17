@@ -50,6 +50,10 @@ function getPlaybackStatusMessage({
   saveState: SaveState;
 }) {
   if (provider === VideoProvider.YOUTUBE) {
+    if (saveState === 'error') {
+      return 'Progress save failed. Mark the lesson complete again to retry.';
+    }
+
     return currentCompleted
       ? `Marked complete${lastSavedAt ? ` at ${lastSavedAt}` : ''}.`
       : 'Demo video progress is not time-synced. Mark this lesson complete when you finish the walkthrough.';
@@ -68,6 +72,21 @@ function getPlaybackStatusMessage({
   }
 
   return 'Progress sync starts once playback begins.';
+}
+
+function isTrustedYouTubeEmbed(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const host = parsedUrl.hostname.toLowerCase();
+    const isTrustedHost =
+      host === 'www.youtube.com' ||
+      host === 'youtube.com' ||
+      host === 'www.youtube-nocookie.com';
+
+    return isTrustedHost && parsedUrl.pathname.startsWith('/embed/');
+  } catch {
+    return false;
+  }
 }
 
 export default function LessonPage() {
@@ -103,7 +122,8 @@ export default function LessonPage() {
     }
 
     const current = Math.floor(playerRef.current.currentTime || 0);
-    const complete = (playerRef.current.duration || 0) - current < 10;
+    const duration = playerRef.current.duration;
+    const complete = Number.isFinite(duration) && duration > 0 ? duration - current < 10 : false;
 
     try {
       setSaveState('saving');
@@ -315,6 +335,10 @@ export default function LessonPage() {
     currentLessonIndex >= 0 && course?.lessons ? course.lessons[currentLessonIndex + 1] ?? null : null;
   const curriculumLabel = formatCurriculumLabel(lesson);
   const currentCompleted = Boolean(currentProgress?.completed);
+  const trustedYoutubeEmbedUrl =
+    video.provider === VideoProvider.YOUTUBE && video.embedUrl && isTrustedYouTubeEmbed(video.embedUrl)
+      ? video.embedUrl
+      : null;
 
   return (
     <AppShell className="space-y-8">
@@ -364,24 +388,30 @@ export default function LessonPage() {
                   playerRef.current = event.currentTarget as unknown as PlayerHandle;
                 }}
               />
-            ) : video.provider === VideoProvider.YOUTUBE && video.embedUrl ? (
+            ) : video.provider === VideoProvider.YOUTUBE && trustedYoutubeEmbedUrl ? (
               <div className="aspect-video w-full bg-black">
                 <iframe
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
                   className="h-full w-full"
                   referrerPolicy="strict-origin-when-cross-origin"
-                  src={video.embedUrl}
+                  src={trustedYoutubeEmbedUrl}
                   title={lesson.title}
                 />
               </div>
             ) : (
               <div className="flex aspect-video items-end bg-[linear-gradient(135deg,#1f242d_0%,#0f1217_55%,#08090b_100%)] p-6 sm:p-8">
                 <div className="space-y-3">
-                  <p className="type-kicker text-[var(--text-muted)]">Playback source missing</p>
-                  <h2 className="font-display text-4xl leading-none text-[var(--text)]">No video source yet</h2>
+                  <p className="type-kicker text-[var(--text-muted)]">
+                    {video.provider === VideoProvider.YOUTUBE ? 'Playback source invalid' : 'Playback source missing'}
+                  </p>
+                  <h2 className="font-display text-4xl leading-none text-[var(--text)]">
+                    {video.provider === VideoProvider.YOUTUBE ? 'YouTube embed unavailable' : 'No video source yet'}
+                  </h2>
                   <p className="max-w-xl text-sm leading-7 text-[var(--text-muted)]">
-                    Add a valid Mux playback ID in admin and this lesson will render inside the player automatically.
+                    {video.provider === VideoProvider.YOUTUBE
+                      ? 'The configured YouTube embed URL is not trusted. Update the lesson video settings in admin to restore playback.'
+                      : 'Add a valid Mux playback ID in admin and this lesson will render inside the player automatically.'}
                   </p>
                 </div>
               </div>

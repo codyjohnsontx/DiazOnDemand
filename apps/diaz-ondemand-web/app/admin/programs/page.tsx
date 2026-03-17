@@ -10,17 +10,19 @@ import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 
+const DEFAULT_PROGRAM_FORM = {
+  title: '',
+  discipline: Discipline.BJJ,
+  isFeaturedDemo: false,
+};
+
 export default function AdminProgramsPage() {
   const apiFetch = useApiClient();
   const featuredDemoId = 'is-featured-demo';
   const titleInputId = 'program-title';
   const disciplineSelectId = 'program-discipline';
   const [programs, setPrograms] = useState<ProgramWithContentDto[]>([]);
-  const [form, setForm] = useState({
-    title: '',
-    discipline: Discipline.BJJ,
-    isFeaturedDemo: false,
-  });
+  const [form, setForm] = useState(DEFAULT_PROGRAM_FORM);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -47,12 +49,13 @@ export default function AdminProgramsPage() {
     event.preventDefault();
     setSubmitting(true);
     setFormError(null);
+    const normalizedTitle = form.title.trim();
 
     try {
       await apiFetch('/admin/programs', {
         method: 'POST',
         body: JSON.stringify({
-          title: form.title,
+          title: normalizedTitle,
           description: '',
           orderIndex: programs.length + 1,
           discipline: form.discipline,
@@ -60,11 +63,7 @@ export default function AdminProgramsPage() {
           isPublished: false,
         }),
       });
-      setForm({
-        title: '',
-        discipline: Discipline.BJJ,
-        isFeaturedDemo: false,
-      });
+      setForm(DEFAULT_PROGRAM_FORM);
       await load();
     } catch (requestError) {
       setFormError(
@@ -133,7 +132,16 @@ export default function AdminProgramsPage() {
               />
               Featured demo program
             </label>
-            {formError ? <p className="text-sm text-[var(--danger)]">{formError}</p> : null}
+            {formError ? (
+              <p
+                aria-atomic="true"
+                aria-live="assertive"
+                className="text-sm text-[var(--danger)]"
+                role="alert"
+              >
+                {formError}
+              </p>
+            ) : null}
             <button
               className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60"
               disabled={submitting || !form.title.trim()}
