@@ -42,15 +42,20 @@ export default function AdminLessonDetailPage() {
   const params = useParams<{ id: string }>();
   const lessonId = params.id;
   const apiFetch = useApiClient();
-  const videoProviderId = 'video-provider';
-  const muxPlaybackId = 'mux-playback-id';
-  const youtubeVideoId = 'youtube-video-id';
-  const curriculumDisciplineId = 'curriculum-discipline';
-  const curriculumPhaseId = 'curriculum-phase';
-  const curriculumTrackId = 'curriculum-track';
-  const curriculumSkillId = 'curriculum-skill';
-  const curriculumLevelId = 'curriculum-level';
+  const titleInputId = 'lesson-title';
+  const descriptionInputId = 'lesson-description';
+  const accessLevelInputId = 'lesson-access-level';
+  const durationSecondsInputId = 'lesson-duration-seconds';
+  const videoProviderInputId = 'video-provider';
+  const muxPlaybackInputId = 'mux-playback-id';
+  const youtubeVideoInputId = 'youtube-video-id';
+  const curriculumDisciplineInputId = 'curriculum-discipline';
+  const curriculumPhaseInputId = 'curriculum-phase';
+  const curriculumTrackInputId = 'curriculum-track';
+  const curriculumSkillInputId = 'curriculum-skill';
+  const curriculumLevelInputId = 'curriculum-level';
   const [programs, setPrograms] = useState<ProgramWithContentDto[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState<LessonEditorForm>({
     title: '',
@@ -82,8 +87,18 @@ export default function AdminLessonDetailPage() {
   const program = lessonContext?.program;
 
   const load = async () => {
-    const data = await apiFetch<ProgramWithContentDto[]>('/admin/programs');
-    setPrograms(data);
+    try {
+      const data = await apiFetch<ProgramWithContentDto[]>('/admin/programs');
+      setPrograms(data);
+      setLoadError(null);
+    } catch (requestError) {
+      setLoadError(
+        requestError instanceof Error
+          ? `Lesson editor could not be loaded right now. ${requestError.message}`
+          : 'Lesson editor could not be loaded right now.',
+      );
+      setPrograms([]);
+    }
   };
 
   useEffect(() => {
@@ -123,25 +138,33 @@ export default function AdminLessonDetailPage() {
       return;
     }
 
-    await apiFetch(`/admin/lessons/${lessonId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        title: form.title,
-        description: form.description,
-        accessLevel: form.accessLevel,
-        videoProvider: form.videoProvider,
-        muxPlaybackId: form.videoProvider === VideoProvider.MUX ? normalizedMuxPlaybackId : null,
-        youtubeVideoId:
-          form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
-        durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
-        curriculum: {
-          ...form.curriculum,
-          skill: form.curriculum.skill || undefined,
-        },
-      }),
-    });
-    setStatus('Lesson saved.');
-    await load();
+    try {
+      await apiFetch(`/admin/lessons/${lessonId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          title: form.title,
+          description: form.description,
+          accessLevel: form.accessLevel,
+          videoProvider: form.videoProvider,
+          muxPlaybackId: form.videoProvider === VideoProvider.MUX ? normalizedMuxPlaybackId : null,
+          youtubeVideoId:
+            form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
+          durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
+          curriculum: {
+            ...form.curriculum,
+            skill: form.curriculum.skill || undefined,
+          },
+        }),
+      });
+      setStatus('Lesson saved.');
+      await load();
+    } catch (requestError) {
+      setStatus(
+        requestError instanceof Error
+          ? `Lesson could not be saved. ${requestError.message}`
+          : 'Lesson could not be saved.',
+      );
+    }
   };
 
   const togglePublish = async () => {
@@ -153,6 +176,14 @@ export default function AdminLessonDetailPage() {
     setStatus(lesson.isPublished ? 'Lesson moved to draft.' : 'Lesson published.');
     await load();
   };
+
+  if (loadError) {
+    return (
+      <AppShell>
+        <EmptyState description={loadError} title="Lesson editor unavailable" />
+      </AppShell>
+    );
+  }
 
   if (lessonContext === undefined) {
     return (
@@ -193,41 +224,65 @@ export default function AdminLessonDetailPage() {
             </div>
           </div>
 
-          <input
-            className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-            value={form.title}
-            onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-          />
-          <textarea
-            className="min-h-[180px] w-full rounded-[24px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-            rows={6}
-            value={form.description}
-            onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <select
-              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-              value={form.accessLevel}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, accessLevel: event.target.value as AccessLevel }))
-              }
-            >
-              <option value="FREE">Free lesson</option>
-              <option value="PAID">Premium lesson</option>
-            </select>
+          <div className="space-y-2">
+            <label className="type-kicker text-[var(--text-muted)]" htmlFor={titleInputId}>
+              Lesson title
+            </label>
             <input
+              id={titleInputId}
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-              placeholder="Duration seconds"
-              value={form.durationSeconds}
-              onChange={(event) => setForm((prev) => ({ ...prev, durationSeconds: event.target.value }))}
+              value={form.title}
+              onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
             />
           </div>
           <div className="space-y-2">
-            <label className="type-kicker text-[var(--text-muted)]" htmlFor={videoProviderId}>
+            <label className="type-kicker text-[var(--text-muted)]" htmlFor={descriptionInputId}>
+              Lesson description
+            </label>
+            <textarea
+              id={descriptionInputId}
+              className="min-h-[180px] w-full rounded-[24px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+              rows={6}
+              value={form.description}
+              onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={accessLevelInputId}>
+                Access level
+              </label>
+              <select
+                id={accessLevelInputId}
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                value={form.accessLevel}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, accessLevel: event.target.value as AccessLevel }))
+                }
+              >
+                <option value="FREE">Free lesson</option>
+                <option value="PAID">Premium lesson</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={durationSecondsInputId}>
+                Duration seconds
+              </label>
+              <input
+                id={durationSecondsInputId}
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                placeholder="Duration seconds"
+                value={form.durationSeconds}
+                onChange={(event) => setForm((prev) => ({ ...prev, durationSeconds: event.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="type-kicker text-[var(--text-muted)]" htmlFor={videoProviderInputId}>
               Video source
             </label>
             <select
-              id={videoProviderId}
+              id={videoProviderInputId}
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               value={form.videoProvider}
               onChange={(event) =>
@@ -241,11 +296,11 @@ export default function AdminLessonDetailPage() {
           </div>
           {form.videoProvider === VideoProvider.MUX ? (
             <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={muxPlaybackId}>
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={muxPlaybackInputId}>
                 Mux playback ID
               </label>
               <input
-                id={muxPlaybackId}
+                id={muxPlaybackInputId}
                 className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 placeholder="Mux playback ID"
                 value={form.muxPlaybackId}
@@ -257,11 +312,11 @@ export default function AdminLessonDetailPage() {
           ) : null}
           {form.videoProvider === VideoProvider.YOUTUBE ? (
             <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={youtubeVideoId}>
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={youtubeVideoInputId}>
                 YouTube video ID
               </label>
               <input
-                id={youtubeVideoId}
+                id={youtubeVideoInputId}
                 className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 placeholder="YouTube video ID"
                 value={form.youtubeVideoId}
@@ -303,11 +358,11 @@ export default function AdminLessonDetailPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumDisciplineId}>
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumDisciplineInputId}>
                   Curriculum discipline
                 </label>
                 <select
-                  id={curriculumDisciplineId}
+                  id={curriculumDisciplineInputId}
                   className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.discipline}
                   onChange={(event) =>
@@ -325,11 +380,11 @@ export default function AdminLessonDetailPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumPhaseId}>
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumPhaseInputId}>
                   Curriculum phase
                 </label>
                 <select
-                  id={curriculumPhaseId}
+                  id={curriculumPhaseInputId}
                   className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.phase}
                   onChange={(event) =>
@@ -353,11 +408,11 @@ export default function AdminLessonDetailPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumTrackId}>
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumTrackInputId}>
                   Curriculum track
                 </label>
                 <select
-                  id={curriculumTrackId}
+                  id={curriculumTrackInputId}
                   className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.track}
                   onChange={(event) =>
@@ -375,11 +430,11 @@ export default function AdminLessonDetailPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumSkillId}>
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumSkillInputId}>
                   Curriculum skill
                 </label>
                 <select
-                  id={curriculumSkillId}
+                  id={curriculumSkillInputId}
                   className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.skill ?? ''}
                   onChange={(event) =>
@@ -398,11 +453,11 @@ export default function AdminLessonDetailPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumLevelId}>
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumLevelInputId}>
                   Curriculum level
                 </label>
                 <select
-                  id={curriculumLevelId}
+                  id={curriculumLevelInputId}
                   className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.level}
                   onChange={(event) =>

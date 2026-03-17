@@ -218,6 +218,8 @@ export default function LessonPage() {
   useEffect(() => {
     // This effect intentionally reads from refs so the interval and unload handler
     // stay stable while lessonRef, lessonIdRef, and apiFetchRef are updated elsewhere.
+    setSaveState('idle');
+    setLastSavedAt(null);
     const interval = setInterval(() => {
       void saveProgress();
     }, 10000);

@@ -78,7 +78,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
               key={discipline}
               className={[
                 'rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200',
-                deferredDiscipline === discipline
+                disciplineFilter === discipline
                   ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]'
                   : 'border-white/10 bg-white/5 text-[var(--text-muted)]',
               ].join(' ')}
@@ -206,7 +206,21 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         const programsForDiscipline = filteredPrograms.filter((program) => program.discipline === discipline);
 
         if (programsForDiscipline.length === 0) {
-          return null;
+          return (
+            <section className="space-y-5" key={discipline}>
+              <SectionHeader
+                detail="No published programs available"
+                eyebrow="Discipline"
+                title={getDisciplineLabel(discipline)}
+              />
+              <div className="surface-panel-muted p-6">
+                <p className="text-sm leading-7 text-[var(--text-muted)]">
+                  No published programs are available for {getDisciplineLabel(discipline)} yet.
+                  Try another discipline or check back after new content is published.
+                </p>
+              </div>
+            </section>
+          );
         }
 
         return (
