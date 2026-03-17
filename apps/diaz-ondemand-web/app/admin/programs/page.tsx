@@ -13,6 +13,8 @@ import { ApiError } from '@/lib/api-shared';
 export default function AdminProgramsPage() {
   const apiFetch = useApiClient();
   const featuredDemoId = 'is-featured-demo';
+  const titleInputId = 'program-title';
+  const disciplineSelectId = 'program-discipline';
   const [programs, setPrograms] = useState<ProgramWithContentDto[]>([]);
   const [form, setForm] = useState({
     title: '',
@@ -20,6 +22,7 @@ export default function AdminProgramsPage() {
     isFeaturedDemo: false,
   });
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
@@ -43,6 +46,7 @@ export default function AdminProgramsPage() {
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitting(true);
+    setFormError(null);
 
     try {
       await apiFetch('/admin/programs', {
@@ -62,6 +66,12 @@ export default function AdminProgramsPage() {
         isFeaturedDemo: false,
       });
       await load();
+    } catch (requestError) {
+      setFormError(
+        requestError instanceof ApiError && requestError.status === 403
+          ? 'You do not have admin access to create programs.'
+          : 'Program could not be created right now. Try again.',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -84,13 +94,21 @@ export default function AdminProgramsPage() {
               <p className="type-kicker text-[var(--text-muted)]">Create program</p>
               <h2 className="type-title-lg text-[var(--text)]">New program</h2>
             </div>
+            <label className="type-kicker text-[var(--text-muted)]" htmlFor={titleInputId}>
+              Program title
+            </label>
             <input
+              id={titleInputId}
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               placeholder="New program title"
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
             />
+            <label className="type-kicker text-[var(--text-muted)]" htmlFor={disciplineSelectId}>
+              Discipline
+            </label>
             <select
+              id={disciplineSelectId}
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               value={form.discipline}
               onChange={(event) =>
@@ -115,6 +133,7 @@ export default function AdminProgramsPage() {
               />
               Featured demo program
             </label>
+            {formError ? <p className="text-sm text-[var(--danger)]">{formError}</p> : null}
             <button
               className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60"
               disabled={submitting || !form.title.trim()}

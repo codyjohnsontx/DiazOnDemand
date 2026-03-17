@@ -30,10 +30,14 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
 
   useEffect(() => {
     apiFetch<ProgressDto[]>('/progress')
-      .then(setProgress)
+      .then((nextProgress) => {
+        setProgress(nextProgress);
+        setError(null);
+      })
       .catch((requestError) => {
         if (requestError instanceof ApiError && requestError.status === 401) {
           setProgress([]);
+          setError(null);
           return;
         }
 
@@ -42,9 +46,9 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   }, [apiFetch]);
 
   const deferredDiscipline = useDeferredValue(disciplineFilter);
-  const disciplineOrder = [Discipline.BJJ, Discipline.MUAY_THAI, Discipline.HAGANAH] as const;
   const featuredPrograms = programs.filter((program) => program.isFeaturedDemo);
   const trainingPrograms = programs.filter((program) => !program.isFeaturedDemo);
+  const disciplineOrder = Object.values(Discipline);
   const filteredPrograms = trainingPrograms.filter((program) =>
     deferredDiscipline === 'all' ? true : program.discipline === deferredDiscipline,
   );
@@ -53,9 +57,9 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
     program.courses.map((course) => buildCourseCardModel(program, course, progress)),
   );
   const newestCourses = courseCards.slice(0, 6);
-  const firstProgram = trainingPrograms[0] ?? null;
+  const firstProgram = filteredPrograms.find((program) => program.courses.length > 0) ?? null;
   const firstCourse = firstProgram?.courses[0] ?? null;
-  const recommendation = firstCourse ? buildRecommendation(trainingPrograms, firstCourse.id, progress) : null;
+  const recommendation = firstCourse ? buildRecommendation(filteredPrograms, firstCourse.id, progress) : null;
 
   return (
     <AppShell className="space-y-16">
@@ -108,7 +112,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         </section>
       ) : null}
 
-      {trainingPrograms.length > 0 && recommendation?.lessonId ? (
+      {filteredPrograms.length > 0 && recommendation?.lessonId ? (
         <section className="surface-panel grid gap-6 overflow-hidden p-8 lg:grid-cols-[1.15fr_0.85fr]">
           <div className="space-y-4">
             <p className="type-kicker text-[var(--text-muted)]">Recommended next</p>

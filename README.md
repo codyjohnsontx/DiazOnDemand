@@ -37,7 +37,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `/packages/shared`
 - `/packages/ui`
 
-Separate website repo:
+## Separate Website Repo
 - `https://github.com/codyjohnsontx/DiazMartialArts.git`
 - `git@github.com:codyjohnsontx/DiazMartialArts.git`
 
@@ -192,6 +192,7 @@ MVP truth mapping:
 
 ### GET /users/:clerkUserId/entitlements (Server-to-server)
 Internal endpoint for external website redirect logic.
+Not for browser/client use - server-to-server only.
 
 Security:
 - Requires header `x-diaz-api-key`

@@ -188,6 +188,8 @@ export default function LessonPage() {
   }, [lessonId, apiFetch]);
 
   useEffect(() => {
+    // This effect intentionally reads from refs so the interval and unload handler
+    // stay stable while lessonRef, lessonIdRef, and apiFetchRef are updated elsewhere.
     const interval = setInterval(() => {
       void saveProgress();
     }, 10000);
@@ -347,15 +349,15 @@ export default function LessonPage() {
           </div>
 
           <div className="surface-panel overflow-hidden">
-            {video.provider === VideoProvider.MUX && video.playbackUrl && video.muxPlaybackId ? (
+            {video.provider === VideoProvider.MUX && (video.muxPlaybackId || video.playbackUrl) ? (
               <MuxPlayer
                 ref={playerRef as never}
                 accentColor="#35e0a1"
                 className="aspect-video w-full"
                 metadata={{ video_id: lesson.id, video_title: lesson.title }}
-                playbackId={video.muxPlaybackId}
+                playbackId={video.muxPlaybackId ?? undefined}
                 preferPlayback="mse"
-                src={video.playbackUrl}
+                src={video.playbackUrl ?? undefined}
                 streamType="on-demand"
                 onError={() => setPlaybackError('Playback failed. Verify the Mux playback ID and signed playback configuration.')}
                 onTimeUpdate={(event) => {

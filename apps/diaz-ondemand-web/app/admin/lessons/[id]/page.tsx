@@ -11,9 +11,13 @@ import type {
 import {
   VideoProvider,
   createDefaultCurriculum,
+  curriculumDisciplineKeys,
+  getCurriculumPhaseLabel,
   getCurriculumLevelKeys,
   getCurriculumPhaseKeys,
   getCurriculumSkillKeys,
+  getCurriculumSkillLabel,
+  getCurriculumTrackLabel,
   getCurriculumTrackKeys,
   getDisciplineLabel,
   programDisciplineToCurriculumDiscipline,
@@ -248,9 +252,9 @@ export default function AdminLessonDetailPage() {
                   }))
                 }
               >
-                {['bjj', 'muay-thai', 'haganah'].map((discipline) => (
+                {curriculumDisciplineKeys.map((discipline) => (
                   <option key={discipline} value={discipline}>
-                    {discipline === 'bjj' ? 'BJJ' : discipline === 'muay-thai' ? 'Muay Thai' : 'Haganah'}
+                    {getDisciplineLabel(discipline)}
                   </option>
                 ))}
               </select>
@@ -270,7 +274,7 @@ export default function AdminLessonDetailPage() {
               >
                 {phaseOptions.map((phase) => (
                   <option key={phase} value={phase}>
-                    {phase.replaceAll('-', ' ')}
+                    {getCurriculumPhaseLabel(form.curriculum.discipline, phase)}
                   </option>
                 ))}
               </select>
@@ -286,7 +290,7 @@ export default function AdminLessonDetailPage() {
               >
                 {trackOptions.map((track) => (
                   <option key={track} value={track}>
-                    {track.replaceAll('-', ' ')}
+                    {getCurriculumTrackLabel({ ...form.curriculum, track })}
                   </option>
                 ))}
               </select>
@@ -303,7 +307,7 @@ export default function AdminLessonDetailPage() {
                 <option value="">No skill tag</option>
                 {skillOptions.map((skill) => (
                   <option key={skill} value={skill}>
-                    {skill.replaceAll('-', ' ')}
+                    {getCurriculumSkillLabel({ ...form.curriculum, skill }) ?? skill}
                   </option>
                 ))}
               </select>

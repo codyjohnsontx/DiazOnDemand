@@ -168,4 +168,24 @@ describe('videoSchema', () => {
 
     expect(parsed.provider).toBe(VideoProvider.NONE);
   });
+
+  it('rejects youtube video payloads without a source', () => {
+    expect(() =>
+      videoSchema.parse({
+        provider: VideoProvider.YOUTUBE,
+        youtubeVideoId: null,
+        embedUrl: null,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects NONE video payloads when playback identifiers are present', () => {
+    expect(() =>
+      videoSchema.parse({
+        provider: VideoProvider.NONE,
+        playbackUrl: 'https://stream.mux.com/example.m3u8',
+        youtubeVideoId: null,
+      }),
+    ).toThrow();
+  });
 });

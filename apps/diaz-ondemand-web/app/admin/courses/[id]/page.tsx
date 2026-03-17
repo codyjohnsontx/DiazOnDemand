@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   VideoProvider,
@@ -54,14 +54,14 @@ export default function AdminCourseDetailPage() {
   const course = courseContext?.course ?? null;
   const program = courseContext?.program ?? null;
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const data = await apiFetch<ProgramWithContentDto[]>('/admin/programs');
     setPrograms(data);
-  };
+  }, [apiFetch]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const createLesson = async (event: FormEvent) => {
     event.preventDefault();
