@@ -51,19 +51,19 @@ export default function SubscribePage() {
 
           <div className="grid gap-4 md:grid-cols-3">
             <div className="surface-panel-muted p-5">
-              <h2 className="font-display text-2xl uppercase tracking-[0.03em] text-[var(--text)]">Unlock paid lessons</h2>
+              <h2 className="font-display text-2xl leading-tight text-[var(--text)]">Unlock paid lessons</h2>
               <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">
                 Move through premium courses and technique chains without hitting locked lessons mid-session.
               </p>
             </div>
             <div className="surface-panel-muted p-5">
-              <h2 className="font-display text-2xl uppercase tracking-[0.03em] text-[var(--text)]">Track your progress</h2>
+              <h2 className="font-display text-2xl leading-tight text-[var(--text)]">Track your progress</h2>
               <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">
                 Keep your place automatically so you can return to the exact point where training stopped.
               </p>
             </div>
             <div className="surface-panel-muted p-5">
-              <h2 className="font-display text-2xl uppercase tracking-[0.03em] text-[var(--text)]">Train anywhere</h2>
+              <h2 className="font-display text-2xl leading-tight text-[var(--text)]">Train anywhere</h2>
               <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">
                 Start a session on the web player and continue from mobile when you are back on the move.
               </p>
@@ -71,8 +71,8 @@ export default function SubscribePage() {
           </div>
           <div className="surface-panel-muted flex items-center justify-between gap-4 p-5">
             <div>
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Plan</p>
-              <h2 className="mt-2 font-display text-3xl uppercase leading-none text-[var(--text)]">Monthly premium access</h2>
+              <p className="type-kicker text-[var(--text-muted)]">Plan</p>
+              <h2 className="mt-2 font-display text-3xl leading-none text-[var(--text)]">Monthly premium access</h2>
             </div>
             <PremiumBadge label="Monthly" tone="premium" />
           </div>
@@ -80,8 +80,8 @@ export default function SubscribePage() {
 
         <aside className="surface-panel space-y-6 p-8">
           <div className="space-y-3">
-            <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Checkout</p>
-            <h2 className="font-display text-4xl uppercase leading-none tracking-[0.03em] text-[var(--text)]">Premium access</h2>
+            <p className="type-kicker text-[var(--text-muted)]">Checkout</p>
+            <h2 className="font-display text-4xl leading-none text-[var(--text)]">Premium access</h2>
             <p className="text-sm leading-7 text-[var(--text-muted)]">
               Use the existing Stripe checkout flow to activate premium lessons and keep your progress synced.
             </p>

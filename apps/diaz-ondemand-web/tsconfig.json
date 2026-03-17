@@ -22,9 +22,6 @@
       "@/*": [
         "./*"
       ],
-      "@diaz/shared": [
-        "../../packages/shared/src/index.ts"
-      ],
       "@diaz/ui": [
         "../../packages/ui/src/index.tsx"
       ]

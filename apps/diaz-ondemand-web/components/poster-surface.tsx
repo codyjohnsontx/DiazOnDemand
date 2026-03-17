@@ -33,7 +33,7 @@ export function PosterSurface({
       <div className="poster-grid absolute inset-0 opacity-20" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_28%)]" />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,rgba(7,8,10,0.1)_35%,rgba(7,8,10,0.92)_100%)]" />
-      <div className="absolute -right-4 top-4 font-display text-[7rem] uppercase leading-none text-white/10 transition-transform duration-500 group-hover:-translate-y-1 group-hover:translate-x-1 sm:text-[8.5rem]">
+      <div className="absolute -right-4 top-4 font-display text-[7rem] font-semibold leading-none text-white/10 transition-transform duration-500 group-hover:-translate-y-1 group-hover:translate-x-1 sm:text-[8.5rem]">
         {monogram}
       </div>
       <div className="relative z-10 h-full">{children}</div>

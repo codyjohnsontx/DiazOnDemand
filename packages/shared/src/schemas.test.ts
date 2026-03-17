@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AccessLevel } from './enums';
-import { lessonSummarySchema } from './schemas';
+import { AccessLevel, Discipline, VideoProvider } from './enums';
+import { lessonSummarySchema, videoSchema } from './schemas';
 import { buildRecommendation } from './progression';
 
 describe('lessonSummarySchema', () => {
@@ -12,10 +12,12 @@ describe('lessonSummarySchema', () => {
       orderIndex: 1,
       isPublished: true,
       accessLevel: AccessLevel.FREE,
+      videoProvider: VideoProvider.MUX,
       curriculum: {
-        block: 'fundamentals',
-        position: 'guard-retention',
-        track: 'defense',
+        discipline: 'bjj',
+        phase: 'fundamentals',
+        track: 'guard-retention-defense',
+        level: 'core',
       },
     });
 
@@ -30,6 +32,8 @@ describe('buildRecommendation', () => {
       title: 'Fundamentals',
       description: null,
       orderIndex: 1,
+      discipline: Discipline.BJJ,
+      isFeaturedDemo: false,
       isPublished: true,
       courses: [
         {
@@ -47,10 +51,12 @@ describe('buildRecommendation', () => {
               orderIndex: 1,
               isPublished: true,
               accessLevel: AccessLevel.FREE,
+              videoProvider: VideoProvider.MUX,
               curriculum: {
-                block: 'fundamentals',
-                position: 'guard-retention',
-                track: 'defense',
+                discipline: 'bjj',
+                phase: 'fundamentals',
+                track: 'guard-retention-defense',
+                level: 'core',
               },
             },
             {
@@ -60,10 +66,12 @@ describe('buildRecommendation', () => {
               orderIndex: 2,
               isPublished: true,
               accessLevel: AccessLevel.FREE,
+              videoProvider: VideoProvider.MUX,
               curriculum: {
-                block: 'fundamentals',
-                position: 'guard-retention',
-                track: 'defense',
+                discipline: 'bjj',
+                phase: 'fundamentals',
+                track: 'guard-retention-defense',
+                level: 'core',
               },
             },
           ],
@@ -83,10 +91,12 @@ describe('buildRecommendation', () => {
               orderIndex: 1,
               isPublished: true,
               accessLevel: AccessLevel.FREE,
+              videoProvider: VideoProvider.MUX,
               curriculum: {
-                block: 'fundamentals',
-                position: 'guard-retention',
-                track: 'offense',
+                discipline: 'bjj',
+                phase: 'fundamentals',
+                track: 'guard-retention-offense',
+                level: 'core',
               },
             },
           ],
@@ -133,5 +143,49 @@ describe('buildRecommendation', () => {
 
     expect(result.reason).toBe('next_course');
     expect(result.courseId).toBe('22222222-2222-2222-2222-222222222222');
+  });
+});
+
+describe('videoSchema', () => {
+  it('rejects mux video payloads without a source', () => {
+    expect(() =>
+      videoSchema.parse({
+        provider: VideoProvider.MUX,
+        playbackUrl: null,
+        muxPlaybackId: null,
+      }),
+    ).toThrow();
+  });
+
+  it('accepts NONE video payloads without playback identifiers', () => {
+    const parsed = videoSchema.parse({
+      provider: VideoProvider.NONE,
+      playbackUrl: null,
+      muxPlaybackId: null,
+      youtubeVideoId: null,
+      embedUrl: null,
+    });
+
+    expect(parsed.provider).toBe(VideoProvider.NONE);
+  });
+
+  it('rejects youtube video payloads without a source', () => {
+    expect(() =>
+      videoSchema.parse({
+        provider: VideoProvider.YOUTUBE,
+        youtubeVideoId: null,
+        embedUrl: null,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects NONE video payloads when playback identifiers are present', () => {
+    expect(() =>
+      videoSchema.parse({
+        provider: VideoProvider.NONE,
+        playbackUrl: 'https://stream.mux.com/example.m3u8',
+        youtubeVideoId: null,
+      }),
+    ).toThrow();
   });
 });

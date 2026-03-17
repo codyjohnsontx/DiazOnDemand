@@ -9,10 +9,8 @@ export function LockedStateCard() {
         <div className="space-y-4">
           <PremiumBadge label="Premium lesson" tone="premium" />
           <div className="space-y-3">
-            <h1 className="font-display text-5xl uppercase leading-none tracking-[0.03em] text-[var(--text)]">
-              Unlock the full training library
-            </h1>
-            <p className="max-w-2xl text-base leading-7 text-[var(--text-muted)]">
+            <h1 className="type-title-xl max-w-3xl text-[var(--text)]">Unlock the full training library</h1>
+            <p className="type-body max-w-2xl text-[var(--text-muted)]">
               This lesson is part of premium access. Upgrade to keep moving through the course, save your place, and train
               across web and mobile.
             </p>

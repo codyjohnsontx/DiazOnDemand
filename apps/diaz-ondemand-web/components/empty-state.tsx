@@ -14,9 +14,9 @@ export function EmptyState({
   return (
     <div className="surface-panel flex min-h-[260px] flex-col justify-between gap-8 p-8">
       <div className="space-y-3">
-        <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Diaz on Demand</p>
-        <h2 className="font-display text-4xl uppercase leading-none tracking-[0.03em] text-[var(--text)]">{title}</h2>
-        <p className="max-w-xl text-base leading-7 text-[var(--text-muted)]">{description}</p>
+        <p className="type-kicker text-[var(--text-muted)]">Diaz on Demand</p>
+        <h2 className="type-title-lg text-[var(--text)]">{title}</h2>
+        <p className="type-body max-w-xl text-[var(--text-muted)]">{description}</p>
       </div>
       {ctaHref && ctaLabel ? (
         <Link

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import type { ProgramWithContentDto } from '@diaz/shared';
+import { Discipline, getDisciplineLabel, type ProgramWithContentDto } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
@@ -15,7 +15,12 @@ export default function AdminProgramDetailPage() {
   const apiFetch = useApiClient();
   const [programs, setPrograms] = useState<ProgramWithContentDto[]>([]);
   const [newCourseTitle, setNewCourseTitle] = useState('');
-  const [draft, setDraft] = useState({ title: '', description: '' });
+  const [draft, setDraft] = useState({
+    title: '',
+    description: '',
+    discipline: Discipline.BJJ,
+    isFeaturedDemo: false,
+  });
   const [status, setStatus] = useState<string | null>(null);
 
   const program = useMemo(
@@ -40,6 +45,8 @@ export default function AdminProgramDetailPage() {
     setDraft({
       title: program.title,
       description: program.description ?? '',
+      discipline: program.discipline,
+      isFeaturedDemo: program.isFeaturedDemo,
     });
   }, [program]);
 
@@ -94,10 +101,14 @@ export default function AdminProgramDetailPage() {
         <form className="surface-panel space-y-5 p-6" onSubmit={saveProgram}>
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-2">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Program settings</p>
-              <h1 className="font-display text-4xl uppercase tracking-[0.03em] text-[var(--text)]">{program.title}</h1>
+              <p className="type-kicker text-[var(--text-muted)]">Program settings</p>
+              <h1 className="font-display text-4xl leading-none text-[var(--text)]">{program.title}</h1>
             </div>
-            <PremiumBadge label={program.isPublished ? 'Published' : 'Draft'} tone={program.isPublished ? 'accent' : 'neutral'} />
+            <div className="flex flex-wrap items-center gap-2">
+              <PremiumBadge label={getDisciplineLabel(program.discipline)} />
+              {program.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
+              <PremiumBadge label={program.isPublished ? 'Published' : 'Draft'} tone={program.isPublished ? 'accent' : 'neutral'} />
+            </div>
           </div>
 
           <input
@@ -111,6 +122,26 @@ export default function AdminProgramDetailPage() {
             value={draft.description}
             onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
           />
+          <select
+            className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+            value={draft.discipline}
+            onChange={(event) => setDraft((prev) => ({ ...prev, discipline: event.target.value as Discipline }))}
+          >
+            {Object.values(Discipline).map((discipline) => (
+              <option key={discipline} value={discipline}>
+                {getDisciplineLabel(discipline)}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
+            <input
+              checked={draft.isFeaturedDemo}
+              className="h-4 w-4 rounded border-white/10 bg-[var(--surface-2)]"
+              onChange={(event) => setDraft((prev) => ({ ...prev, isFeaturedDemo: event.target.checked }))}
+              type="checkbox"
+            />
+            Featured demo program
+          </label>
           <div className="flex flex-wrap gap-3">
             <button
               className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
@@ -132,8 +163,8 @@ export default function AdminProgramDetailPage() {
         <section className="space-y-5">
           <form className="surface-panel space-y-4 p-6" onSubmit={createCourse}>
             <div className="space-y-2">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Add course</p>
-              <h2 className="font-display text-3xl uppercase tracking-[0.03em] text-[var(--text)]">Course list</h2>
+              <p className="type-kicker text-[var(--text-muted)]">Add course</p>
+              <h2 className="type-title-lg text-[var(--text)]">Course list</h2>
             </div>
             <input
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
@@ -154,7 +185,8 @@ export default function AdminProgramDetailPage() {
               <div className="surface-panel-muted flex items-center justify-between gap-4 p-4" key={course.id}>
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-display text-2xl uppercase tracking-[0.03em] text-[var(--text)]">{course.title}</h3>
+                    <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{course.title}</h3>
+                    {program.isFeaturedDemo ? <PremiumBadge label="Demo track" tone="accent" /> : null}
                     <PremiumBadge label={course.isPublished ? 'Published' : 'Draft'} tone={course.isPublished ? 'accent' : 'neutral'} />
                   </div>
                   <p className="text-sm text-[var(--text-muted)]">{course.lessons.length} lessons in this course</p>

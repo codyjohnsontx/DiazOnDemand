@@ -1,7 +1,8 @@
 import { createHmac } from 'node:crypto';
 import { InternalServerErrorException } from '@nestjs/common';
 import {
-  parseFundamentalsCurriculumTags,
+  VideoProvider,
+  parseCurriculumTags,
   type LessonDetailDto,
   type LessonSummary,
 } from '@diaz/shared';
@@ -16,8 +17,10 @@ type LessonLike = {
   orderIndex: number;
   isPublished: boolean;
   accessLevel: 'FREE' | 'PAID';
+  videoProvider?: string | null;
   muxAssetId?: string | null;
   muxPlaybackId?: string | null;
+  youtubeVideoId?: string | null;
   durationSeconds?: number | null;
   tags?: LessonTagLike[];
 };
@@ -64,10 +67,24 @@ function extractTagName(tag: LessonTagLike) {
 }
 
 export function mapLessonCurriculum(tags: LessonTagLike[] = []) {
-  return parseFundamentalsCurriculumTags(tags.map(extractTagName));
+  return parseCurriculumTags(tags.map(extractTagName));
+}
+
+function resolveVideoProvider(lesson: LessonLike) {
+  if (lesson.videoProvider === VideoProvider.YOUTUBE && lesson.youtubeVideoId) {
+    return VideoProvider.YOUTUBE;
+  }
+
+  if ((lesson.videoProvider === VideoProvider.MUX || !lesson.videoProvider) && lesson.muxPlaybackId) {
+    return VideoProvider.MUX;
+  }
+
+  return VideoProvider.NONE;
 }
 
 export function mapLessonSummary(lesson: LessonLike): LessonSummary {
+  const videoProvider = resolveVideoProvider(lesson);
+
   return {
     id: lesson.id,
     courseId: lesson.courseId,
@@ -76,7 +93,9 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
     orderIndex: lesson.orderIndex,
     isPublished: lesson.isPublished,
     accessLevel: lesson.accessLevel as LessonSummary['accessLevel'],
+    videoProvider,
     muxPlaybackId: lesson.muxPlaybackId ?? null,
+    youtubeVideoId: lesson.youtubeVideoId ?? null,
     durationSeconds: lesson.durationSeconds ?? null,
     curriculum: mapLessonCurriculum(lesson.tags ?? []),
   };
@@ -84,10 +103,12 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
 
 export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }): LessonDetailDto {
   const summary = mapLessonSummary(lesson);
-  const hasPlayback = Boolean(lesson.muxPlaybackId);
+  const videoProvider = resolveVideoProvider(lesson);
 
   let playbackUrl: string | null = null;
-  if (hasPlayback) {
+  let embedUrl: string | null = null;
+
+  if (videoProvider === VideoProvider.MUX && lesson.muxPlaybackId) {
     if (lesson.accessLevel === 'FREE') {
       playbackUrl = `https://stream.mux.com/${lesson.muxPlaybackId}.m3u8`;
     } else {
@@ -105,13 +126,22 @@ export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }):
     }
   }
 
+  if (videoProvider === VideoProvider.YOUTUBE && lesson.youtubeVideoId) {
+    embedUrl = `https://www.youtube-nocookie.com/embed/${lesson.youtubeVideoId}?rel=0&modestbranding=1`;
+  }
+
   return {
     ...summary,
     muxAssetId: lesson.muxAssetId ?? null,
     tags: lesson.tags
       .map((tag) => ('tag' in tag ? tag.tag : tag))
       .map((tag) => ({ id: ('id' in tag ? tag.id : tag.name) as string, name: tag.name })),
-    playbackUrl,
-    signedPlaybackToken: null,
+    video: {
+      provider: videoProvider,
+      playbackUrl,
+      muxPlaybackId: lesson.muxPlaybackId ?? null,
+      youtubeVideoId: lesson.youtubeVideoId ?? null,
+      embedUrl,
+    },
   };
 }

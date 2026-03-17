@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@diaz/db';
-import type { FundamentalsCurriculum } from '@diaz/shared';
-import { createFundamentalsCurriculumTags } from '@diaz/shared';
+import type { CurriculumMetadata } from '@diaz/shared';
+import { createCurriculumTags } from '@diaz/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { mapLessonSummary } from '../content/lesson-presentation.js';
 
@@ -70,7 +70,7 @@ export class AdminService {
     return this.prisma.client.course.delete({ where: { id } });
   }
 
-  async createLesson(data: Prisma.LessonCreateInput, curriculum?: FundamentalsCurriculum | null) {
+  async createLesson(data: Prisma.LessonCreateInput, curriculum?: CurriculumMetadata | null) {
     const lesson = await this.prisma.client.lesson.create({ data });
     await this.syncLessonCurriculumTags(lesson.id, curriculum ?? null);
     return this.prisma.client.lesson.findUniqueOrThrow({
@@ -86,7 +86,7 @@ export class AdminService {
   async updateLesson(
     id: string,
     data: Prisma.LessonUpdateInput,
-    curriculum?: FundamentalsCurriculum | null,
+    curriculum?: CurriculumMetadata | null,
   ) {
     const lesson = await this.prisma.client.lesson.findUnique({ where: { id } });
     if (!lesson) {
@@ -110,18 +110,19 @@ export class AdminService {
     return this.prisma.client.lesson.delete({ where: { id } });
   }
 
-  private async syncLessonCurriculumTags(lessonId: string, curriculum: FundamentalsCurriculum | null) {
-    const desiredNames = curriculum ? createFundamentalsCurriculumTags(curriculum) : [];
+  private async syncLessonCurriculumTags(lessonId: string, curriculum: CurriculumMetadata | null) {
+    const desiredNames = curriculum ? createCurriculumTags(curriculum) : [];
     const existing = await this.prisma.client.lessonTag.findMany({
       where: { lessonId },
       include: { tag: true },
     });
 
     const managedExisting = existing.filter((entry) =>
-      entry.tag.name.startsWith('block:') ||
-      entry.tag.name.startsWith('position:') ||
+      entry.tag.name.startsWith('discipline:') ||
+      entry.tag.name.startsWith('phase:') ||
       entry.tag.name.startsWith('track:') ||
-      entry.tag.name.startsWith('skill:'),
+      entry.tag.name.startsWith('skill:') ||
+      entry.tag.name.startsWith('level:'),
     );
 
     const toRemove = managedExisting.filter((entry) => !desiredNames.includes(entry.tag.name));

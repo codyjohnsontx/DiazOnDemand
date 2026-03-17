@@ -2,25 +2,35 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import type { CourseDto, ProgramWithContentDto, ProgressDto } from '@diaz/shared';
-import { buildRecommendation } from '@diaz/shared';
+import type { CourseDto, Discipline, ProgramWithContentDto, ProgressDto } from '@diaz/shared';
+import {
+  buildRecommendation,
+  getCurriculumPhaseLabel,
+  getCurriculumSkillLabel,
+  getCurriculumTrackLabel,
+  getDisciplineLabel,
+} from '@diaz/shared';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 import { buildCourseProgress, buildLessonQueue, formatDuration, getAccessLabel } from '@/lib/student-ui';
 import { AppShell } from './app-shell';
 import { EmptyState } from './empty-state';
 import { LessonRow } from './lesson-row';
-import { PageHeader } from './page-header';
+import { PosterSurface } from './poster-surface';
 import { PremiumBadge } from './premium-badge';
 import { ProgressBar } from './progress-bar';
 
 export function CourseDetailView({
   course,
   programTitle,
+  programDiscipline,
+  isFeaturedDemo,
   programs,
 }: {
   course: CourseDto;
   programTitle: string | null;
+  programDiscipline: Discipline | null;
+  isFeaturedDemo: boolean;
   programs: ProgramWithContentDto[];
 }) {
   const apiFetch = useApiClient();
@@ -46,6 +56,7 @@ export function CourseDetailView({
   const primaryLessonId = courseProgress.continueLessonId ?? course.lessons?.[0]?.id ?? null;
   const primaryCtaLabel = courseProgress.percent > 0 ? 'Continue' : 'Start course';
   const recommendation = buildRecommendation(programs, course.id, progress);
+  const firstCurriculum = course.lessons?.find((lesson) => lesson.curriculum)?.curriculum ?? null;
   const curriculumLabels = [...new Set((course.lessons ?? []).flatMap((lesson) => {
     const curriculum = lesson.curriculum;
     if (!curriculum) {
@@ -53,11 +64,16 @@ export function CourseDetailView({
     }
 
     return [
-      curriculum.position.split('-').join(' '),
-      curriculum.track,
-      ...(curriculum.skill ? [curriculum.skill] : []),
-    ];
+      getCurriculumTrackLabel(curriculum),
+      ...(curriculum.skill ? [getCurriculumSkillLabel(curriculum)] : []),
+    ].filter((label): label is string => Boolean(label));
   }))];
+  const nextLesson = queue.find((item) => item.isCurrent || item.isNext) ?? queue[0] ?? null;
+  const monogram = course.title
+    .split(' ')
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('');
 
   if (!course.lessons || course.lessons.length === 0) {
     return (
@@ -73,97 +89,104 @@ export function CourseDetailView({
   }
 
   return (
-    <AppShell className="space-y-8">
-      <PageHeader
-        description={course.description ?? 'Structured lessons designed to keep your mat time focused, technical, and easy to resume.'}
-        eyebrow={programTitle ? `${programTitle} / Course` : 'Course'}
-        title={course.title}
-        actions={
-          primaryLessonId ? (
-            <Link
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-              href={`/lesson/${primaryLessonId}`}
-            >
-              {primaryCtaLabel}
-            </Link>
-          ) : null
-        }
-      />
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,0.92fr)_minmax(360px,1.08fr)]">
-        <section className="surface-panel space-y-8 p-8">
-          <div className="flex flex-wrap items-center gap-3">
-            <PremiumBadge label={getAccessLabel(course.lessons)} tone="premium" />
-            <PremiumBadge label={`${course.lessons.length} lessons`} />
-            {totalDuration ? <PremiumBadge label={totalDuration} /> : null}
-            {curriculumLabels.slice(0, 3).map((label) => (
-              <PremiumBadge key={label} label={label} />
-            ))}
-          </div>
-
+    <AppShell className="space-y-10">
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(360px,1.1fr)]">
+        <section className="space-y-6">
           <div className="space-y-4">
-            <ProgressBar label="Course progress" value={courseProgress.percent} />
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="surface-panel-muted p-4">
-                <p className="font-display text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Completed</p>
-                <p className="mt-3 font-display text-4xl uppercase text-[var(--text)]">{courseProgress.completedLessons}</p>
-              </div>
-              <div className="surface-panel-muted p-4">
-                <p className="font-display text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Remaining</p>
-                <p className="mt-3 font-display text-4xl uppercase text-[var(--text)]">
-                  {Math.max(courseProgress.totalLessons - courseProgress.completedLessons, 0)}
-                </p>
-              </div>
-              <div className="surface-panel-muted p-4">
-                <p className="font-display text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Next session</p>
-                <p className="mt-3 text-sm leading-6 text-[var(--text)]">
-                  {queue.find((item) => item.isNext)?.title ?? queue[0]?.title ?? 'Ready to begin'}
-                </p>
-              </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {programDiscipline ? <PremiumBadge label={getDisciplineLabel(programDiscipline)} /> : null}
+              {isFeaturedDemo ? <PremiumBadge label="Featured demo" tone="accent" /> : null}
+              <PremiumBadge label={getAccessLabel(course.lessons)} tone="premium" />
+              {firstCurriculum ? (
+                <PremiumBadge label={getCurriculumPhaseLabel(firstCurriculum.discipline, firstCurriculum.phase)} />
+              ) : null}
+            </div>
+            <div className="space-y-3">
+              <p className="type-kicker text-[var(--accent-strong)]">{programTitle ?? 'Course'}</p>
+              <h1 className="type-title-lg text-[var(--text)] sm:text-[3.25rem]">{course.title}</h1>
+              <p className="type-body max-w-2xl text-[var(--text-muted)]">
+                {course.description ?? 'Structured lessons designed to keep your mat time focused, technical, and easy to resume.'}
+              </p>
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="surface-panel-muted space-y-3 p-5">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Course flow</p>
-              <p className="text-sm leading-7 text-[var(--text-muted)]">
-                Work through each lesson in order, save your place automatically, and return to the next drill from the library or
-                player.
-              </p>
-            </div>
-            <div className="surface-panel-muted space-y-3 p-5">
-              <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Recommended next</p>
-              <h3 className="font-display text-2xl uppercase leading-none text-[var(--text)]">
-                {recommendation.title ?? 'Stay with this course'}
-              </h3>
-              <p className="text-sm leading-7 text-[var(--text-muted)]">
-                {recommendation.reason === 'next_course'
-                  ? 'You are ready to move into the next course in the program.'
-                  : recommendation.reason === 'resume_lesson'
-                    ? 'Resume the lesson already in progress.'
-                    : 'Continue with the next technique in the guided path.'}
-              </p>
+          <div className="surface-panel space-y-5 p-6">
+            <ProgressBar label="Progress" value={courseProgress.percent} />
+
+            <PosterSurface className="min-h-[420px]" monogram={monogram} seed={course.orderIndex}>
+              <div className="flex h-full flex-col justify-end">
+                <div className="space-y-4 rounded-t-[28px] border-t border-white/10 bg-[linear-gradient(180deg,rgba(8,9,11,0.18),rgba(8,9,11,0.92)_18%,rgba(8,9,11,0.98)_100%)] p-6">
+                  <p className="type-kicker text-white/60">Up next</p>
+                  <div className="space-y-2">
+                    <h2 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">
+                      {nextLesson?.title ?? recommendation.title ?? 'Ready to begin'}
+                    </h2>
+                    <p className="type-meta text-white/76">
+                      {recommendation.reason === 'next_course'
+                        ? 'You are ready to move into the next course in the program.'
+                        : recommendation.reason === 'resume_lesson'
+                          ? 'Resume the lesson already in progress.'
+                          : 'Stay inside the guided path and keep working the current module.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </PosterSurface>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {primaryLessonId ? (
+                <Link
+                  className="inline-flex items-center rounded-full bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
+                  href={`/lesson/${primaryLessonId}`}
+                >
+                  {primaryCtaLabel}
+                </Link>
+              ) : null}
               {recommendation.lessonId ? (
                 <Link
-                  className="inline-flex items-center rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+                  className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
                   href={`/lesson/${recommendation.lessonId}`}
                 >
                   Open recommendation
                 </Link>
               ) : null}
             </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="surface-panel-muted p-4">
+                <p className="type-kicker text-[var(--text-muted)]">Completed</p>
+                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{courseProgress.completedLessons}</p>
+              </div>
+              <div className="surface-panel-muted p-4">
+                <p className="type-kicker text-[var(--text-muted)]">Remaining</p>
+                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
+                  {Math.max(courseProgress.totalLessons - courseProgress.completedLessons, 0)}
+                </p>
+              </div>
+              <div className="surface-panel-muted p-4">
+                <p className="type-kicker text-[var(--text-muted)]">Runtime</p>
+                <p className="mt-3 text-base text-[var(--text)]">{totalDuration || `${course.lessons.length} lessons`}</p>
+              </div>
+            </div>
           </div>
-          {progressError ? (
-            <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]">{progressError}</div>
+
+          {curriculumLabels.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {curriculumLabels.slice(0, 4).map((label) => (
+                <PremiumBadge key={label} label={label} />
+              ))}
+            </div>
           ) : null}
+
+          {progressError ? <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]">{progressError}</div> : null}
         </section>
 
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-3xl uppercase tracking-[0.03em] text-[var(--text)]">Lesson queue</h2>
-            <p className="text-sm text-[var(--text-muted)]">Pick up where you left off or jump ahead.</p>
+        <section className="space-y-6">
+          <div className="space-y-2">
+            <h2 className="type-title-lg text-[var(--text)]">Lesson breakdown</h2>
+            <p className="text-base text-[var(--text-muted)]">Move through the course in order, or jump directly into a lesson.</p>
           </div>
-          <div className="space-y-3">
+          <div className="surface-panel space-y-2 p-4">
             {queue.map((lesson) => (
               <LessonRow
                 accessLabel={lesson.accessLabel}

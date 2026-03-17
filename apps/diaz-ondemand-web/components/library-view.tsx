@@ -1,8 +1,9 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { startTransition, useDeferredValue, useEffect, useState } from 'react';
-import { buildRecommendation, type ProgramWithContentDto, type ProgressDto } from '@diaz/shared';
+import { buildRecommendation, Discipline, getDisciplineLabel, type ProgramWithContentDto, type ProgressDto } from '@diaz/shared';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 import { buildContinueWatching, buildCourseCardModel } from '@/lib/student-ui';
@@ -13,22 +14,30 @@ import { EmptyState } from './empty-state';
 import { PageHeader } from './page-header';
 import { SectionHeader } from './section-header';
 
+function Rail({ children }: { children: ReactNode }) {
+  return (
+    <div className="overflow-x-auto pb-2">
+      <div className="flex gap-5">{children}</div>
+    </div>
+  );
+}
+
 export function LibraryView({ programs }: { programs: ProgramWithContentDto[] }) {
   const apiFetch = useApiClient();
   const [progress, setProgress] = useState<ProgressDto[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState({
-    position: 'all',
-    track: 'all',
-    access: 'all',
-  });
+  const [disciplineFilter, setDisciplineFilter] = useState<'all' | Discipline>('all');
 
   useEffect(() => {
     apiFetch<ProgressDto[]>('/progress')
-      .then(setProgress)
+      .then((nextProgress) => {
+        setProgress(nextProgress);
+        setError(null);
+      })
       .catch((requestError) => {
         if (requestError instanceof ApiError && requestError.status === 401) {
           setProgress([]);
+          setError(null);
           return;
         }
 
@@ -36,63 +45,51 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
       });
   }, [apiFetch]);
 
-  const continueWatching = buildContinueWatching(programs, progress);
-  const startHere = programs.flatMap((program) =>
+  const deferredDiscipline = useDeferredValue(disciplineFilter);
+  const featuredPrograms = programs.filter((program) => program.isFeaturedDemo);
+  const trainingPrograms = programs.filter((program) => !program.isFeaturedDemo);
+  const disciplineOrder = Object.values(Discipline);
+  const filteredPrograms = trainingPrograms.filter((program) =>
+    deferredDiscipline === 'all' ? true : program.discipline === deferredDiscipline,
+  );
+  const continueWatching = buildContinueWatching(filteredPrograms, progress).filter(
+    (item) => item.progressPercent < 100,
+  );
+  const courseCards = filteredPrograms.flatMap((program) =>
     program.courses.map((course) => buildCourseCardModel(program, course, progress)),
   );
-  const deferredFilters = useDeferredValue(filters);
-  const positions = [
-    ...new Set(
-      programs.flatMap((program) =>
-        program.courses.flatMap((course) =>
-          course.lessons
-            .map((lesson) => lesson.curriculum?.position)
-            .filter((position): position is NonNullable<typeof position> => Boolean(position)),
-        ),
-      ),
-    ),
-  ];
-  const tracks = [
-    ...new Set(
-      programs.flatMap((program) =>
-        program.courses.flatMap((course) =>
-          course.lessons
-            .map((lesson) => lesson.curriculum?.track)
-            .filter((track): track is NonNullable<typeof track> => Boolean(track)),
-        ),
-      ),
-    ),
-  ];
-  const filteredPrograms = programs
-    .map((program) => ({
-      ...program,
-      courses: program.courses.filter((course) =>
-        course.lessons.some((lesson) => {
-          if (deferredFilters.position !== 'all' && lesson.curriculum?.position !== deferredFilters.position) {
-            return false;
-          }
-          if (deferredFilters.track !== 'all' && lesson.curriculum?.track !== deferredFilters.track) {
-            return false;
-          }
-          if (deferredFilters.access !== 'all' && lesson.accessLevel !== deferredFilters.access) {
-            return false;
-          }
-          return true;
-        }),
-      ),
-    }))
-    .filter((program) => program.courses.length > 0);
-  const firstProgram = programs[0] ?? null;
+  const newestCourses = courseCards.slice(0, 6);
+  const firstProgram = filteredPrograms.find((program) => program.courses.length > 0) ?? null;
   const firstCourse = firstProgram?.courses[0] ?? null;
-  const recommendation = firstCourse ? buildRecommendation(programs, firstCourse.id, progress) : null;
+  const recommendation = firstCourse ? buildRecommendation(filteredPrograms, firstCourse.id, progress) : null;
 
   return (
-    <AppShell className="space-y-14">
-      <PageHeader
-        description="Structured BJJ courses, premium lessons, and a guided path that keeps your training moving between sessions."
-        eyebrow="Student Library"
-        title="Train On Demand"
-      />
+    <AppShell className="space-y-16">
+      <div className="space-y-6">
+        <PageHeader
+          description="A guided on-demand library built around disciplined progression, repeatable modules, and quick return-to-training paths."
+          eyebrow="Student Library"
+          title="Train On Demand"
+        />
+        <div className="flex flex-wrap gap-2">
+          {(['all', ...disciplineOrder] as const).map((discipline) => (
+            <button
+              aria-pressed={disciplineFilter === discipline}
+              key={discipline}
+              className={[
+                'rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200',
+                disciplineFilter === discipline
+                  ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]'
+                  : 'border-white/10 bg-white/5 text-[var(--text-muted)]',
+              ].join(' ')}
+              onClick={() => startTransition(() => setDisciplineFilter(discipline))}
+              type="button"
+            >
+              {discipline === 'all' ? 'All disciplines' : getDisciplineLabel(discipline)}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {programs.length === 0 ? (
         <EmptyState
@@ -103,30 +100,43 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         />
       ) : null}
 
-      {programs.length > 0 && recommendation?.lessonId ? (
-        <section className="surface-panel grid gap-6 overflow-hidden p-8 lg:grid-cols-[1.2fr_0.8fr]">
+      {featuredPrograms.length > 0 ? (
+        <section className="space-y-5">
+          <SectionHeader detail="Instructor walkthrough" eyebrow="Featured demo" title="Showcase click-through" />
+          <Rail>
+            {featuredPrograms.flatMap((program) =>
+              program.courses.map((course) => (
+                <div className="w-[320px] shrink-0 sm:w-[360px]" key={course.id}>
+                  <CourseCard course={buildCourseCardModel(program, course, progress)} />
+                </div>
+              )),
+            )}
+          </Rail>
+        </section>
+      ) : null}
+
+      {filteredPrograms.length > 0 && recommendation?.lessonId ? (
+        <section className="surface-panel grid gap-6 overflow-hidden p-8 lg:grid-cols-[1.15fr_0.85fr]">
           <div className="space-y-4">
-            <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Recommended next</p>
-            <h2 className="font-display text-5xl uppercase leading-none tracking-[0.03em] text-[var(--text)]">
-              {recommendation.title}
-            </h2>
-            <p className="max-w-2xl text-base leading-7 text-[var(--text-muted)]">
+            <p className="type-kicker text-[var(--text-muted)]">Recommended next</p>
+            <h2 className="type-title-xl max-w-3xl text-[var(--text)]">{recommendation.title}</h2>
+            <p className="type-body max-w-2xl text-[var(--text-muted)]">
               {recommendation.reason === 'resume_lesson'
                 ? 'Pick up where you left off and keep the current lesson moving.'
                 : recommendation.reason === 'next_course'
-                  ? 'You have completed the current course. Move into the next section of the fundamentals path.'
+                  ? 'You have completed the current course. Move into the next section of the curriculum path.'
                   : 'This is the clearest next step in the guided path based on your progress.'}
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
-                className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+                className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
                 href={`/lesson/${recommendation.lessonId}`}
               >
                 Open lesson
               </Link>
               {recommendation.courseId ? (
                 <Link
-                  className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+                  className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
                   href={`/course/${recommendation.courseId}`}
                 >
                   View course
@@ -135,89 +145,112 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
             </div>
           </div>
           <div className="surface-panel-muted space-y-4 p-5">
-            <p className="font-display text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Refine the library</p>
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {['all', ...positions].map((position) => (
-                  <button
-                    key={position}
-                    className={['rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200', deferredFilters.position === position ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]' : 'border-white/10 bg-white/5 text-[var(--text-muted)]'].join(' ')}
-                    onClick={() => startTransition(() => setFilters((prev) => ({ ...prev, position: position ?? 'all' })))}
-                    type="button"
-                  >
-                    {position === 'all' ? 'All positions' : position.replaceAll('-', ' ')}
-                  </button>
-                ))}
+            <p className="type-kicker text-[var(--text-muted)]">Library snapshot</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
+                <p className="type-kicker text-[var(--text-muted)]">Programs</p>
+                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{filteredPrograms.length}</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {['all', ...tracks].map((track) => (
-                  <button
-                    key={track}
-                    className={['rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200', deferredFilters.track === track ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]' : 'border-white/10 bg-white/5 text-[var(--text-muted)]'].join(' ')}
-                    onClick={() => startTransition(() => setFilters((prev) => ({ ...prev, track: track ?? 'all' })))}
-                    type="button"
-                  >
-                    {track === 'all' ? 'All tracks' : track}
-                  </button>
-                ))}
+              <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
+                <p className="type-kicker text-[var(--text-muted)]">Courses</p>
+                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{courseCards.length}</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {['all', 'FREE', 'PAID'].map((access) => (
-                  <button
-                    key={access}
-                    className={['rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200', deferredFilters.access === access ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]' : 'border-white/10 bg-white/5 text-[var(--text-muted)]'].join(' ')}
-                    onClick={() => startTransition(() => setFilters((prev) => ({ ...prev, access })))}
-                    type="button"
-                  >
-                    {access === 'all' ? 'All access' : access === 'PAID' ? 'Premium' : 'Free'}
-                  </button>
-                ))}
+              <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
+                <p className="type-kicker text-[var(--text-muted)]">In progress</p>
+                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{continueWatching.length}</p>
+              </div>
+              <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
+                <p className="type-kicker text-[var(--text-muted)]">Filter</p>
+                <p className="mt-3 text-base text-[var(--text)]">
+                  {deferredDiscipline === 'all' ? 'All disciplines' : getDisciplineLabel(deferredDiscipline)}
+                </p>
               </div>
             </div>
           </div>
         </section>
       ) : null}
 
-      {programs.length > 0 && continueWatching.length > 0 ? (
+      {trainingPrograms.length > 0 && continueWatching.length > 0 ? (
         <section className="space-y-5">
           <SectionHeader detail={`${continueWatching.length} active lessons`} eyebrow="Progress first" title="Continue watching" />
-          <div className="grid gap-5 lg:grid-cols-3">
-            {continueWatching.slice(0, 3).map((item) => (
-              <ContinueCard item={item} key={item.lessonId} />
+          <Rail>
+            {continueWatching.slice(0, 8).map((item) => (
+              <div className="w-[320px] shrink-0 sm:w-[360px]" key={item.lessonId}>
+                <ContinueCard item={item} />
+              </div>
             ))}
-          </div>
+          </Rail>
         </section>
       ) : null}
 
-      {programs.length > 0 && continueWatching.length === 0 ? (
+      {trainingPrograms.length > 0 && newestCourses.length > 0 ? (
         <section className="space-y-5">
-          <SectionHeader detail={`${startHere.length} published courses`} eyebrow="First session" title="Start here" />
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {startHere.slice(0, 3).map((course) => (
-              <CourseCard course={course} key={course.id} />
+          <SectionHeader detail={`${newestCourses.length} structured modules`} eyebrow="Explore curriculum" title="New courses" />
+          <Rail>
+            {newestCourses.map((course) => (
+              <div className="w-[320px] shrink-0 sm:w-[360px]" key={course.id}>
+                <CourseCard course={course} />
+              </div>
             ))}
-          </div>
+          </Rail>
         </section>
       ) : null}
 
       {error ? (
-        <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]">{error}</div>
+        <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]" role="alert">
+          {error}
+        </div>
       ) : null}
 
-      {filteredPrograms.map((program) => {
-        const courses = program.courses.map((course) => buildCourseCardModel(program, course, progress));
+      {(deferredDiscipline === 'all' ? disciplineOrder : [deferredDiscipline]).map((discipline) => {
+        const programsForDiscipline = filteredPrograms.filter((program) => program.discipline === discipline);
+
+        if (programsForDiscipline.length === 0) {
+          return (
+            <section className="space-y-5" key={discipline}>
+              <SectionHeader
+                detail="No published programs available"
+                eyebrow="Discipline"
+                title={getDisciplineLabel(discipline)}
+              />
+              <div className="surface-panel-muted p-6">
+                <p className="text-sm leading-7 text-[var(--text-muted)]">
+                  No published programs are available for {getDisciplineLabel(discipline)} yet.
+                  Try another discipline or check back after new content is published.
+                </p>
+              </div>
+            </section>
+          );
+        }
 
         return (
-          <section className="space-y-5" key={program.id}>
+          <section className="space-y-5" key={discipline}>
             <SectionHeader
-              detail={program.description ?? `${courses.length} structured courses`}
-              eyebrow="Program"
-              title={program.title}
+              detail={`${programsForDiscipline.reduce((count, program) => count + program.courses.length, 0)} courses`}
+              eyebrow="Discipline"
+              title={getDisciplineLabel(discipline)}
             />
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {courses.map((course) => (
-                <CourseCard course={course} key={course.id} />
-              ))}
+            <div className="space-y-8">
+              {programsForDiscipline.map((program) => {
+                const courses = program.courses.map((course) => buildCourseCardModel(program, course, progress));
+
+                return (
+                  <div className="space-y-5" key={program.id}>
+                    <SectionHeader
+                      detail={program.description ?? `${courses.length} structured courses`}
+                      eyebrow="Program"
+                      title={program.title}
+                    />
+                    <Rail>
+                      {courses.map((course) => (
+                        <div className="w-[320px] shrink-0 sm:w-[360px]" key={course.id}>
+                          <CourseCard course={course} />
+                        </div>
+                      ))}
+                    </Rail>
+                  </div>
+                );
+              })}
             </div>
           </section>
         );

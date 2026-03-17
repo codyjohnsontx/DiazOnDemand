@@ -4,10 +4,7 @@
     "jsx": "react-jsx",
     "lib": ["esnext"],
     "types": ["react", "react-native", "node"],
-    "baseUrl": ".",
-    "paths": {
-      "@diaz/shared": ["../../packages/shared/src/index.ts"]
-    }
+    "baseUrl": "."
   },
   "include": ["App.tsx", "src"]
 }
