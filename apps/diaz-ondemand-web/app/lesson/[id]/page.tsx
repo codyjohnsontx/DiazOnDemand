@@ -36,6 +36,40 @@ type PlayerHandle = {
   duration: number;
 };
 
+type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
+function getPlaybackStatusMessage({
+  provider,
+  currentCompleted,
+  lastSavedAt,
+  saveState,
+}: {
+  provider: VideoProvider;
+  currentCompleted: boolean;
+  lastSavedAt: string | null;
+  saveState: SaveState;
+}) {
+  if (provider === VideoProvider.YOUTUBE) {
+    return currentCompleted
+      ? `Marked complete${lastSavedAt ? ` at ${lastSavedAt}` : ''}.`
+      : 'Demo video progress is not time-synced. Mark this lesson complete when you finish the walkthrough.';
+  }
+
+  if (saveState === 'saving') {
+    return 'Saving progress...';
+  }
+
+  if (saveState === 'saved') {
+    return `Progress saved ${lastSavedAt ? `at ${lastSavedAt}` : 'just now'}.`;
+  }
+
+  if (saveState === 'error') {
+    return 'Progress save failed. We will retry automatically.';
+  }
+
+  return 'Progress sync starts once playback begins.';
+}
+
 export default function LessonPage() {
   const params = useParams<{ id: string }>();
   const lessonId = params.id;
@@ -47,7 +81,7 @@ export default function LessonPage() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveState, setSaveState] = useState<SaveState>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const playerRef = useRef<PlayerHandle | null>(null);
   const lessonRef = useRef<LessonDetailDto | null>(null);
@@ -192,31 +226,36 @@ export default function LessonPage() {
 
     const lastPositionSeconds = lesson.durationSeconds ?? Math.max(progress.find((entry) => entry.lessonId === lesson.id)?.lastPositionSeconds ?? 0, 1);
 
-    await apiFetch(`/progress/${lesson.id}`, {
-      method: 'POST',
-      body: JSON.stringify({
-        lastPositionSeconds,
-        completed: true,
-      }),
-    });
+    try {
+      setSaveState('saving');
+      await apiFetch(`/progress/${lesson.id}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          lastPositionSeconds,
+          completed: true,
+        }),
+      });
 
-    setSaveState('saved');
-    setLastSavedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
-    setProgress((currentProgress) => {
-      const existing = currentProgress.find((entry) => entry.lessonId === lesson.id);
-      const nextEntry = {
-        id: existing?.id ?? `manual-${lesson.id}`,
-        userId: existing?.userId ?? 'pending',
-        lessonId: lesson.id,
-        lastPositionSeconds,
-        completed: true,
-        updatedAt: new Date().toISOString(),
-      };
+      setSaveState('saved');
+      setLastSavedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+      setProgress((currentProgress) => {
+        const existing = currentProgress.find((entry) => entry.lessonId === lesson.id);
+        const nextEntry = {
+          id: existing?.id ?? `manual-${lesson.id}`,
+          userId: existing?.userId ?? 'pending',
+          lessonId: lesson.id,
+          lastPositionSeconds,
+          completed: true,
+          updatedAt: new Date().toISOString(),
+        };
 
-      return existing
-        ? currentProgress.map((entry) => (entry.lessonId === lesson.id ? nextEntry : entry))
-        : [nextEntry, ...currentProgress];
-    });
+        return existing
+          ? currentProgress.map((entry) => (entry.lessonId === lesson.id ? nextEntry : entry))
+          : [nextEntry, ...currentProgress];
+      });
+    } catch {
+      setSaveState('error');
+    }
   };
 
   if (error instanceof ApiError && error.status === 402) {
@@ -356,17 +395,12 @@ export default function LessonPage() {
               <div className="space-y-1">
                 <p className="type-kicker text-[var(--text-muted)]">Playback status</p>
                 <p className="text-sm text-[var(--text-muted)]">
-                  {video.provider === VideoProvider.YOUTUBE
-                    ? currentCompleted
-                      ? `Marked complete${lastSavedAt ? ` at ${lastSavedAt}` : ''}.`
-                      : 'Demo video progress is not time-synced. Mark this lesson complete when you finish the walkthrough.'
-                    : saveState === 'saving'
-                      ? 'Saving progress...'
-                      : saveState === 'saved'
-                        ? `Progress saved ${lastSavedAt ? `at ${lastSavedAt}` : 'just now'}.`
-                        : saveState === 'error'
-                          ? 'Progress save failed. We will retry automatically.'
-                          : 'Progress sync starts once playback begins.'}
+                  {getPlaybackStatusMessage({
+                    provider: video.provider,
+                    currentCompleted,
+                    lastSavedAt,
+                    saveState,
+                  })}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">

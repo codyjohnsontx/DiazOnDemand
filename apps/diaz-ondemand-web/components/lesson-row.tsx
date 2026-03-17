@@ -49,7 +49,6 @@ export function LessonRow({
         <div className="flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
           <span>{accessLabel}</span>
           {curriculumLabel ? <span>{curriculumLabel}</span> : null}
-          {durationLabel ? <span>{durationLabel}</span> : null}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-4">

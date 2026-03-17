@@ -1,15 +1,9 @@
 import { AccessLevel, Discipline, VideoProvider } from '@prisma/client';
-
-type CurriculumLevel = 'intro' | 'core' | 'advanced';
-type CurriculumDiscipline = 'bjj' | 'muay-thai' | 'haganah';
-
-type CurriculumMetadataSeed = {
-  discipline: CurriculumDiscipline;
-  phase: string;
-  track: string;
-  skill?: string;
-  level: CurriculumLevel;
-};
+import type {
+  CurriculumDiscipline,
+  CurriculumLevel,
+  CurriculumMetadata,
+} from '@diaz/shared';
 
 type LessonSeed = {
   id: string;
@@ -21,7 +15,7 @@ type LessonSeed = {
   muxPlaybackId?: string | null;
   youtubeVideoId?: string | null;
   durationSeconds: number;
-  curriculum: CurriculumMetadataSeed;
+  curriculum: CurriculumMetadata;
 };
 
 type CourseSeed = {
@@ -119,6 +113,7 @@ function buildProgram(options: {
 
 export const bjjFundamentalsProgramId = '11111111-1111-1111-1111-111111111111';
 
+// These IDs stay stable because seeded demo routes and review walkthroughs reference them directly.
 export const bjjFundamentalsProgram: ProgramSeed = {
   id: bjjFundamentalsProgramId,
   title: 'BJJ Fundamentals',

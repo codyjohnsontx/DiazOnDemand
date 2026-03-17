@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createDefaultCurriculum,
   createCurriculumTags,
   curriculumMetadataSchema,
   curriculumTagSchema,
@@ -74,5 +75,16 @@ describe('curriculumMetadataSchema', () => {
         level: 'core',
       }),
     ).toThrow();
+  });
+});
+
+describe('createDefaultCurriculum', () => {
+  it('uses the selected discipline catalog instead of bjj fallbacks', () => {
+    const curriculum = createDefaultCurriculum('haganah');
+
+    expect(curriculum.discipline).toBe('haganah');
+    expect(curriculum.phase).toBe('foundations');
+    expect(curriculum.track).toBe('ready-stance-and-burst-movement');
+    expect(curriculum.level).toBe('intro');
   });
 });

@@ -198,6 +198,16 @@ export const curriculumTagSchema = z
 export type CurriculumMetadata = z.infer<typeof curriculumMetadataSchema>;
 export type CurriculumTag = z.infer<typeof curriculumTagSchema>;
 
+function getRequiredCatalogValue<T>(values: T[], label: string): T {
+  const [value] = values;
+
+  if (value === undefined) {
+    throw new Error(`No ${label} configured in curriculum catalog.`);
+  }
+
+  return value;
+}
+
 function titleCaseFallback(value: string) {
   return value
     .split('-')
@@ -215,6 +225,8 @@ export function curriculumDisciplineToProgramDiscipline(
       return Discipline.MUAY_THAI;
     case 'haganah':
       return Discipline.HAGANAH;
+    default:
+      throw new Error(`Unsupported curriculum discipline: ${String(discipline)}`);
   }
 }
 
@@ -228,6 +240,8 @@ export function programDisciplineToCurriculumDiscipline(
       return 'muay-thai';
     case Discipline.HAGANAH:
       return 'haganah';
+    default:
+      throw new Error(`Unsupported program discipline: ${String(discipline)}`);
   }
 }
 
@@ -332,10 +346,13 @@ export function parseCurriculumTags(tags: string[]): CurriculumMetadata | null {
 export function createDefaultCurriculum(
   discipline: CurriculumDiscipline = 'bjj',
 ): CurriculumMetadata {
-  const phase = getCurriculumPhaseKeys(discipline)[0] ?? 'fundamentals';
-  const track = getCurriculumTrackKeys(discipline, phase)[0] ?? 'guard-retention-defense';
+  const phase = getRequiredCatalogValue(getCurriculumPhaseKeys(discipline), `${discipline} phase`);
+  const track = getRequiredCatalogValue(
+    getCurriculumTrackKeys(discipline, phase),
+    `${discipline} track for phase ${phase}`,
+  );
   const skill = getCurriculumSkillKeys(discipline)[0];
-  const level = getCurriculumLevelKeys(discipline)[0] ?? 'core';
+  const level = getRequiredCatalogValue(getCurriculumLevelKeys(discipline), `${discipline} level`);
 
   return {
     discipline,

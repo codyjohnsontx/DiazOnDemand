@@ -37,36 +37,36 @@ If larger work is required:
 Project Structure
 Example structure:
 
-src/
-components/
-lib/
-hooks/
-api/
-tests/
+apps/my-app/src/
+packages/ui/src/
+packages/lib/src/
 
 Guidelines:
+- standalone applications live in `apps/*`
+- shared libraries live in `packages/*`
 - UI -> components
 - business logic -> lib
 - hooks -> hooks
 - API handlers -> api
 - tests -> tests
 
+These mapping rules apply within each app or package.
 Do not create new top-level folders unless required.
 
 Commands
 Use these commands to validate work.
 
 ```bash
-npm run dev
-npm run build
-npm run lint
-npm run test
-npx tsc --noEmit
+pnpm dev
+pnpm build
+pnpm lint
+pnpm test
+pnpm typecheck
 ```
 
 Before finishing work run:
-- npm run build
-- npm run lint
+- pnpm build
+- pnpm lint
 
 Do not claim tests passed unless executed.
 

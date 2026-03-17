@@ -38,6 +38,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `/packages/ui`
 
 Separate website repo:
+- `https://github.com/codyjohnsontx/DiazMartialArts.git`
 - `git@github.com:codyjohnsontx/DiazMartialArts.git`
 
 ## Environment Variables

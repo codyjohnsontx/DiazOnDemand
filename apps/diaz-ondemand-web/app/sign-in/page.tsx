@@ -36,7 +36,7 @@ export default function SignInPage() {
               colorText: '#F3F0E8',
               colorTextSecondary: '#9AA3AF',
               borderRadius: '24px',
-              fontFamily: 'Manrope, Helvetica Neue, sans-serif',
+              fontFamily: 'var(--font-body), Helvetica Neue, sans-serif',
             },
             elements: {
               rootBox: 'w-full max-w-[440px]',

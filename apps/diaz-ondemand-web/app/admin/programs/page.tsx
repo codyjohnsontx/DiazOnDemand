@@ -12,6 +12,7 @@ import { ApiError } from '@/lib/api-shared';
 
 export default function AdminProgramsPage() {
   const apiFetch = useApiClient();
+  const featuredDemoId = 'is-featured-demo';
   const [programs, setPrograms] = useState<ProgramWithContentDto[]>([]);
   const [form, setForm] = useState({
     title: '',
@@ -102,8 +103,9 @@ export default function AdminProgramsPage() {
                 </option>
               ))}
             </select>
-            <label className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
+            <label className="flex items-center gap-3 text-sm text-[var(--text-muted)]" htmlFor={featuredDemoId}>
               <input
+                id={featuredDemoId}
                 checked={form.isFeaturedDemo}
                 className="h-4 w-4 rounded border-white/10 bg-[var(--surface-2)]"
                 onChange={(event) =>

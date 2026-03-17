@@ -5,27 +5,10 @@ import {
   Role,
   VideoProvider,
 } from '@prisma/client';
+import { createCurriculumTags, type CurriculumMetadata } from '@diaz/shared';
 import { curriculumProgramsSeed } from './seed-curriculum/programs.js';
 
 const prisma = new PrismaClient();
-
-type CurriculumMetadata = {
-  discipline: 'bjj' | 'muay-thai' | 'haganah';
-  phase: string;
-  track: string;
-  skill?: string;
-  level: 'intro' | 'core' | 'advanced';
-};
-
-function createCurriculumTags(curriculum: CurriculumMetadata) {
-  return [
-    `discipline:${curriculum.discipline}`,
-    `phase:${curriculum.phase}`,
-    `track:${curriculum.track}`,
-    `level:${curriculum.level}`,
-    ...(curriculum.skill ? [`skill:${curriculum.skill}`] : []),
-  ];
-}
 
 async function seedPrograms() {
   for (const program of curriculumProgramsSeed) {

@@ -101,8 +101,8 @@ export default function AdminLessonDetailPage() {
         description: form.description,
         accessLevel: form.accessLevel,
         videoProvider: form.videoProvider,
-        muxPlaybackId: form.videoProvider === 'MUX' ? form.muxPlaybackId || null : null,
-        youtubeVideoId: form.videoProvider === 'YOUTUBE' ? form.youtubeVideoId || null : null,
+        muxPlaybackId: form.videoProvider === VideoProvider.MUX ? form.muxPlaybackId || null : null,
+        youtubeVideoId: form.videoProvider === VideoProvider.YOUTUBE ? form.youtubeVideoId || null : null,
         durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
         curriculum: {
           ...form.curriculum,
@@ -191,7 +191,7 @@ export default function AdminLessonDetailPage() {
             <option value="MUX">Mux playback</option>
             <option value="YOUTUBE">YouTube demo video</option>
           </select>
-          {form.videoProvider === 'MUX' ? (
+          {form.videoProvider === VideoProvider.MUX ? (
             <input
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               placeholder="Mux playback ID"
@@ -199,7 +199,7 @@ export default function AdminLessonDetailPage() {
               onChange={(event) => setForm((prev) => ({ ...prev, muxPlaybackId: event.target.value }))}
             />
           ) : null}
-          {form.videoProvider === 'YOUTUBE' ? (
+          {form.videoProvider === VideoProvider.YOUTUBE ? (
             <input
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               placeholder="YouTube video ID"

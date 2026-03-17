@@ -44,7 +44,7 @@ export function CourseCard({ course }: { course: CourseCardModel }) {
             <div className="space-y-3">
               {course.description ? <p className="type-meta text-white/78">{course.description}</p> : null}
               <div className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.18em] text-white/58">
-                <span>{course.lessonCount} lessons</span>
+                {course.progressPercent !== null ? <span>{course.lessonCount} lessons</span> : null}
                 {course.totalDurationLabel ? <span>{course.totalDurationLabel}</span> : null}
               </div>
             </div>

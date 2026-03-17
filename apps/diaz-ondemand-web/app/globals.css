@@ -69,6 +69,7 @@
 
   .type-kicker {
     @apply text-xs font-semibold uppercase;
+
     letter-spacing: 0.22em;
   }
 

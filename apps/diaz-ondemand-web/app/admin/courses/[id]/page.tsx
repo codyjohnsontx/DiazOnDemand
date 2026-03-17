@@ -16,6 +16,24 @@ import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
 
+const VIDEO_PROVIDER_LABELS: Record<VideoProvider, string> = {
+  [VideoProvider.MUX]: 'Mux',
+  [VideoProvider.YOUTUBE]: 'YouTube',
+  [VideoProvider.NONE]: 'No video',
+};
+
+function getDefaultCurriculum(
+  course: ProgramWithContentDto['courses'][number] | null,
+  program: ProgramWithContentDto | null,
+) {
+  return (
+    course?.lessons[0]?.curriculum ??
+    createDefaultCurriculum(
+      program ? programDisciplineToCurriculumDiscipline(program.discipline) : 'bjj',
+    )
+  );
+}
+
 export default function AdminCourseDetailPage() {
   const params = useParams<{ id: string }>();
   const courseId = params.id;
@@ -57,11 +75,7 @@ export default function AdminCourseDetailPage() {
         isPublished: false,
         accessLevel: 'FREE',
         videoProvider: VideoProvider.NONE,
-        curriculum:
-          course?.lessons[0]?.curriculum ??
-          createDefaultCurriculum(
-            program ? programDisciplineToCurriculumDiscipline(program.discipline) : 'bjj',
-          ),
+        curriculum: getDefaultCurriculum(course ?? null, program ?? null),
       }),
     });
     setNewLessonTitle('');
@@ -182,7 +196,7 @@ export default function AdminCourseDetailPage() {
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{lesson.title}</h3>
-                      <PremiumBadge label={lesson.videoProvider === 'YOUTUBE' ? 'YouTube' : lesson.videoProvider === 'MUX' ? 'Mux' : 'No video'} />
+                      <PremiumBadge label={VIDEO_PROVIDER_LABELS[lesson.videoProvider] ?? 'No video'} />
                       <PremiumBadge label={lesson.accessLevel === 'PAID' ? 'Premium' : 'Free'} tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'} />
                       <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
                     </div>

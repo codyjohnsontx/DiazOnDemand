@@ -3,13 +3,42 @@ import { curriculumMetadataSchema } from './curriculum.js';
 import { AccessLevel, Discipline, EntitlementTier, Role, VideoProvider } from './enums.js';
 
 export const curriculumSchema = curriculumMetadataSchema;
-export const videoSchema = z.object({
-  provider: z.nativeEnum(VideoProvider),
-  playbackUrl: z.string().url().nullable().optional(),
-  muxPlaybackId: z.string().nullable().optional(),
-  youtubeVideoId: z.string().nullable().optional(),
-  embedUrl: z.string().url().nullable().optional(),
-});
+export const videoSchema = z
+  .object({
+    provider: z.nativeEnum(VideoProvider),
+    playbackUrl: z.string().url().nullable().optional(),
+    muxPlaybackId: z.string().nullable().optional(),
+    youtubeVideoId: z.string().nullable().optional(),
+    embedUrl: z.string().url().nullable().optional(),
+  })
+  .superRefine((video, ctx) => {
+    const hasMuxSource = Boolean(video.muxPlaybackId || video.playbackUrl);
+    const hasYoutubeSource = Boolean(video.youtubeVideoId || video.embedUrl);
+
+    if (video.provider === VideoProvider.MUX && !hasMuxSource) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['muxPlaybackId'],
+        message: 'Mux videos must include a playback identifier or playback URL.',
+      });
+    }
+
+    if (video.provider === VideoProvider.YOUTUBE && !hasYoutubeSource) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['youtubeVideoId'],
+        message: 'YouTube videos must include a video identifier or embed URL.',
+      });
+    }
+
+    if (video.provider === VideoProvider.NONE && (hasMuxSource || hasYoutubeSource)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['provider'],
+        message: 'Video provider NONE cannot include playback identifiers.',
+      });
+    }
+  });
 
 export const lessonSummarySchema = z.object({
   id: z.string().uuid(),

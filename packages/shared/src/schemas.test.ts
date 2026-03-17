@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AccessLevel, Discipline, VideoProvider } from './enums';
-import { lessonSummarySchema } from './schemas';
+import { lessonSummarySchema, videoSchema } from './schemas';
 import { buildRecommendation } from './progression';
 
 describe('lessonSummarySchema', () => {
@@ -143,5 +143,29 @@ describe('buildRecommendation', () => {
 
     expect(result.reason).toBe('next_course');
     expect(result.courseId).toBe('22222222-2222-2222-2222-222222222222');
+  });
+});
+
+describe('videoSchema', () => {
+  it('rejects mux video payloads without a source', () => {
+    expect(() =>
+      videoSchema.parse({
+        provider: VideoProvider.MUX,
+        playbackUrl: null,
+        muxPlaybackId: null,
+      }),
+    ).toThrow();
+  });
+
+  it('accepts NONE video payloads without playback identifiers', () => {
+    const parsed = videoSchema.parse({
+      provider: VideoProvider.NONE,
+      playbackUrl: null,
+      muxPlaybackId: null,
+      youtubeVideoId: null,
+      embedUrl: null,
+    });
+
+    expect(parsed.provider).toBe(VideoProvider.NONE);
   });
 });

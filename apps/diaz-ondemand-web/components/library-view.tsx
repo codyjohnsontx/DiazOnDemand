@@ -142,7 +142,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
                 <p className="type-kicker text-[var(--text-muted)]">Programs</p>
-                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{trainingPrograms.length}</p>
+                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{filteredPrograms.length}</p>
               </div>
               <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
                 <p className="type-kicker text-[var(--text-muted)]">Courses</p>

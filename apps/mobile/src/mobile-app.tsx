@@ -284,6 +284,8 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
       ? lesson.video.playbackUrl ??
         (lesson.video.muxPlaybackId ? `https://stream.mux.com/${lesson.video.muxPlaybackId}.m3u8` : null)
       : null;
+  const youtubeEmbedUrl =
+    lesson.video.provider === VideoProvider.YOUTUBE ? lesson.video.embedUrl ?? null : null;
   const queue = course ? buildLessonQueue(course, progress, lesson.id) : [];
 
   return (
@@ -307,11 +309,13 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
             durationRef.current = status.durationMillis ? status.durationMillis / 1000 : 0;
           }}
         />
-      ) : lesson.video.provider === VideoProvider.YOUTUBE ? (
+      ) : youtubeEmbedUrl ? (
         <Button
-          onPress={() => lesson.video.embedUrl && Linking.openURL(lesson.video.embedUrl)}
+          onPress={() => Linking.openURL(youtubeEmbedUrl)}
           title="Open demo video"
         />
+      ) : lesson.video.provider === VideoProvider.YOUTUBE ? (
+        <Text>Demo video link is unavailable for this lesson.</Text>
       ) : (
         <Text>No playback source configured for this lesson.</Text>
       )}
