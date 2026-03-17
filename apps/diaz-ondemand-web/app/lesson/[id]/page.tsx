@@ -78,10 +78,12 @@ function isTrustedYouTubeEmbed(url: string) {
   try {
     const parsedUrl = new URL(url);
     const host = parsedUrl.hostname.toLowerCase();
-    const isTrustedHost =
-      host === 'www.youtube.com' ||
-      host === 'youtube.com' ||
-      host === 'www.youtube-nocookie.com';
+    const isTrustedHost = [
+      'www.youtube.com',
+      'youtube.com',
+      'www.youtube-nocookie.com',
+      'youtube-nocookie.com',
+    ].includes(host);
 
     return isTrustedHost && parsedUrl.pathname.startsWith('/embed/');
   } catch {
@@ -103,6 +105,7 @@ export default function LessonPage() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const playerRef = useRef<PlayerHandle | null>(null);
+  const playerLessonIdRef = useRef<string | null>(null);
   const lessonRef = useRef<LessonDetailDto | null>(null);
   const lessonIdRef = useRef<string>(lessonId);
   const apiFetchRef = useRef(apiFetch);
@@ -117,7 +120,12 @@ export default function LessonPage() {
     const currentLesson = lessonRef.current;
     const currentLessonId = lessonIdRef.current;
 
-    if (!playerRef.current || !currentLessonId || !currentLesson) {
+    if (
+      !playerRef.current ||
+      !currentLessonId ||
+      !currentLesson ||
+      playerLessonIdRef.current !== currentLessonId
+    ) {
       return;
     }
 
@@ -243,6 +251,10 @@ export default function LessonPage() {
 
   const markLessonComplete = async () => {
     if (!lesson) {
+      return;
+    }
+
+    if (video.provider === VideoProvider.MUX && playerLessonIdRef.current !== lesson.id) {
       return;
     }
 
@@ -386,6 +398,7 @@ export default function LessonPage() {
                 onError={() => setPlaybackError('Playback failed. Verify the Mux playback ID and signed playback configuration.')}
                 onTimeUpdate={(event) => {
                   playerRef.current = event.currentTarget as unknown as PlayerHandle;
+                  playerLessonIdRef.current = lesson.id;
                 }}
               />
             ) : video.provider === VideoProvider.YOUTUBE && trustedYoutubeEmbedUrl ? (

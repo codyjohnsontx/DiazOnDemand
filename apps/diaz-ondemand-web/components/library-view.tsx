@@ -74,7 +74,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         <div className="flex flex-wrap gap-2">
           {(['all', ...disciplineOrder] as const).map((discipline) => (
             <button
-              aria-pressed={deferredDiscipline === discipline}
+              aria-pressed={disciplineFilter === discipline}
               key={discipline}
               className={[
                 'rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200',

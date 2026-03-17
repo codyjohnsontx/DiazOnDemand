@@ -45,7 +45,12 @@ export default function AdminLessonDetailPage() {
   const videoProviderId = 'video-provider';
   const muxPlaybackId = 'mux-playback-id';
   const youtubeVideoId = 'youtube-video-id';
-  const [programs, setPrograms] = useState<ProgramWithContentDto[]>([]);
+  const curriculumDisciplineId = 'curriculum-discipline';
+  const curriculumPhaseId = 'curriculum-phase';
+  const curriculumTrackId = 'curriculum-track';
+  const curriculumSkillId = 'curriculum-skill';
+  const curriculumLevelId = 'curriculum-level';
+  const [programs, setPrograms] = useState<ProgramWithContentDto[] | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState<LessonEditorForm>({
     title: '',
@@ -59,6 +64,10 @@ export default function AdminLessonDetailPage() {
   });
 
   const lessonContext = useMemo(() => {
+    if (programs === null) {
+      return undefined;
+    }
+
     for (const program of programs) {
       for (const course of program.courses) {
         const found = course.lessons.find((entry) => entry.id === lessonId);
@@ -69,8 +78,8 @@ export default function AdminLessonDetailPage() {
     }
     return null;
   }, [lessonId, programs]);
-  const lesson = lessonContext?.lesson ?? null;
-  const program = lessonContext?.program ?? null;
+  const lesson = lessonContext?.lesson;
+  const program = lessonContext?.program;
 
   const load = async () => {
     const data = await apiFetch<ProgramWithContentDto[]>('/admin/programs');
@@ -145,7 +154,17 @@ export default function AdminLessonDetailPage() {
     await load();
   };
 
-  if (!lesson) {
+  if (lessonContext === undefined) {
+    return (
+      <AppShell>
+        <div className="surface-panel p-8">
+          <p className="font-display text-2xl leading-tight text-[var(--text-muted)]">Loading lesson...</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (lessonContext === null || !lesson) {
     return (
       <AppShell>
         <EmptyState description="The selected lesson could not be found." title="Lesson unavailable" />
@@ -283,91 +302,126 @@ export default function AdminLessonDetailPage() {
               <h2 className="type-title-lg text-[var(--text)]">Guided path</h2>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <select
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                value={form.curriculum.discipline}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    curriculum: createDefaultCurriculum(event.target.value as CurriculumMetadata['discipline']),
-                  }))
-                }
-              >
-                {curriculumDisciplineKeys.map((discipline) => (
-                  <option key={discipline} value={discipline}>
-                    {getDisciplineLabel(discipline)}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                value={form.curriculum.phase}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    curriculum: {
-                      ...prev.curriculum,
-                      phase: event.target.value,
-                      track: getCurriculumTrackKeys(prev.curriculum.discipline, event.target.value)[0] ?? prev.curriculum.track,
-                    },
-                  }))
-                }
-              >
-                {phaseOptions.map((phase) => (
-                  <option key={phase} value={phase}>
-                    {getCurriculumPhaseLabel(form.curriculum.discipline, phase)}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                value={form.curriculum.track}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    curriculum: { ...prev.curriculum, track: event.target.value },
-                  }))
-                }
-              >
-                {trackOptions.map((track) => (
-                  <option key={track} value={track}>
-                    {getCurriculumTrackLabel({ ...form.curriculum, track })}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                value={form.curriculum.skill ?? ''}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    curriculum: { ...prev.curriculum, skill: event.target.value || undefined },
-                  }))
-                }
-              >
-                <option value="">No skill tag</option>
-                {skillOptions.map((skill) => (
-                  <option key={skill} value={skill}>
-                    {getCurriculumSkillLabel({ ...form.curriculum, skill }) ?? skill}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                value={form.curriculum.level}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    curriculum: { ...prev.curriculum, level: event.target.value as CurriculumMetadata['level'] },
-                  }))
-                }
-              >
-                {levelOptions.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumDisciplineId}>
+                  Curriculum discipline
+                </label>
+                <select
+                  id={curriculumDisciplineId}
+                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                  value={form.curriculum.discipline}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      curriculum: createDefaultCurriculum(event.target.value as CurriculumMetadata['discipline']),
+                    }))
+                  }
+                >
+                  {curriculumDisciplineKeys.map((discipline) => (
+                    <option key={discipline} value={discipline}>
+                      {getDisciplineLabel(discipline)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumPhaseId}>
+                  Curriculum phase
+                </label>
+                <select
+                  id={curriculumPhaseId}
+                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                  value={form.curriculum.phase}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      curriculum: {
+                        ...prev.curriculum,
+                        phase: event.target.value,
+                        track:
+                          getCurriculumTrackKeys(prev.curriculum.discipline, event.target.value)[0] ??
+                          prev.curriculum.track,
+                      },
+                    }))
+                  }
+                >
+                  {phaseOptions.map((phase) => (
+                    <option key={phase} value={phase}>
+                      {getCurriculumPhaseLabel(form.curriculum.discipline, phase)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumTrackId}>
+                  Curriculum track
+                </label>
+                <select
+                  id={curriculumTrackId}
+                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                  value={form.curriculum.track}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      curriculum: { ...prev.curriculum, track: event.target.value },
+                    }))
+                  }
+                >
+                  {trackOptions.map((track) => (
+                    <option key={track} value={track}>
+                      {getCurriculumTrackLabel({ ...form.curriculum, track })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumSkillId}>
+                  Curriculum skill
+                </label>
+                <select
+                  id={curriculumSkillId}
+                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                  value={form.curriculum.skill ?? ''}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      curriculum: { ...prev.curriculum, skill: event.target.value || undefined },
+                    }))
+                  }
+                >
+                  <option value="">No skill tag</option>
+                  {skillOptions.map((skill) => (
+                    <option key={skill} value={skill}>
+                      {getCurriculumSkillLabel({ ...form.curriculum, skill }) ?? skill}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumLevelId}>
+                  Curriculum level
+                </label>
+                <select
+                  id={curriculumLevelId}
+                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                  value={form.curriculum.level}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      curriculum: {
+                        ...prev.curriculum,
+                        level: event.target.value as CurriculumMetadata['level'],
+                      },
+                    }))
+                  }
+                >
+                  {levelOptions.map((level) => (
+                    <option key={level} value={level}>
+                      {level}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
