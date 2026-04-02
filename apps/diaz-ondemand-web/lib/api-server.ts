@@ -1,12 +1,8 @@
 import { auth } from '@clerk/nextjs/server';
-import { clerkEnabled } from './config';
 import { requestApi } from './api-shared';
 
 export async function apiFetchServer<T>(path: string, init?: RequestInit): Promise<T> {
-  const token =
-    clerkEnabled
-      ? await (await auth()).getToken()
-      : null;
+  const token = await (await auth()).getToken();
 
   return requestApi<T>(path, {
     ...init,
