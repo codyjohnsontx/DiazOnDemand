@@ -42,7 +42,7 @@ export default async function AccountPage() {
             </div>
             <p className="hidden max-w-sm text-sm leading-7 text-[var(--text-muted)] sm:block">
               {me.currentPeriodEnd
-                ? `Current period ends on ${new Date(me.currentPeriodEnd).toLocaleDateString()}.`
+                ? `Current period ends on ${new Date(me.currentPeriodEnd).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.`
                 : 'No active billing period is attached to this account yet.'}
             </p>
           </div>
@@ -71,7 +71,8 @@ export default async function AccountPage() {
         </section>
       </AppShell>
     );
-  } catch {
+  } catch (error) {
+    console.error('[AccountPage] Failed to load account data', error);
     return (
       <AppShell>
         <EmptyState
