@@ -5,6 +5,9 @@ import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { apiFetchServer } from '@/lib/api-server';
 
+const ROW_CLASSES =
+  'flex items-center gap-4 rounded-[20px] border border-transparent px-4 py-4 transition-all duration-300 hover:border-white/10 hover:bg-white/[0.04]';
+
 export default async function AccountPage() {
   try {
     const me = await apiFetchServer<MeDto>('/me');
@@ -18,7 +21,7 @@ export default async function AccountPage() {
         />
 
         <section className="space-y-1">
-          <div className="flex items-center gap-4 rounded-[20px] border border-transparent px-4 py-4 transition-all duration-300 hover:border-white/10 hover:bg-white/[0.04]">
+          <div className={ROW_CLASSES}>
             <div className="min-w-0 flex-1 space-y-1">
               <p className="type-kicker text-[var(--text-muted)]">Entitlement</p>
               <h2 className="font-display text-2xl leading-none text-[var(--text)]">{me.entitlementTier}</h2>
@@ -30,7 +33,7 @@ export default async function AccountPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-4 rounded-[20px] border border-transparent px-4 py-4 transition-all duration-300 hover:border-white/10 hover:bg-white/[0.04]">
+          <div className={ROW_CLASSES}>
             <div className="min-w-0 flex-1 space-y-1">
               <p className="type-kicker text-[var(--text-muted)]">Subscription</p>
               <h2 className="font-display text-2xl leading-none text-[var(--text)]">
@@ -44,7 +47,7 @@ export default async function AccountPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-4 rounded-[20px] border border-transparent px-4 py-4 transition-all duration-300 hover:border-white/10 hover:bg-white/[0.04]">
+          <div className={ROW_CLASSES}>
             <div className="min-w-0 flex-1 space-y-1">
               <p className="type-kicker text-[var(--text-muted)]">Next action</p>
               <h2 className="font-display text-2xl leading-none text-[var(--text)]">

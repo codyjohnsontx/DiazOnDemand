@@ -3,7 +3,7 @@ import type { FavoriteDto } from '@diaz/shared';
 
 interface FavoriteRowProps {
   favorite: FavoriteDto;
-  onRemove: (lessonId: string) => void;
+  onRemove: (lessonId: string) => Promise<void>;
 }
 
 export function FavoriteRow({ favorite, onRemove }: FavoriteRowProps) {
@@ -18,14 +18,14 @@ export function FavoriteRow({ favorite, onRemove }: FavoriteRowProps) {
       <div className="flex shrink-0 items-center gap-3">
         <button
           className="inline-flex items-center rounded-full border border-white/10 bg-transparent px-4 py-2 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] transition-colors duration-200 hover:border-white/20 hover:text-[var(--text)]"
-          onClick={() => favorite.lesson && onRemove(favorite.lesson.id)}
+          onClick={() => void onRemove(favorite.lessonId)}
           type="button"
         >
           Remove
         </button>
         <Link
           className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-          href={favorite.lesson ? `/lesson/${favorite.lesson.id}` : '/library'}
+          href={`/lesson/${favorite.lessonId}`}
         >
           Open lesson
         </Link>

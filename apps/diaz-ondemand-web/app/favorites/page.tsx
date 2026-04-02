@@ -35,8 +35,12 @@ export default function FavoritesPage() {
   }, []);
 
   const removeFavorite = async (lessonId: string) => {
-    await apiFetch(`/favorites/${lessonId}`, { method: 'DELETE' });
-    await loadFavorites();
+    try {
+      await apiFetch(`/favorites/${lessonId}`, { method: 'DELETE' });
+      await loadFavorites();
+    } catch {
+      setError('Could not remove favorite. Please try again.');
+    }
   };
 
   return (
@@ -47,7 +51,7 @@ export default function FavoritesPage() {
         title="Favorites"
       />
 
-      {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
+      {error ? <p className="text-sm text-[var(--danger)]" role="alert">{error}</p> : null}
 
       {favorites.length === 0 ? (
         <EmptyState
@@ -59,7 +63,7 @@ export default function FavoritesPage() {
       ) : (
         <div className="space-y-1">
           {favorites.map((favorite) => (
-            <FavoriteRow favorite={favorite} key={favorite.id} onRemove={(id) => void removeFavorite(id)} />
+            <FavoriteRow favorite={favorite} key={favorite.id} onRemove={removeFavorite} />
           ))}
         </div>
       )}
