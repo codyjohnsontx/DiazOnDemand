@@ -4,7 +4,6 @@ import { useState } from 'react';
 import type { CheckoutSessionDto } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { PageHeader } from '@/components/page-header';
-import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
 
 export default function SubscribePage() {
@@ -44,37 +43,23 @@ export default function SubscribePage() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <section className="surface-panel space-y-8 p-8">
-          <div className="flex flex-wrap gap-3">
-            <PremiumBadge label="Full library access" tone="premium" />
-            <PremiumBadge label="Web + mobile" tone="accent" />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="surface-panel-muted p-5">
-              <h2 className="font-display text-2xl leading-tight text-[var(--text)]">Unlock paid lessons</h2>
-              <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">
-                Move through premium courses and technique chains without hitting locked lessons mid-session.
-              </p>
-            </div>
-            <div className="surface-panel-muted p-5">
-              <h2 className="font-display text-2xl leading-tight text-[var(--text)]">Track your progress</h2>
-              <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">
-                Keep your place automatically so you can return to the exact point where training stopped.
-              </p>
-            </div>
-            <div className="surface-panel-muted p-5">
-              <h2 className="font-display text-2xl leading-tight text-[var(--text)]">Train anywhere</h2>
-              <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">
-                Start a session on the web player and continue from mobile when you are back on the move.
-              </p>
-            </div>
-          </div>
-          <div className="surface-panel-muted flex items-center justify-between gap-4 p-5">
-            <div>
-              <p className="type-kicker text-[var(--text-muted)]">Plan</p>
-              <h2 className="mt-2 font-display text-3xl leading-none text-[var(--text)]">Monthly premium access</h2>
-            </div>
-            <PremiumBadge label="Monthly" tone="premium" />
+          <ul className="space-y-5">
+            <li className="space-y-1">
+              <h2 className="font-display text-xl text-[var(--text)]">Unlock paid lessons</h2>
+              <p className="text-sm leading-7 text-[var(--text-muted)]">Move through premium courses and technique chains without hitting locked lessons mid-session.</p>
+            </li>
+            <li className="space-y-1">
+              <h2 className="font-display text-xl text-[var(--text)]">Track your progress</h2>
+              <p className="text-sm leading-7 text-[var(--text-muted)]">Keep your place automatically so you can return to the exact point where training stopped.</p>
+            </li>
+            <li className="space-y-1">
+              <h2 className="font-display text-xl text-[var(--text)]">Train anywhere</h2>
+              <p className="text-sm leading-7 text-[var(--text-muted)]">Start a session on the web player and continue from mobile when you are back on the move.</p>
+            </li>
+          </ul>
+          <div className="surface-panel-muted p-5">
+            <p className="type-kicker text-[var(--text-muted)]">Plan</p>
+            <h2 className="mt-2 font-display text-3xl leading-none text-[var(--text)]">Monthly premium access</h2>
           </div>
         </section>
 

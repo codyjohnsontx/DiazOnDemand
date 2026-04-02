@@ -1,6 +1,5 @@
 'use client';
 
-import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { startTransition, useDeferredValue, useEffect, useState } from 'react';
 import { buildRecommendation, Discipline, getDisciplineLabel, type ProgramWithContentDto, type ProgressDto } from '@diaz/shared';
@@ -8,19 +7,11 @@ import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 import { buildContinueWatching, buildCourseCardModel } from '@/lib/student-ui';
 import { AppShell } from './app-shell';
-import { ContinueCard } from './continue-card';
-import { CourseCard } from './course-card';
+import { ContinueRow } from './continue-row';
+import { CourseRow } from './course-row';
 import { EmptyState } from './empty-state';
 import { PageHeader } from './page-header';
 import { SectionHeader } from './section-header';
-
-function Rail({ children }: { children: ReactNode }) {
-  return (
-    <div className="overflow-x-auto pb-2">
-      <div className="flex gap-5">{children}</div>
-    </div>
-  );
-}
 
 export function LibraryView({ programs }: { programs: ProgramWithContentDto[] }) {
   const apiFetch = useApiClient();
@@ -58,7 +49,6 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   const courseCards = filteredPrograms.flatMap((program) =>
     program.courses.map((course) => buildCourseCardModel(program, course, progress)),
   );
-  const newestCourses = courseCards.slice(0, 6);
   const firstProgram = filteredPrograms.find((program) => program.courses.length > 0) ?? null;
   const firstCourse = firstProgram?.courses[0] ?? null;
   const recommendation = firstCourse ? buildRecommendation(filteredPrograms, firstCourse.id, progress) : null;
@@ -100,72 +90,44 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         />
       ) : null}
 
-      {featuredPrograms.length > 0 ? (
-        <section className="space-y-5">
-          <SectionHeader detail="Instructor walkthrough" eyebrow="Featured demo" title="Showcase click-through" />
-          <Rail>
-            {featuredPrograms.flatMap((program) =>
-              program.courses.map((course) => (
-                <div className="w-[320px] shrink-0 sm:w-[360px]" key={course.id}>
-                  <CourseCard course={buildCourseCardModel(program, course, progress)} />
-                </div>
-              )),
-            )}
-          </Rail>
+      {filteredPrograms.length > 0 && recommendation?.lessonId ? (
+        <section className="space-y-4">
+          <SectionHeader eyebrow="Recommended next" title={recommendation.title ?? 'Ready to begin'} />
+          <p className="type-body max-w-2xl text-[var(--text-muted)]">
+            {recommendation.reason === 'resume_lesson'
+              ? 'Pick up where you left off and keep the current lesson moving.'
+              : recommendation.reason === 'next_course'
+                ? 'You have completed the current course. Move into the next section of the curriculum path.'
+                : 'This is the clearest next step in the guided path based on your progress.'}
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
+              href={`/lesson/${recommendation.lessonId}`}
+            >
+              Open lesson
+            </Link>
+            {recommendation.courseId ? (
+              <Link
+                className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+                href={`/course/${recommendation.courseId}`}
+              >
+                View course
+              </Link>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
-      {filteredPrograms.length > 0 && recommendation?.lessonId ? (
-        <section className="surface-panel grid gap-6 overflow-hidden p-8 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-4">
-            <p className="type-kicker text-[var(--text-muted)]">Recommended next</p>
-            <h2 className="type-title-xl max-w-3xl text-[var(--text)]">{recommendation.title}</h2>
-            <p className="type-body max-w-2xl text-[var(--text-muted)]">
-              {recommendation.reason === 'resume_lesson'
-                ? 'Pick up where you left off and keep the current lesson moving.'
-                : recommendation.reason === 'next_course'
-                  ? 'You have completed the current course. Move into the next section of the curriculum path.'
-                  : 'This is the clearest next step in the guided path based on your progress.'}
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Link
-                className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
-                href={`/lesson/${recommendation.lessonId}`}
-              >
-                Open lesson
-              </Link>
-              {recommendation.courseId ? (
-                <Link
-                  className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-                  href={`/course/${recommendation.courseId}`}
-                >
-                  View course
-                </Link>
-              ) : null}
-            </div>
-          </div>
-          <div className="surface-panel-muted space-y-4 p-5">
-            <p className="type-kicker text-[var(--text-muted)]">Library snapshot</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
-                <p className="type-kicker text-[var(--text-muted)]">Programs</p>
-                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{filteredPrograms.length}</p>
-              </div>
-              <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
-                <p className="type-kicker text-[var(--text-muted)]">Courses</p>
-                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{courseCards.length}</p>
-              </div>
-              <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
-                <p className="type-kicker text-[var(--text-muted)]">In progress</p>
-                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{continueWatching.length}</p>
-              </div>
-              <div className="rounded-[20px] border border-white/10 bg-white/5 p-4">
-                <p className="type-kicker text-[var(--text-muted)]">Filter</p>
-                <p className="mt-3 text-base text-[var(--text)]">
-                  {deferredDiscipline === 'all' ? 'All disciplines' : getDisciplineLabel(deferredDiscipline)}
-                </p>
-              </div>
-            </div>
+      {featuredPrograms.length > 0 ? (
+        <section className="space-y-5">
+          <SectionHeader detail="Instructor walkthrough" eyebrow="Featured demo" title="Showcase click-through" />
+          <div className="space-y-1">
+            {featuredPrograms.flatMap((program) =>
+              program.courses.map((course) => (
+                <CourseRow course={buildCourseCardModel(program, course, progress)} key={course.id} />
+              )),
+            )}
           </div>
         </section>
       ) : null}
@@ -173,33 +135,18 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
       {trainingPrograms.length > 0 && continueWatching.length > 0 ? (
         <section className="space-y-5">
           <SectionHeader detail={`${continueWatching.length} active lessons`} eyebrow="Progress first" title="Continue watching" />
-          <Rail>
+          <div className="space-y-1">
             {continueWatching.slice(0, 8).map((item) => (
-              <div className="w-[320px] shrink-0 sm:w-[360px]" key={item.lessonId}>
-                <ContinueCard item={item} />
-              </div>
+              <ContinueRow item={item} key={item.lessonId} />
             ))}
-          </Rail>
-        </section>
-      ) : null}
-
-      {trainingPrograms.length > 0 && newestCourses.length > 0 ? (
-        <section className="space-y-5">
-          <SectionHeader detail={`${newestCourses.length} structured modules`} eyebrow="Explore curriculum" title="New courses" />
-          <Rail>
-            {newestCourses.map((course) => (
-              <div className="w-[320px] shrink-0 sm:w-[360px]" key={course.id}>
-                <CourseCard course={course} />
-              </div>
-            ))}
-          </Rail>
+          </div>
         </section>
       ) : null}
 
       {error ? (
-        <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]" role="alert">
+        <p className="text-sm text-[var(--danger)]" role="alert">
           {error}
-        </div>
+        </p>
       ) : null}
 
       {(deferredDiscipline === 'all' ? disciplineOrder : [deferredDiscipline]).map((discipline) => {
@@ -213,12 +160,10 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
                 eyebrow="Discipline"
                 title={getDisciplineLabel(discipline)}
               />
-              <div className="surface-panel-muted p-6">
-                <p className="text-sm leading-7 text-[var(--text-muted)]">
-                  No published programs are available for {getDisciplineLabel(discipline)} yet.
-                  Try another discipline or check back after new content is published.
-                </p>
-              </div>
+              <p className="type-body text-[var(--text-muted)]">
+                No published programs are available for {getDisciplineLabel(discipline)} yet.
+                Try another discipline or check back after new content is published.
+              </p>
             </section>
           );
         }
@@ -235,19 +180,17 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
                 const courses = program.courses.map((course) => buildCourseCardModel(program, course, progress));
 
                 return (
-                  <div className="space-y-5" key={program.id}>
+                  <div className="space-y-3" key={program.id}>
                     <SectionHeader
                       detail={program.description ?? `${courses.length} structured courses`}
                       eyebrow="Program"
                       title={program.title}
                     />
-                    <Rail>
+                    <div className="space-y-1">
                       {courses.map((course) => (
-                        <div className="w-[320px] shrink-0 sm:w-[360px]" key={course.id}>
-                          <CourseCard course={course} />
-                        </div>
+                        <CourseRow course={course} key={course.id} />
                       ))}
-                    </Rail>
+                    </div>
                   </div>
                 );
               })}
