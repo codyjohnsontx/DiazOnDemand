@@ -1,8 +1,6 @@
 'use client';
 
-import { ClerkProvider } from '@clerk/nextjs';
-import { useAuth } from '@clerk/nextjs';
-import { clerkEnabled } from '@/lib/config';
+import { ClerkProvider, useAuth } from '@clerk/nextjs';
 import type { ReactNode } from 'react';
 import { createContext, useContext } from 'react';
 
@@ -29,14 +27,6 @@ function ClerkTokenProvider({ children }: { children: ReactNode }) {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  if (!clerkEnabled) {
-    return (
-      <AuthTokenContext.Provider value={{ getToken: async () => null }}>
-        {children}
-      </AuthTokenContext.Provider>
-    );
-  }
-
   return (
     <ClerkProvider>
       <ClerkTokenProvider>{children}</ClerkTokenProvider>
