@@ -16,7 +16,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Mobile: Expo + React Navigation + expo-av
 - Auth: Clerk (with local dev bypass mode)
 - Billing: Stripe subscriptions + webhooks
-- Video: Mux playback IDs (server token signing TODO included)
+- Video: Mux playback IDs with public/free and signed/premium playback handling
 
 ## MVP Features Included
 - Browse Programs/Courses/Lessons (published only)
@@ -27,7 +27,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
 - Stripe checkout session endpoint
 - Stripe webhook handler syncing `Subscription` + `Entitlement`
-- Mux webhook endpoint stub with TODO
+- Mux webhook endpoint stub for future asset-sync work
 
 ## Repository Layout
 - `/apps/api`
@@ -49,7 +49,9 @@ Required core values:
 - `DEV_BYPASS_AUTH` (`true` for local MVP)
 - `DEFAULT_DEV_CLERK_USER_ID`
 - `NEXT_PUBLIC_API_URL`
+- `NEXT_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
 - `EXPO_PUBLIC_API_URL`
+- `EXPO_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
 
 Auth (Clerk):
 - `CLERK_PUBLISHABLE_KEY`
@@ -120,9 +122,9 @@ After seed:
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).
 
 ## Clerk Setup Notes (Web + Expo)
-- Current MVP supports `DEV_BYPASS_AUTH=true` in development.
+- Development bypass requires `DEV_BYPASS_AUTH=true` on the API and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` on clients.
 - API reads `x-dev-user-id` header and auto-upserts a user.
-- For real Clerk auth, provide `CLERK_SECRET_KEY` + client publishable keys and the web/mobile clients will forward bearer tokens to the API.
+- For real Clerk auth, provide `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`), and client publishable keys; the web/mobile clients will forward bearer tokens to the API.
 
 ## Stripe + Webhooks
 Create checkout session endpoint:
@@ -147,7 +149,7 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 - Lessons store `muxAssetId` and `muxPlaybackId`.
 - API returns `playbackUrl` for clients to treat as an opaque playback source.
 - Free lessons use a public playback URL; paid lessons use a signed playback URL when Mux signing keys are configured.
-- `POST /webhooks/mux` exists as a minimal stub.
+- `POST /webhooks/mux` exists as a minimal stub for future asset-status syncing.
 
 ## Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
@@ -166,7 +168,7 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 - `pnpm db:seed`
 
 ## MVP TODO / Roadmap
-- Better admin UX for tags and ordering controls
+- Better admin UX for content ordering and bulk operations
 - Offline-safe mobile progress queueing
 - CI pipeline for lint/typecheck/test + deploy previews
 

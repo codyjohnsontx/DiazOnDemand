@@ -46,9 +46,6 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   const continueWatching = buildContinueWatching(filteredPrograms, progress).filter(
     (item) => item.progressPercent < 100,
   );
-  const courseCards = filteredPrograms.flatMap((program) =>
-    program.courses.map((course) => buildCourseCardModel(program, course, progress)),
-  );
   const firstProgram = filteredPrograms.find((program) => program.courses.length > 0) ?? null;
   const firstCourse = firstProgram?.courses[0] ?? null;
   const recommendation = firstCourse ? buildRecommendation(filteredPrograms, firstCourse.id, progress) : null;

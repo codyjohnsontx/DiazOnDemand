@@ -14,12 +14,20 @@ export default function SubscribeCancelPage() {
         <p className="max-w-2xl text-base leading-7 text-[var(--text-muted)]">
           Your current access has not changed. Free lessons remain open, and premium lessons stay locked until you subscribe.
         </p>
-        <Link
-          className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-          href="/subscribe"
-        >
-          Return to premium
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+            href="/subscribe"
+          >
+            Return to premium
+          </Link>
+          <Link
+            className="inline-flex items-center rounded-full border border-white/10 bg-transparent px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] transition-colors duration-200 hover:border-white/20 hover:text-[var(--text)]"
+            href="/library"
+          >
+            Back to library
+          </Link>
+        </div>
       </div>
     </AppShell>
   );

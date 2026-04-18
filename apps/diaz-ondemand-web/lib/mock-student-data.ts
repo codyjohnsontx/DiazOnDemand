@@ -109,7 +109,7 @@ export const mockPrograms: ProgramWithContentDto[] = [
         description: 'A first-step progression through frames, hip movement, and early guard recovery.',
         orderIndex: 1,
         isPublished: true,
-        lessons: lessons.map(({ tags, ...lesson }) => lesson),
+        lessons: lessons.map(({ tags: _tags, ...lesson }) => lesson),
       },
     ],
   },

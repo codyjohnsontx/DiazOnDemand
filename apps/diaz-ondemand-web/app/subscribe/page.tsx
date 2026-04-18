@@ -36,7 +36,7 @@ export default function SubscribePage() {
   return (
     <AppShell className="space-y-8">
       <PageHeader
-        description="Premium access opens the full Diaz on Demand training library, including paid lessons and seamless progress tracking."
+        description="Monthly premium access unlocks the full Diaz on Demand library, including every paid lesson, saved progress, and cross-session training flow."
         eyebrow="Membership"
         title="Go Premium"
       />
@@ -60,6 +60,9 @@ export default function SubscribePage() {
           <div className="surface-panel-muted p-5">
             <p className="type-kicker text-[var(--text-muted)]">Plan</p>
             <h2 className="mt-2 font-display text-3xl leading-none text-[var(--text)]">Monthly premium access</h2>
+            <p className="mt-3 text-sm leading-7 text-[var(--text-muted)]">
+              This checkout is monthly-only for the initial launch. Billing stays simple, and premium access turns on as soon as Stripe and the webhook finish syncing.
+            </p>
           </div>
         </section>
 
@@ -81,7 +84,7 @@ export default function SubscribePage() {
           </button>
 
           <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-            {error ? 'Stripe setup issue detected.' : 'Checkout opens in Stripe.'}
+            {error ? 'Checkout issue detected.' : 'Checkout opens in Stripe and returns here when complete.'}
           </p>
           {error ? <p className="text-sm leading-7 text-[var(--danger)]">{error}</p> : null}
         </aside>

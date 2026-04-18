@@ -5,7 +5,7 @@ import {
   Role,
   VideoProvider,
 } from '@prisma/client';
-import { createCurriculumTags, type CurriculumMetadata } from '@diaz/shared';
+import { createCurriculumTags } from '@diaz/shared';
 import { curriculumProgramsSeed } from './seed-curriculum/programs.js';
 
 const prisma = new PrismaClient();

@@ -5,7 +5,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -31,7 +31,10 @@ import {
 import { useAuthToken } from './auth-provider';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
-const DEV_USER_ID = process.env.EXPO_PUBLIC_DEV_USER_ID ?? 'dev_clerk_user';
+const DEV_BYPASS_AUTH =
+  process.env.NODE_ENV !== 'production' && process.env.EXPO_PUBLIC_DEV_BYPASS_AUTH === 'true';
+const rawDevUserId = process.env.EXPO_PUBLIC_DEV_USER_ID?.trim();
+const DEV_USER_ID = DEV_BYPASS_AUTH ? rawDevUserId || null : null;
 const SUBSCRIBE_URL = process.env.EXPO_PUBLIC_SUBSCRIBE_URL ?? 'http://localhost:3000/subscribe';
 
 type RootStackParamList = {
@@ -48,7 +51,19 @@ const StackNavigator = Stack.Navigator as unknown as React.ComponentType<any>;
 const TabsNavigator = Tabs.Navigator as unknown as React.ComponentType<any>;
 const ExpoVideo = Video as unknown as React.ComponentType<any>;
 
-let devUserId = DEV_USER_ID;
+type DevUserContextValue = {
+  devUserId: string | null;
+  resetDevUserId: () => void;
+};
+
+const DevUserContext = createContext<DevUserContextValue>({
+  devUserId: DEV_USER_ID,
+  resetDevUserId: () => undefined,
+});
+
+function useDevUser() {
+  return useContext(DevUserContext);
+}
 
 type ApiInit = {
   method?: string;
@@ -56,12 +71,17 @@ type ApiInit = {
   body?: string;
 };
 
-async function requestApi<T>(path: string, token: string | null, init?: ApiInit): Promise<T> {
+async function requestApi<T>(
+  path: string,
+  token: string | null,
+  devUserId: string | null,
+  init?: ApiInit,
+): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : { 'x-dev-user-id': devUserId }),
+      ...(token ? { Authorization: `Bearer ${token}` } : devUserId ? { 'x-dev-user-id': devUserId } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -76,11 +96,15 @@ async function requestApi<T>(path: string, token: string | null, init?: ApiInit)
 
 function useApiClient() {
   const { getToken } = useAuthToken();
+  const { devUserId } = useDevUser();
 
-  return async function api<T>(path: string, init?: ApiInit): Promise<T> {
-    const token = await getToken();
-    return requestApi<T>(path, token, init);
-  };
+  return useCallback(
+    async function api<T>(path: string, init?: ApiInit): Promise<T> {
+      const token = await getToken();
+      return requestApi<T>(path, token, devUserId, init);
+    },
+    [devUserId, getToken],
+  );
 }
 
 function ProgramsScreen({ navigation }: NativeStackScreenProps<RootStackParamList, 'Programs'>) {
@@ -89,7 +113,7 @@ function ProgramsScreen({ navigation }: NativeStackScreenProps<RootStackParamLis
 
   useEffect(() => {
     api<ProgramWithContentDto[]>('/programs').then(setPrograms).catch(console.error);
-  }, []);
+  }, [api]);
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
@@ -154,7 +178,7 @@ function CourseDetailScreen({
         setProgress(nextProgress);
       })
       .catch(console.error);
-  }, [courseId]);
+  }, [api, courseId]);
 
   if (!course) {
     return (
@@ -212,7 +236,7 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : String(err));
       });
-  }, [lessonId]);
+  }, [api, lessonId]);
 
   useEffect(() => {
     async function saveProgress() {
@@ -259,7 +283,7 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
       appStateSubscription.remove();
       void saveProgress();
     };
-  }, [lessonId]);
+  }, [api, lessonId]);
 
   if (error?.startsWith('402')) {
     return (
@@ -347,7 +371,7 @@ function FavoritesScreen() {
 
   useEffect(() => {
     api<FavoriteDto[]>('/favorites').then(setFavorites).catch(console.error);
-  }, []);
+  }, [api]);
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
@@ -368,7 +392,7 @@ function AccountScreen() {
 
   useEffect(() => {
     api<MeDto>('/me').then(setMe).catch(console.error);
-  }, []);
+  }, [api]);
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
@@ -384,19 +408,19 @@ function AccountScreen() {
 }
 
 function SignInScreen() {
+  const { devUserId, resetDevUserId } = useDevUser();
+
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
       <Text style={{ fontSize: 24, fontWeight: '700', marginBottom: 12 }}>Sign In</Text>
       <Text>Clerk can be enabled via EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY.</Text>
-      <Text style={{ marginTop: 8 }}>MVP dev mode uses x-dev-user-id header:</Text>
+      <Text style={{ marginTop: 8 }}>Development bypass header:</Text>
       <Text>Current dev user header:</Text>
-      <Text style={{ marginTop: 8, fontWeight: '600' }}>{devUserId}</Text>
+      <Text style={{ marginTop: 8, fontWeight: '600' }}>{devUserId ?? 'Disabled'}</Text>
       <View style={{ marginTop: 16 }}>
         <Button
           title="Reset to default"
-          onPress={() => {
-            devUserId = DEV_USER_ID;
-          }}
+          onPress={resetDevUserId}
         />
       </View>
     </SafeAreaView>
@@ -404,14 +428,21 @@ function SignInScreen() {
 }
 
 export function MobileApp() {
+  const [devUserId, setDevUserId] = useState(DEV_USER_ID);
+  const resetDevUserId = useCallback(() => {
+    setDevUserId(DEV_USER_ID);
+  }, []);
+
   return (
-    <NavigationRoot>
-      <TabsNavigator>
-        <Tabs.Screen name="Library" component={LibraryStack} options={{ headerShown: false }} />
-        <Tabs.Screen name="Favorites" component={FavoritesScreen} />
-        <Tabs.Screen name="Account" component={AccountScreen} />
-        <Tabs.Screen name="SignIn" component={SignInScreen} options={{ title: 'Sign In' }} />
-      </TabsNavigator>
-    </NavigationRoot>
+    <DevUserContext.Provider value={{ devUserId, resetDevUserId }}>
+      <NavigationRoot>
+        <TabsNavigator>
+          <Tabs.Screen name="Library" component={LibraryStack} options={{ headerShown: false }} />
+          <Tabs.Screen name="Favorites" component={FavoritesScreen} />
+          <Tabs.Screen name="Account" component={AccountScreen} />
+          <Tabs.Screen name="SignIn" component={SignInScreen} options={{ title: 'Sign In' }} />
+        </TabsNavigator>
+      </NavigationRoot>
+    </DevUserContext.Provider>
   );
 }
