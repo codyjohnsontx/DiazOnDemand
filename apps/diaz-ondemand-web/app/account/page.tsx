@@ -5,6 +5,8 @@ import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { apiFetchServer } from '@/lib/api-server';
 
+export const dynamic = 'force-dynamic';
+
 const ROW_CLASSES =
   'flex items-center gap-4 rounded-[20px] border border-transparent px-4 py-4 transition-all duration-300 hover:border-white/10 hover:bg-white/[0.04]';
 

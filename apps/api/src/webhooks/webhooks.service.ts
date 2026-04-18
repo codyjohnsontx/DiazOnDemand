@@ -16,6 +16,7 @@ export class WebhooksService {
 
   verifyStripeSignature(payload: Buffer, signature: string) {
     if (!this.stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+      this.logger.error('Stripe webhook called without Stripe webhook configuration');
       throw new Error('Stripe webhook not configured');
     }
 
@@ -81,6 +82,10 @@ export class WebhooksService {
         validUntil: sub.current_period_end ? new Date(sub.current_period_end * 1000) : null,
       },
     });
+
+    this.logger.log(
+      `Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}; premium=${isPremium}`,
+    );
   }
 
   handleMuxWebhook(payload: unknown) {

@@ -13,19 +13,23 @@ export default function FavoritesPage() {
   const apiFetch = useApiClient();
   const [favorites, setFavorites] = useState<FavoriteDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [requiresSignIn, setRequiresSignIn] = useState(false);
 
   const loadFavorites = async () => {
     try {
       const data = await apiFetch<FavoriteDto[]>('/favorites');
       setFavorites(data);
       setError(null);
+      setRequiresSignIn(false);
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 401) {
         setFavorites([]);
+        setRequiresSignIn(true);
         setError('Sign in to keep a short list of the lessons you want to revisit.');
         return;
       }
 
+      setRequiresSignIn(false);
       setError('Favorites could not be loaded right now.');
     }
   };
@@ -38,7 +42,15 @@ export default function FavoritesPage() {
     try {
       await apiFetch(`/favorites/${lessonId}`, { method: 'DELETE' });
       await loadFavorites();
-    } catch {
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 401) {
+        setFavorites([]);
+        setRequiresSignIn(true);
+        setError('Sign in to keep a short list of the lessons you want to revisit.');
+        return;
+      }
+
+      setRequiresSignIn(false);
       setError('Could not remove favorite. Please try again.');
     }
   };
@@ -55,10 +67,14 @@ export default function FavoritesPage() {
 
       {favorites.length === 0 ? (
         <EmptyState
-          ctaHref="/library"
-          ctaLabel="Browse library"
-          description="Save lessons from the library to build a short list of techniques you want to revisit between classes."
-          title="No saved lessons yet"
+          ctaHref={requiresSignIn ? '/sign-in' : '/library'}
+          ctaLabel={requiresSignIn ? 'Sign in' : 'Browse library'}
+          description={
+            requiresSignIn
+              ? 'Sign in to save lessons you want to revisit between classes and keep a short list of drills to return to.'
+              : 'Save lessons from the library to build a short list of techniques you want to revisit between classes.'
+          }
+          title={requiresSignIn ? 'Sign in to use favorites' : 'No saved lessons yet'}
         />
       ) : (
         <div className="space-y-1">

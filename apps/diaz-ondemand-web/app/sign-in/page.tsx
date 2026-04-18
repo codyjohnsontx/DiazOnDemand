@@ -4,15 +4,19 @@ import { SignIn } from '@clerk/nextjs';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
-import { clerkEnabled } from '@/lib/config';
+import { clerkEnabled, devBypassEnabled } from '@/lib/config';
 
 export default function SignInPage() {
   if (!clerkEnabled) {
     return (
       <AppShell>
         <EmptyState
-          description="Clerk keys are not configured for this environment. Use DEV_BYPASS_AUTH=true in the API and NEXT_PUBLIC_DEV_USER_ID in the web app for local development."
-          title="Member access is not configured"
+          description={
+            devBypassEnabled
+              ? 'Sign-in is temporarily bypassed for development. You can keep working through the library as the configured local dev user.'
+              : 'Clerk keys are not configured for this environment. Configure Clerk for real member sign-in or explicitly enable development bypass locally.'
+          }
+          title={devBypassEnabled ? 'Development access is enabled' : 'Member access is not configured'}
         />
       </AppShell>
     );

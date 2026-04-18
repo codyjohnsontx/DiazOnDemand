@@ -7,7 +7,10 @@ export function LockedStateCard() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(242,193,78,0.18),transparent_24%)]" />
       <div className="relative space-y-8">
         <div className="space-y-4">
-          <PremiumBadge label="Premium lesson" tone="premium" />
+          <div className="flex flex-wrap gap-2">
+            <PremiumBadge label="Premium lesson" tone="premium" />
+            <PremiumBadge label="Monthly access" />
+          </div>
           <div className="space-y-3">
             <h1 className="type-title-xl max-w-3xl text-[var(--text)]">Unlock the full training library</h1>
             <p className="type-body max-w-2xl text-[var(--text-muted)]">

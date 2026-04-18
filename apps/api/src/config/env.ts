@@ -35,11 +35,31 @@ const apiEnvSchema = z
       });
     }
 
+    if (value.DEV_BYPASS_AUTH === 'false' && !value.CLERK_JWT_ISSUER) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CLERK_JWT_ISSUER'],
+        message: 'required when DEV_BYPASS_AUTH=false',
+      });
+    }
+
     if (value.STRIPE_SECRET_KEY && !value.STRIPE_PRICE_ID_MONTHLY) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['STRIPE_PRICE_ID_MONTHLY'],
         message: 'required when STRIPE_SECRET_KEY is set',
+      });
+    }
+
+    if (
+      value.NODE_ENV === 'production' &&
+      value.STRIPE_SECRET_KEY &&
+      !value.STRIPE_WEBHOOK_SECRET
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['STRIPE_WEBHOOK_SECRET'],
+        message: 'required in production when Stripe billing is enabled',
       });
     }
 
@@ -56,6 +76,14 @@ const apiEnvSchema = z
         code: z.ZodIssueCode.custom,
         path: ['MUX_TOKEN_ID'],
         message: 'MUX_TOKEN_ID and MUX_TOKEN_SECRET must be provided together',
+      });
+    }
+
+    if (value.NODE_ENV === 'production' && !value.DIAZ_INTERNAL_API_KEY) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DIAZ_INTERNAL_API_KEY'],
+        message: 'required in production for server-to-server entitlement checks',
       });
     }
   });
