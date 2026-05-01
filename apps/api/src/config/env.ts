@@ -17,6 +17,7 @@ const apiEnvSchema = z
     MUX_TOKEN_ID: z.string().optional(),
     MUX_TOKEN_SECRET: z.string().optional(),
     DIAZ_INTERNAL_API_KEY: z.string().optional(),
+    VOD_COMING_SOON: z.enum(['true', 'false']).default('false'),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV === 'production' && value.DEV_BYPASS_AUTH === 'true') {

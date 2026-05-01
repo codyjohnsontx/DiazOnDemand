@@ -50,6 +50,8 @@ Required core values:
 - `DEFAULT_DEV_CLERK_USER_ID`
 - `NEXT_PUBLIC_API_URL`
 - `NEXT_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
+- `VOD_COMING_SOON` (`true` in production while the VOD app is hidden)
+- `NEXT_PUBLIC_VOD_COMING_SOON` (`true` in production while the VOD app is hidden)
 - `EXPO_PUBLIC_API_URL`
 - `EXPO_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
 
@@ -156,6 +158,9 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 - API deploy: deploy `apps/api` as a separate service/project.
 - Ensure web has `NEXT_PUBLIC_API_URL` pointing at deployed API.
 - Keep server secrets only on API environment.
+- While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and
+  `NEXT_PUBLIC_VOD_COMING_SOON=true` on production web/API deployments. Leave both unset or
+  `false` for local and preview deployments so development routes stay usable.
 
 ## Scripts
 - `pnpm dev` -> API + web

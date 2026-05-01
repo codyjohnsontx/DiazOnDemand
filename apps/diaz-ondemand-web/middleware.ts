@@ -13,8 +13,17 @@ const isProtectedRoute = createRouteMatcher([
 const devBypassEnabled =
   process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH === 'true';
 const clerkConfigured = !devBypassEnabled && Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+const comingSoonEnabled =
+  process.env.VOD_COMING_SOON === 'true' || process.env.NEXT_PUBLIC_VOD_COMING_SOON === 'true';
 
 export default clerkMiddleware(async (auth, req) => {
+  if (comingSoonEnabled && req.nextUrl.pathname !== '/') {
+    const url = req.nextUrl.clone();
+    url.pathname = '/';
+    url.search = '';
+    return Response.redirect(url);
+  }
+
   if (!clerkConfigured) {
     if (devBypassEnabled || !isProtectedRoute(req)) {
       return;
