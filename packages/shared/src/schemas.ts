@@ -97,6 +97,21 @@ export const programWithContentSchema = programSchema.extend({
   ),
 });
 
+// Admin-only projections. `muxAssetId` is the join key the Mux `video.asset.ready`
+// webhook matches on, so admins need to set it - but it stays off the public
+// content payloads, which are built from lessonSummarySchema.
+export const adminLessonSummarySchema = lessonSummarySchema.extend({
+  muxAssetId: z.string().nullable().optional(),
+});
+
+export const adminProgramWithContentSchema = programSchema.extend({
+  courses: z.array(
+    courseSchema.extend({
+      lessons: z.array(adminLessonSummarySchema),
+    }),
+  ),
+});
+
 export const progressUpsertSchema = z.object({
   lastPositionSeconds: z.number().int().nonnegative(),
   completed: z.boolean(),
@@ -189,6 +204,8 @@ export type LessonDetailDto = z.infer<typeof lessonDetailSchema>;
 export type CourseDto = z.infer<typeof courseSchema>;
 export type ProgramDto = z.infer<typeof programSchema>;
 export type ProgramWithContentDto = z.infer<typeof programWithContentSchema>;
+export type AdminLessonSummary = z.infer<typeof adminLessonSummarySchema>;
+export type AdminProgramWithContentDto = z.infer<typeof adminProgramWithContentSchema>;
 export type ProgressUpsertPayload = z.infer<typeof progressUpsertSchema>;
 export type ProgressDto = z.infer<typeof progressSchema>;
 export type FavoriteTogglePayload = z.infer<typeof favoriteToggleSchema>;

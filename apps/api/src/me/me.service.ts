@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import {
-  EntitlementTier as SharedEntitlementTier,
   Role as SharedRole,
   entitlementsResponseSchema,
   type EntitlementsResponse,
 } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier, Role as DbRole } from '@diaz/db';
+import { isEntitlementActive, resolveEntitlementTier } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -22,10 +22,7 @@ export class MeService {
       return null;
     }
 
-    const entitlementTier =
-      user.entitlement?.tier === DbEntitlementTier.PREMIUM
-        ? SharedEntitlementTier.PREMIUM
-        : SharedEntitlementTier.FREE;
+    const entitlementTier = resolveEntitlementTier(user.entitlement);
     const role =
       user.role === DbRole.ADMIN
         ? SharedRole.ADMIN
@@ -62,10 +59,7 @@ export class MeService {
       },
     });
 
-    const now = new Date();
-    const vod =
-      entitlement.tier === DbEntitlementTier.PREMIUM &&
-      (entitlement.validUntil === null || entitlement.validUntil > now);
+    const vod = isEntitlementActive(entitlement);
 
     // MVP rule: gym membership is true if a User row exists (we upsert above).
     const gymMember = true;

@@ -69,8 +69,10 @@ Stripe:
 - `WEB_APP_URL`
 
 Mux (optional now):
-- `MUX_TOKEN_ID`
-- `MUX_TOKEN_SECRET`
+- `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` (API access token, from Settings > Access Tokens)
+- `MUX_WEBHOOK_SECRET` (webhook signing secret; required in production when `MUX_TOKEN_ID` is set)
+- `MUX_SIGNING_KEY_ID` / `MUX_SIGNING_KEY_PRIVATE` (signing key, from Settings > Signing Keys - a
+  separate credential from the access token; signs the RS256 playback JWTs for `PAID` lessons)
 
 Seed helper:
 - `SEED_DEV_CLERK_USER_ID`

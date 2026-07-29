@@ -3,7 +3,7 @@ import { Prisma } from '@diaz/db';
 import type { CurriculumMetadata } from '@diaz/shared';
 import { createCurriculumTags } from '@diaz/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { mapLessonSummary } from '../content/lesson-presentation.js';
+import { mapAdminLessonSummary } from '../content/lesson-presentation.js';
 
 @Injectable()
 export class AdminService {
@@ -33,7 +33,7 @@ export class AdminService {
       ...program,
       courses: program.courses.map((course) => ({
         ...course,
-        lessons: course.lessons.map((lesson) => mapLessonSummary(lesson)),
+        lessons: course.lessons.map((lesson) => mapAdminLessonSummary(lesson)),
       })),
     }));
   }
