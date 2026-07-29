@@ -1,8 +1,9 @@
-import { createHmac } from 'node:crypto';
+import { createSign } from 'node:crypto';
 import { InternalServerErrorException } from '@nestjs/common';
 import {
   VideoProvider,
   parseCurriculumTags,
+  type AdminLessonSummary,
   type LessonDetailDto,
   type LessonSummary,
 } from '@diaz/shared';
@@ -33,18 +34,29 @@ function base64UrlEncode(value: string | Buffer) {
     .replace(/=+$/g, '');
 }
 
+/**
+ * Mux signed playback tokens are RS256 JWTs signed with a Mux *signing key* -
+ * a different credential from the MUX_TOKEN_ID/MUX_TOKEN_SECRET API access
+ * token, and a different algorithm from HMAC. See Mux's secure-playback guide.
+ */
 function createMuxPlaybackToken(playbackId: string) {
-  const tokenId = process.env.MUX_TOKEN_ID;
-  const tokenSecret = process.env.MUX_TOKEN_SECRET;
+  const keyId = process.env.MUX_SIGNING_KEY_ID;
+  const rawPrivateKey = process.env.MUX_SIGNING_KEY_PRIVATE;
 
-  if (!tokenId || !tokenSecret) {
+  if (!keyId || !rawPrivateKey) {
     return null;
   }
 
+  // The dashboard hands the RSA key over base64-encoded so it fits on one env
+  // line; a key pasted straight from a .pem file is already usable as-is.
+  const privateKey = rawPrivateKey.includes('-----BEGIN')
+    ? rawPrivateKey
+    : Buffer.from(rawPrivateKey, 'base64').toString('utf8');
+
   const header = {
-    alg: 'HS256',
+    alg: 'RS256',
     typ: 'JWT',
-    kid: tokenId,
+    kid: keyId,
   };
   const now = Math.floor(Date.now() / 1000);
   const payload = {
@@ -57,7 +69,7 @@ function createMuxPlaybackToken(playbackId: string) {
   const encodedHeader = base64UrlEncode(JSON.stringify(header));
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));
   const data = `${encodedHeader}.${encodedPayload}`;
-  const signature = createHmac('sha256', tokenSecret).update(data).digest();
+  const signature = createSign('RSA-SHA256').update(data).sign(privateKey);
 
   return `${data}.${base64UrlEncode(signature)}`;
 }
@@ -101,6 +113,17 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
   };
 }
 
+/**
+ * Admin projection: same as the public summary plus `muxAssetId`, which admins
+ * set so the Mux `video.asset.ready` webhook can find the lesson to sync.
+ */
+export function mapAdminLessonSummary(lesson: LessonLike): AdminLessonSummary {
+  return {
+    ...mapLessonSummary(lesson),
+    muxAssetId: lesson.muxAssetId ?? null,
+  };
+}
+
 export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }): LessonDetailDto {
   const summary = mapLessonSummary(lesson);
   const videoProvider = resolveVideoProvider(lesson);
@@ -120,7 +143,7 @@ export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }):
         playbackUrl = `https://stream.mux.com/${lesson.muxPlaybackId}.m3u8`;
       } else {
         throw new InternalServerErrorException(
-          'Premium playback is not configured. Add MUX_TOKEN_ID and MUX_TOKEN_SECRET.',
+          'Premium playback is not configured. Add MUX_SIGNING_KEY_ID and MUX_SIGNING_KEY_PRIVATE.',
         );
       }
     }

@@ -1,8 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { verifyToken } from '@clerk/backend';
-import { EntitlementTier as SharedEntitlementTier, Role } from '@diaz/shared';
+import { Role } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier, Role as DbRole } from '@diaz/db';
 import type { AuthUser, RequestWithUser } from '../common/request-with-user.js';
+import { resolveEntitlementTier } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -72,10 +73,7 @@ export class AuthService {
         entitlement: true,
       },
     });
-    const entitlementTier =
-      user.entitlement?.tier === 'PREMIUM'
-        ? SharedEntitlementTier.PREMIUM
-        : SharedEntitlementTier.FREE;
+    const entitlementTier = resolveEntitlementTier(user.entitlement);
     const role =
       user.role === DbRole.ADMIN
         ? Role.ADMIN

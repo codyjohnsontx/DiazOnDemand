@@ -24,7 +24,20 @@ export class WebhooksController {
   }
 
   @Post('mux')
-  mux(@Req() req: Request) {
-    return this.webhooksService.handleMuxWebhook(req.body);
+  async mux(@Req() req: Request, @Headers('mux-signature') signature: string | undefined) {
+    if (!signature || !req.rawBody) {
+      throw new BadRequestException('Missing mux signature or raw body');
+    }
+
+    try {
+      this.webhooksService.verifyMuxSignature(req.rawBody, signature);
+    } catch (error) {
+      throw new BadRequestException(`Webhook error: ${(error as Error).message}`);
+    }
+
+    // Deliberately outside the try: a verified event that fails to persist should
+    // surface as a 5xx so Mux retries it, not a 400 that drops it.
+    await this.webhooksService.handleMuxWebhook(req.body);
+    return { received: true };
   }
 }

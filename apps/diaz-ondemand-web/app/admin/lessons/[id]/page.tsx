@@ -5,8 +5,8 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type {
   AccessLevel,
+  AdminProgramWithContentDto,
   CurriculumMetadata,
-  ProgramWithContentDto,
 } from '@diaz/shared';
 import {
   VideoProvider,
@@ -32,6 +32,7 @@ type LessonEditorForm = {
   description: string;
   accessLevel: AccessLevel;
   videoProvider: VideoProvider;
+  muxAssetId: string;
   muxPlaybackId: string;
   youtubeVideoId: string;
   durationSeconds: string;
@@ -47,6 +48,7 @@ export default function AdminLessonDetailPage() {
   const accessLevelInputId = 'lesson-access-level';
   const durationSecondsInputId = 'lesson-duration-seconds';
   const videoProviderInputId = 'video-provider';
+  const muxAssetInputId = 'mux-asset-id';
   const muxPlaybackInputId = 'mux-playback-id';
   const youtubeVideoInputId = 'youtube-video-id';
   const curriculumDisciplineInputId = 'curriculum-discipline';
@@ -54,7 +56,7 @@ export default function AdminLessonDetailPage() {
   const curriculumTrackInputId = 'curriculum-track';
   const curriculumSkillInputId = 'curriculum-skill';
   const curriculumLevelInputId = 'curriculum-level';
-  const [programs, setPrograms] = useState<ProgramWithContentDto[] | null>(null);
+  const [programs, setPrograms] = useState<AdminProgramWithContentDto[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState<LessonEditorForm>({
@@ -62,6 +64,7 @@ export default function AdminLessonDetailPage() {
     description: '',
     accessLevel: 'FREE' as AccessLevel,
     videoProvider: VideoProvider.NONE,
+    muxAssetId: '',
     muxPlaybackId: '',
     youtubeVideoId: '',
     durationSeconds: '',
@@ -88,7 +91,7 @@ export default function AdminLessonDetailPage() {
 
   const load = async () => {
     try {
-      const data = await apiFetch<ProgramWithContentDto[]>('/admin/programs');
+      const data = await apiFetch<AdminProgramWithContentDto[]>('/admin/programs');
       setPrograms(data);
       setLoadError(null);
     } catch (requestError) {
@@ -112,6 +115,7 @@ export default function AdminLessonDetailPage() {
       description: lesson.description ?? '',
       accessLevel: lesson.accessLevel,
       videoProvider: lesson.videoProvider,
+      muxAssetId: lesson.muxAssetId ?? '',
       muxPlaybackId: lesson.muxPlaybackId ?? '',
       youtubeVideoId: lesson.youtubeVideoId ?? '',
       durationSeconds: lesson.durationSeconds ? String(lesson.durationSeconds) : '',
@@ -125,6 +129,7 @@ export default function AdminLessonDetailPage() {
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
+    const normalizedMuxAssetId = form.muxAssetId.trim();
     const normalizedMuxPlaybackId = form.muxPlaybackId.trim();
     const normalizedYoutubeVideoId = form.youtubeVideoId.trim();
 
@@ -146,6 +151,8 @@ export default function AdminLessonDetailPage() {
           description: form.description,
           accessLevel: form.accessLevel,
           videoProvider: form.videoProvider,
+          muxAssetId:
+            form.videoProvider === VideoProvider.MUX ? normalizedMuxAssetId || null : null,
           muxPlaybackId: form.videoProvider === VideoProvider.MUX ? normalizedMuxPlaybackId : null,
           youtubeVideoId:
             form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
@@ -294,6 +301,26 @@ export default function AdminLessonDetailPage() {
               <option value={VideoProvider.YOUTUBE}>YouTube demo video</option>
             </select>
           </div>
+          {form.videoProvider === VideoProvider.MUX ? (
+            <div className="space-y-2">
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={muxAssetInputId}>
+                Mux asset ID
+              </label>
+              <input
+                id={muxAssetInputId}
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                placeholder="Mux asset ID"
+                value={form.muxAssetId}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, muxAssetId: event.target.value }))
+                }
+              />
+              <p className="type-meta text-[var(--text-muted)]">
+                Optional. Set this to let the Mux webhook fill in the playback ID and duration
+                automatically once the asset finishes encoding.
+              </p>
+            </div>
+          ) : null}
           {form.videoProvider === VideoProvider.MUX ? (
             <div className="space-y-2">
               <label className="type-kicker text-[var(--text-muted)]" htmlFor={muxPlaybackInputId}>
