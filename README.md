@@ -27,7 +27,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
 - Stripe checkout session endpoint
 - Stripe webhook handler syncing `Subscription` + `Entitlement`
-- Mux webhook endpoint stub for future asset-sync work
+- Mux webhook with signature verification, syncing playback ID + duration on `video.asset.ready`
 
 ## Repository Layout
 - `/apps/api`
@@ -50,6 +50,8 @@ Required core values:
 - `DEFAULT_DEV_CLERK_USER_ID`
 - `NEXT_PUBLIC_API_URL`
 - `NEXT_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
+- `VOD_COMING_SOON` (`true` in production while the VOD app is hidden)
+- `NEXT_PUBLIC_VOD_COMING_SOON` (`true` in production while the VOD app is hidden)
 - `EXPO_PUBLIC_API_URL`
 - `EXPO_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
 
@@ -67,8 +69,10 @@ Stripe:
 - `WEB_APP_URL`
 
 Mux (optional now):
-- `MUX_TOKEN_ID`
-- `MUX_TOKEN_SECRET`
+- `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` (API access token, from Settings > Access Tokens)
+- `MUX_WEBHOOK_SECRET` (webhook signing secret; required in production when `MUX_TOKEN_ID` is set)
+- `MUX_SIGNING_KEY_ID` / `MUX_SIGNING_KEY_PRIVATE` (signing key, from Settings > Signing Keys - a
+  separate credential from the access token; signs the RS256 playback JWTs for `PAID` lessons)
 
 Seed helper:
 - `SEED_DEV_CLERK_USER_ID`
@@ -149,13 +153,29 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 - Lessons store `muxAssetId` and `muxPlaybackId`.
 - API returns `playbackUrl` for clients to treat as an opaque playback source.
 - Free lessons use a public playback URL; paid lessons use a signed playback URL when Mux signing keys are configured.
-- `POST /webhooks/mux` exists as a minimal stub for future asset-status syncing.
+- `POST /webhooks/mux` verifies the `mux-signature` HMAC (rejecting timestamps older than
+  300s) and, on `video.asset.ready`, writes `muxPlaybackId` and `durationSeconds` onto the
+  lesson whose `muxAssetId` matches. Set `muxAssetId` in the admin lesson editor to opt a
+  lesson into that sync.
+- Signed playback needs a Mux *signing key* (`MUX_SIGNING_KEY_ID` /
+  `MUX_SIGNING_KEY_PRIVATE`), which is a different credential from the `MUX_TOKEN_ID` /
+  `MUX_TOKEN_SECRET` API access token.
+
+Test webhooks locally with the Mux CLI - it forwards to localhost and prints a signing
+secret to use as `MUX_WEBHOOK_SECRET`:
+```bash
+mux webhooks listen --forward-to http://localhost:4000/webhooks/mux
+mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhooks/mux
+```
 
 ## Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
 - API deploy: deploy `apps/api` as a separate service/project.
 - Ensure web has `NEXT_PUBLIC_API_URL` pointing at deployed API.
 - Keep server secrets only on API environment.
+- While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and
+  `NEXT_PUBLIC_VOD_COMING_SOON=true` on production web/API deployments. Leave both unset or
+  `false` for local and preview deployments so development routes stay usable.
 
 ## Scripts
 - `pnpm dev` -> API + web

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Manrope, Oswald } from 'next/font/google';
 import { AuthProvider } from '@/components/auth-provider';
 import { Nav } from '@/components/nav';
+import { comingSoonEnabled } from '@/lib/config';
 
 const bodyFont = Manrope({
   subsets: ['latin'],
@@ -21,8 +22,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body className={`${bodyFont.variable} ${displayFont.variable} antialiased`}>
         <AuthProvider>
-          <Nav />
-          <main className="pb-28 pt-28 sm:pb-20 sm:pt-32">{children}</main>
+          {!comingSoonEnabled && <Nav />}
+          <main
+            className={comingSoonEnabled ? 'py-16 sm:py-20' : 'pb-28 pt-28 sm:pb-20 sm:pt-32'}
+          >
+            {children}
+          </main>
         </AuthProvider>
       </body>
     </html>

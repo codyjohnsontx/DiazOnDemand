@@ -6,3 +6,5 @@ export const clerkEnabled = !devBypassEnabled && Boolean(process.env.NEXT_PUBLIC
 export const devUserId = devBypassEnabled ? rawDevUserId || 'dev_clerk_user' : null;
 export const marketingSiteUrl =
   process.env.NEXT_PUBLIC_MARKETING_SITE_URL ?? 'https://www.diazmartialarts.com';
+export const comingSoonEnabled =
+  process.env.VOD_COMING_SOON === 'true' || process.env.NEXT_PUBLIC_VOD_COMING_SOON === 'true';

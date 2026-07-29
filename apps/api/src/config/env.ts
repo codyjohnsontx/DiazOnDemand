@@ -16,7 +16,11 @@ const apiEnvSchema = z
     STRIPE_PRICE_ID_MONTHLY: z.string().optional(),
     MUX_TOKEN_ID: z.string().optional(),
     MUX_TOKEN_SECRET: z.string().optional(),
+    MUX_WEBHOOK_SECRET: z.string().optional(),
+    MUX_SIGNING_KEY_ID: z.string().optional(),
+    MUX_SIGNING_KEY_PRIVATE: z.string().optional(),
     DIAZ_INTERNAL_API_KEY: z.string().optional(),
+    VOD_COMING_SOON: z.enum(['true', 'false']).default('false'),
   })
   .superRefine((value, context) => {
     if (value.NODE_ENV === 'production' && value.DEV_BYPASS_AUTH === 'true') {
@@ -76,6 +80,35 @@ const apiEnvSchema = z
         code: z.ZodIssueCode.custom,
         path: ['MUX_TOKEN_ID'],
         message: 'MUX_TOKEN_ID and MUX_TOKEN_SECRET must be provided together',
+      });
+    }
+
+    if (value.NODE_ENV === 'production' && value.MUX_TOKEN_ID && !value.MUX_WEBHOOK_SECRET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MUX_WEBHOOK_SECRET'],
+        message: 'required in production when Mux is enabled',
+      });
+    }
+
+    if (
+      (value.MUX_SIGNING_KEY_ID && !value.MUX_SIGNING_KEY_PRIVATE) ||
+      (!value.MUX_SIGNING_KEY_ID && value.MUX_SIGNING_KEY_PRIVATE)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MUX_SIGNING_KEY_ID'],
+        message: 'MUX_SIGNING_KEY_ID and MUX_SIGNING_KEY_PRIVATE must be provided together',
+      });
+    }
+
+    // Signed playback is what gates PAID lessons, so production must be able to
+    // mint tokens rather than falling back to an unsigned url.
+    if (value.NODE_ENV === 'production' && value.MUX_TOKEN_ID && !value.MUX_SIGNING_KEY_ID) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MUX_SIGNING_KEY_ID'],
+        message: 'required in production when Mux is enabled (signs PAID lesson playback)',
       });
     }
 

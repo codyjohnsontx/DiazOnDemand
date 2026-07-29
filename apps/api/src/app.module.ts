@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { HealthController } from './health/health.controller.js';
 import { ContentController } from './content/content.controller.js';
 import { ContentService } from './content/content.service.js';
 import { ProgressController } from './progress/progress.controller.js';
@@ -20,6 +21,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule],
   controllers: [
+    HealthController,
     ContentController,
     ProgressController,
     FavoritesController,
