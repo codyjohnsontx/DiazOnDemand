@@ -25,6 +25,9 @@ function useComingSoonWall(req: Request, res: Response, next: NextFunction) {
   const isInternalEntitlements = /^\/users\/[^/]+\/entitlements$/.test(path);
   const isAllowed =
     req.method === 'OPTIONS' ||
+    // Platform liveness probes must not see a 503, or the host marks the service
+    // unhealthy and restarts a process that is working fine.
+    path === '/health' ||
     path === '/webhooks/stripe' ||
     path === '/webhooks/mux' ||
     isInternalEntitlements;
