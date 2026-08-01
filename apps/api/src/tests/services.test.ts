@@ -3,7 +3,12 @@ import { HttpStatus } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { EntitlementTier, Role } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier } from '@diaz/db';
-import { isEntitlementActive, resolveEntitlementTier } from '../common/entitlement.js';
+import {
+  isEntitlementActive,
+  isLiveStripeSubscription,
+  resolveEntitlementTier,
+  resolveStripeEntitlement,
+} from '../common/entitlement.js';
 import { ContentService } from '../content/content.service.js';
 import { mapLessonDetail } from '../content/lesson-presentation.js';
 import { FavoritesService } from '../favorites/favorites.service.js';
@@ -398,6 +403,53 @@ describe('entitlement resolution', () => {
     expect(resolveEntitlementTier({ tier: DbEntitlementTier.PREMIUM, validUntil: past }, now)).toBe(
       EntitlementTier.FREE,
     );
+  });
+
+  describe('isLiveStripeSubscription', () => {
+    it('grants access only for an unrevoked subscription in a paying status', () => {
+      expect(isLiveStripeSubscription({ status: 'active', revokedAt: null })).toBe(true);
+      expect(isLiveStripeSubscription({ status: 'trialing', revokedAt: null })).toBe(true);
+      expect(isLiveStripeSubscription({ status: 'past_due', revokedAt: null })).toBe(true);
+      expect(isLiveStripeSubscription({ status: 'canceled', revokedAt: null })).toBe(false);
+      expect(isLiveStripeSubscription({ status: 'active', revokedAt: past })).toBe(false);
+    });
+  });
+
+  describe('resolveStripeEntitlement', () => {
+    it('takes the furthest period end across every granting subscription', () => {
+      expect(
+        resolveStripeEntitlement([
+          { status: 'active', currentPeriodEnd: past, revokedAt: null },
+          { status: 'active', currentPeriodEnd: future, revokedAt: null },
+        ]),
+      ).toEqual({ tier: DbEntitlementTier.PREMIUM, validUntil: future });
+    });
+
+    it('does not let a subscription with no period end override a sibling that has one', () => {
+      // A missing current_period_end means UNKNOWN, never "forever". Reading it
+      // as no-expiry would hand out a free lifetime membership.
+      expect(
+        resolveStripeEntitlement([
+          { status: 'active', currentPeriodEnd: future, revokedAt: null },
+          { status: 'active', currentPeriodEnd: null, revokedAt: null },
+        ]),
+      ).toEqual({ tier: DbEntitlementTier.PREMIUM, validUntil: future });
+    });
+
+    it('leaves validUntil open only while every granting subscription lacks an end date', () => {
+      expect(
+        resolveStripeEntitlement([{ status: 'active', currentPeriodEnd: null, revokedAt: null }]),
+      ).toEqual({ tier: DbEntitlementTier.PREMIUM, validUntil: null });
+    });
+
+    it('drops to FREE once the dateless subscription stops being live', () => {
+      expect(
+        resolveStripeEntitlement([{ status: 'canceled', currentPeriodEnd: null, revokedAt: null }]),
+      ).toEqual({ tier: DbEntitlementTier.FREE, validUntil: null });
+      expect(
+        resolveStripeEntitlement([{ status: 'active', currentPeriodEnd: null, revokedAt: past }]),
+      ).toEqual({ tier: DbEntitlementTier.FREE, validUntil: null });
+    });
   });
 });
 

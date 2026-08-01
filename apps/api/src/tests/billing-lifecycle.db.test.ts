@@ -81,29 +81,37 @@ function subscriptionEvent(
   } as unknown as Stripe.Event;
 }
 
+/**
+ * `subscriptionId` is what scopes the revocation: Stripe ties a charge to the
+ * access it bought through charge -> invoice -> subscription, and passing it
+ * `null` models the untraceable charge (no invoice at all).
+ */
 function chargeEvent(
   type: 'charge.refunded' | 'charge.dispute.created',
   options: {
     customerId: string;
+    subscriptionId: string | null;
     amount?: number;
     amountRefunded?: number;
     refunded?: boolean;
     created?: number;
+    expandInvoice?: boolean;
   },
 ): Stripe.Event {
-  const object =
-    type === 'charge.refunded'
-      ? {
-          id: 'ch_test',
-          customer: options.customerId,
-          amount: options.amount ?? 5000,
-          amount_refunded: options.amountRefunded ?? options.amount ?? 5000,
-          refunded: options.refunded ?? true,
-        }
-      : {
-          id: 'dp_test',
-          charge: { id: 'ch_test', customer: options.customerId },
-        };
+  const invoice = options.subscriptionId
+    ? options.expandInvoice === false
+      ? 'in_test'
+      : { id: 'in_test', subscription: options.subscriptionId }
+    : null;
+  const charge = {
+    id: 'ch_test',
+    customer: options.customerId,
+    invoice,
+    amount: options.amount ?? 5000,
+    amount_refunded: options.amountRefunded ?? options.amount ?? 5000,
+    refunded: options.refunded ?? true,
+  };
+  const object = type === 'charge.refunded' ? charge : { id: 'dp_test', charge };
 
   return {
     id: `evt_${type}_${options.created ?? eventClock}`,
@@ -169,8 +177,54 @@ function prismaFailingUpsert(times: number): PrismaService {
   } as unknown as PrismaService;
 }
 
+/**
+ * The real database with the whole of it down: both the subscription write and
+ * the event-record write fail. That is the scenario the billing alert exists
+ * for, and the FAILED record cannot be the thing that suppresses it.
+ */
+function prismaWithDatabaseDown(): PrismaService {
+  const failWrite = (model: object, method: string) =>
+    new Proxy(model, {
+      get(target, property, receiver) {
+        if (property !== method) {
+          return Reflect.get(target, property, receiver);
+        }
+
+        return () => Promise.reject(new Error('database exploded'));
+      },
+    });
+
+  return {
+    client: new Proxy(prismaClient!, {
+      get(target, property, receiver) {
+        if (property === 'subscription') {
+          return failWrite(target.subscription, 'upsert');
+        }
+
+        if (property === 'stripeWebhookEvent') {
+          return failWrite(target.stripeWebhookEvent, 'upsert');
+        }
+
+        return Reflect.get(target, property, receiver);
+      },
+    }),
+  } as unknown as PrismaService;
+}
+
 describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () => {
   let service: WebhooksService;
+
+  /** A service whose alerts are captured rather than logged. */
+  function serviceWithAlerts(prismaService: PrismaService = prisma) {
+    const alerts: string[] = [];
+    const alerting = new WebhooksService(prismaService, {
+      async send(message: string) {
+        alerts.push(message);
+      },
+    });
+
+    return { service: alerting, alerts };
+  }
 
   beforeAll(async () => {
     await prismaClient!.$connect();
@@ -317,7 +371,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
 
       await service.handleStripeEvent(
-        chargeEvent('charge.refunded', { customerId: 'cus_refund' }),
+        chargeEvent('charge.refunded', { customerId: 'cus_refund', subscriptionId: 'sub_F' }),
       );
 
       expect((await entitlementOf(user.id))?.tier).toBe('FREE');
@@ -340,6 +394,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       await service.handleStripeEvent(
         chargeEvent('charge.refunded', {
           customerId: 'cus_partial',
+          subscriptionId: 'sub_F2',
           amount: 5000,
           amountRefunded: 1000,
           refunded: false,
@@ -364,7 +419,10 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       );
 
       await service.handleStripeEvent(
-        chargeEvent('charge.dispute.created', { customerId: 'cus_dispute' }),
+        chargeEvent('charge.dispute.created', {
+          customerId: 'cus_dispute',
+          subscriptionId: 'sub_G',
+        }),
       );
 
       expect((await entitlementOf(user.id))?.tier).toBe('FREE');
@@ -384,7 +442,10 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
         }),
       );
       await service.handleStripeEvent(
-        chargeEvent('charge.dispute.created', { customerId: 'cus_dispute2' }),
+        chargeEvent('charge.dispute.created', {
+          customerId: 'cus_dispute2',
+          subscriptionId: 'sub_H',
+        }),
       );
 
       await service.handleStripeEvent(
@@ -398,6 +459,257 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       );
 
       expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+    });
+
+    it('revokes only the subscription the refunded charge paid for', async () => {
+      const user = await createUser('billing-test-refund-scope');
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+
+      // The member subscribes, cancels, then resubscribes. Checkout reuses the
+      // Stripe customer, so both subscriptions share cus_scope.
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_old',
+          customerId: 'cus_scope',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.deleted', {
+          subscriptionId: 'sub_old',
+          customerId: 'cus_scope',
+          userId: user.id,
+          status: 'canceled',
+        }),
+      );
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_new',
+          customerId: 'cus_scope',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
+
+      // A goodwill refund of the *old* charge must not touch the subscription
+      // the member is currently paying for.
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', { customerId: 'cus_scope', subscriptionId: 'sub_old' }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
+      const rows = await subscriptionsOf(user.id);
+      expect(rows.map((row) => [row.stripeSubscriptionId, row.revokedAt !== null])).toEqual([
+        ['sub_old', true],
+        ['sub_new', false],
+      ]);
+    });
+
+    it('resolves the subscription through a bare invoice id when Stripe does not expand it', async () => {
+      const user = await createUser('billing-test-refund-bare-invoice');
+      const { service: alerting, alerts } = serviceWithAlerts();
+      const retrieve = vi.fn().mockResolvedValue({ id: 'in_test', subscription: 'sub_bare' });
+      // Never reach the real Stripe API: stub the client the same way the
+      // BillingService tests do.
+      Reflect.set(alerting, 'stripe', { invoices: { retrieve } });
+
+      await alerting.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_bare',
+          customerId: 'cus_bare',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+
+      await alerting.handleStripeEvent(
+        chargeEvent('charge.refunded', {
+          customerId: 'cus_bare',
+          subscriptionId: 'sub_bare',
+          expandInvoice: false,
+        }),
+      );
+
+      expect(retrieve).toHaveBeenCalledWith('in_test');
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('leaves access alone and alerts when a refund cannot be traced to a subscription', async () => {
+      const user = await createUser('billing-test-refund-untraceable');
+      const { service: alerting, alerts } = serviceWithAlerts();
+
+      await alerting.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_untraceable',
+          customerId: 'cus_untraceable',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+
+      await alerting.handleStripeEvent(
+        chargeEvent('charge.refunded', { customerId: 'cus_untraceable', subscriptionId: null }),
+      );
+
+      // Guessing is what caused the customer-wide revocation bug, so an
+      // untraceable refund changes nothing and asks for a human instead.
+      expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toContain('NOT withdrawn');
+    });
+
+    it('leaves access alone and alerts when a chargeback cannot be traced to a subscription', async () => {
+      const user = await createUser('billing-test-dispute-untraceable');
+      const { service: alerting, alerts } = serviceWithAlerts();
+
+      await alerting.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_dispute_untraceable',
+          customerId: 'cus_dispute_untraceable',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+
+      await alerting.handleStripeEvent(
+        chargeEvent('charge.dispute.created', {
+          customerId: 'cus_dispute_untraceable',
+          subscriptionId: null,
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toContain('NOT withdrawn');
+    });
+  });
+
+  describe('a revoke is not a one-way door', () => {
+    it('restores access when a later event says the refunded subscription is live again', async () => {
+      const user = await createUser('billing-test-refund-reversed');
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_reversed',
+          customerId: 'cus_reversed',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', {
+          customerId: 'cus_reversed',
+          subscriptionId: 'sub_reversed',
+        }),
+      );
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+
+      // The refund was a mistake, or goodwill on top of a continuing
+      // subscription. Stripe still considers it active, so access comes back.
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.updated', {
+          subscriptionId: 'sub_reversed',
+          customerId: 'cus_reversed',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
+      const rows = await subscriptionsOf(user.id);
+      expect(rows.map((row) => [row.revokedAt, row.revokedReason])).toEqual([[null, null]]);
+    });
+
+    it('does not let a stale event clear a refund revocation', async () => {
+      const user = await createUser('billing-test-refund-stale');
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+
+      const staleAt = nextEventTime();
+      const createdAt = nextEventTime();
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_stale_refund',
+          customerId: 'cus_stale_refund',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+          created: createdAt,
+        }),
+      );
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', {
+          customerId: 'cus_stale_refund',
+          subscriptionId: 'sub_stale_refund',
+        }),
+      );
+
+      // Generated before the state already recorded, so the ordering guard must
+      // still drop it - un-revoking included.
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.updated', {
+          subscriptionId: 'sub_stale_refund',
+          customerId: 'cus_stale_refund',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+          created: staleAt,
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+    });
+
+    it('grants access again when a revoked member resubscribes under a new Stripe id', async () => {
+      const user = await createUser('billing-test-revoked-resubscribe');
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_revoked',
+          customerId: 'cus_revoked',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.created', {
+          customerId: 'cus_revoked',
+          subscriptionId: 'sub_revoked',
+        }),
+      );
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+
+      // Even a chargeback is not a life sentence: paying again is a new Stripe
+      // subscription, so it gets a fresh row that was never revoked.
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_revoked_again',
+          customerId: 'cus_revoked',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
+      const rows = await subscriptionsOf(user.id);
+      expect(rows.map((row) => [row.stripeSubscriptionId, row.revokedReason])).toEqual([
+        ['sub_revoked', 'chargeback'],
+        ['sub_revoked_again', null],
+      ]);
     });
   });
 
@@ -512,6 +824,47 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect(recorded?.error).toContain('database exploded');
       expect(alerts).toHaveLength(1);
       expect(alerts[0]).toContain('customer.subscription.created');
+    });
+
+    it('still alerts, with the original cause, when the failure record cannot be written either', async () => {
+      const user = await createUser('billing-test-alert-db-down');
+      const { service: failing, alerts } = serviceWithAlerts(prismaWithDatabaseDown());
+
+      const event = subscriptionEvent('customer.subscription.created', {
+        subscriptionId: 'sub_db_down',
+        customerId: 'cus_db_down',
+        userId: user.id,
+        status: 'active',
+        currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+      });
+
+      // The database being down is exactly when the alert matters, and it is
+      // also what stops the FAILED row from being written. Stripe must still be
+      // handed the real cause so its retry targets the right problem.
+      await expect(failing.handleStripeEvent(event)).rejects.toThrow('database exploded');
+
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toContain('database exploded');
+    });
+
+    it('alerts when a subscription event cannot be matched to a member', async () => {
+      const { service: alerting, alerts } = serviceWithAlerts();
+
+      // A subscription created in the Stripe dashboard or through a Payment
+      // Link carries no userId. It is still processed, but silently taking
+      // money that grants nobody access is what the alert exists to surface.
+      await alerting.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_orphan',
+          customerId: 'cus_orphan',
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toContain('sub_orphan');
+      expect(alerts[0]).toContain('NOBODY');
     });
 
     it('retries a previously failed event rather than treating it as done', async () => {

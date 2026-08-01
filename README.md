@@ -154,6 +154,28 @@ Stripe webhook endpoint:
   - the `Entitlement`, always **derived from the member's stored subscriptions** rather than from
     the event in hand. `PREMIUM` while any unrevoked subscription is `active`/`trialing`/`past_due`,
     otherwise `FREE`. `Entitlement.source` records whether Stripe or a human last set it.
+  - `validUntil` is the **furthest** `current_period_end` across the granting subscriptions. A
+    subscription Stripe gave no period end for counts as *unknown*, not "never expires", so it can
+    never override a sibling that has a real date. `validUntil` stays open only while **every**
+    granting subscription lacks a date, and the live status is what holds that case up: a
+    `canceled` or `deleted` event drops it to `FREE`.
+
+Refund and chargeback scoping:
+- A revocation applies to **exactly one subscription** - the one the charge paid for, resolved
+  through charge -> invoice -> subscription. It is never applied customer-wide: checkout reuses a
+  returning member's Stripe customer, so a refund of an old charge would otherwise take access from
+  the subscription they are paying for right now.
+- If the charge cannot be traced to a subscription, access is left **unchanged** and an alert fires
+  saying the money went back but access was not withdrawn. Guessing is what the scoping rule exists
+  to prevent.
+- A revoke is not a one-way door:
+  - Resubscribing always works. A new Stripe subscription id is a new row, which was never revoked.
+  - For the same subscription, a **newer** Stripe event (one that passes the ordering guard)
+    reporting a live status clears a **refund** revocation - refunds get issued by mistake and as
+    goodwill on top of a continuing subscription.
+  - A **chargeback** revocation is sticky. The customer forcibly took the money back, so a routine
+    subscription update must not hand access back; they have to subscribe again.
+  - A stale event still clears nothing.
 
 Delivery safety:
 - Every verified event is recorded in `StripeWebhookEvent` with `PROCESSED` or `FAILED`. That table
@@ -168,7 +190,13 @@ Delivery safety:
 
 Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
 - Every failure logs at `error` level prefixed `BILLING_ALERT`, which any host's log viewer can
-  alert on.
+  alert on. The alert is raised **before** the `FAILED` row is written and neither step can mask the
+  original error, because the usual reason a delivery fails is the database - which is also what
+  stops the row being written.
+- Alerts also fire for money that moved without access following it: a refund or chargeback that
+  cannot be traced to a subscription, and a subscription event carrying no `userId` metadata (one
+  created in the Stripe dashboard or through a Payment Link). Those are processed, not rejected -
+  they may be deliberate - but never silently.
 - Set the optional `BILLING_ALERT_WEBHOOK_URL` to also POST `{"text": "..."}` to a Slack or Discord
   incoming webhook. Unset means log-only.
 

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { EntitlementTier, Role } from '@diaz/db';
 import Stripe from 'stripe';
-import { STRIPE_ACTIVE_STATUSES } from '../common/entitlement.js';
+import { isLiveStripeSubscription } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -54,7 +54,7 @@ export class BillingService {
 
     // Nothing in Stripe stops the same person subscribing twice, so the refusal
     // has to happen here. Two live subscriptions means two charges a month.
-    if (subscriptions.some(isLive)) {
+    if (subscriptions.some(isLiveStripeSubscription)) {
       this.logger.warn('Refused a duplicate checkout for a member who is already subscribed');
       throw new ConflictException('This account already has an active subscription');
     }
@@ -128,10 +128,6 @@ export class BillingService {
 
     return { url: session.url };
   }
-}
-
-function isLive(subscription: { status: string; revokedAt: Date | null }) {
-  return subscription.revokedAt === null && STRIPE_ACTIVE_STATUSES.has(subscription.status);
 }
 
 function normalizeWebAppUrl(value: string | undefined) {

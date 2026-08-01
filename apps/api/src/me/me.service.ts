@@ -6,8 +6,8 @@ import {
 } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier, Role as DbRole } from '@diaz/db';
 import {
-  STRIPE_ACTIVE_STATUSES,
   isEntitlementActive,
+  isLiveStripeSubscription,
   resolveEntitlementTier,
 } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -32,9 +32,7 @@ export class MeService {
     }
 
     const subscription =
-      user.subscriptions.find(
-        (row) => row.revokedAt === null && STRIPE_ACTIVE_STATUSES.has(row.status),
-      ) ?? user.subscriptions[0];
+      user.subscriptions.find(isLiveStripeSubscription) ?? user.subscriptions[0];
 
     const entitlementTier = resolveEntitlementTier(user.entitlement);
     const role =

@@ -46,6 +46,20 @@ type SubscriptionLike = {
 };
 
 /**
+ * Whether one stored subscription row currently grants premium access.
+ *
+ * The single definition of that predicate: checkout's duplicate guard, the
+ * entitlement derivation and the account page all have to agree on it, because
+ * a member is premium exactly when one of their rows satisfies it.
+ */
+export function isLiveStripeSubscription(subscription: {
+  status: string;
+  revokedAt: Date | null;
+}): boolean {
+  return subscription.revokedAt === null && STRIPE_ACTIVE_STATUSES.has(subscription.status);
+}
+
+/**
  * Derives what a member's entitlement should be from their whole subscription
  * history, rather than from whichever Stripe event arrived most recently.
  *
@@ -59,22 +73,24 @@ export function resolveStripeEntitlement(subscriptions: readonly SubscriptionLik
   tier: DbEntitlementTier;
   validUntil: Date | null;
 } {
-  const granting = subscriptions.filter(
-    (subscription) =>
-      subscription.revokedAt === null && STRIPE_ACTIVE_STATUSES.has(subscription.status),
-  );
+  const granting = subscriptions.filter(isLiveStripeSubscription);
 
   if (granting.length === 0) {
     return { tier: DbEntitlementTier.FREE, validUntil: null };
   }
 
-  // A null currentPeriodEnd means Stripe did not tell us when the period ends,
-  // which `isEntitlementActive` reads as "no expiry". That matches how the
-  // single-row handler behaved, so it is preserved deliberately.
-  const periodEnds = granting.map((subscription) => subscription.currentPeriodEnd);
-  const validUntil = periodEnds.includes(null)
-    ? null
-    : new Date(Math.max(...periodEnds.map((end) => end!.getTime())));
+  // A missing currentPeriodEnd means UNKNOWN, never "forever": a row Stripe
+  // gave no end date for must not override a sibling that carries a concrete
+  // one. validUntil therefore stays null only when no granting row has a date
+  // at all, and it is the live *status* that keeps that case premium - a
+  // canceled or deleted event drops the row out of `granting` and the member
+  // back to FREE, so an oddly shaped record cannot become a free lifetime
+  // membership.
+  const periodEnds = granting
+    .map((subscription) => subscription.currentPeriodEnd)
+    .filter((end): end is Date => end !== null);
+  const validUntil =
+    periodEnds.length === 0 ? null : new Date(Math.max(...periodEnds.map((end) => end.getTime())));
 
   return { tier: DbEntitlementTier.PREMIUM, validUntil };
 }

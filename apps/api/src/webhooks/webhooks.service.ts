@@ -7,7 +7,7 @@ import {
   LoggingBillingAlerter,
   type BillingAlerter,
 } from '../billing/billing-alerter.js';
-import { resolveStripeEntitlement } from '../common/entitlement.js';
+import { isLiveStripeSubscription, resolveStripeEntitlement } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const MUX_SIGNATURE_TOLERANCE_SECONDS = 300;
@@ -17,6 +17,17 @@ const SUBSCRIPTION_EVENT_TYPES = new Set([
   'customer.subscription.updated',
   'customer.subscription.deleted',
 ]);
+
+/**
+ * Why a subscription's access was withdrawn, and whether it can come back.
+ *
+ * A refund is reversible - it can be goodwill, or issued by mistake - so a
+ * later Stripe event that says the subscription is live again clears it. A
+ * chargeback is not: the customer forcibly took the money back, and a routine
+ * metadata update must never hand access back on its own.
+ */
+const REVOKE_REASON_REFUND = 'refund';
+const REVOKE_REASON_CHARGEBACK = 'chargeback';
 
 type MuxPlaybackId = {
   id?: string;
@@ -81,15 +92,33 @@ export class WebhooksService {
     } catch (error) {
       const message = (error as Error).message;
 
-      await this.recordStripeEvent(event, stripeCreatedAt, StripeWebhookEventStatus.FAILED, message);
-      await this.alerter.send(
-        `Stripe webhook ${event.type} (${event.id}) failed and access may not have been granted: ${message}`,
+      // The alert goes first and neither step may replace the original error.
+      // The usual reason `applyStripeEvent` throws is the database, and the
+      // FAILED record below is itself a database write - so recording first
+      // would throw and swallow the very alert that exists for that scenario,
+      // and would hand Stripe the wrong cause to retry against.
+      await this.tolerate('raise a billing alert', () =>
+        this.alerter.send(
+          `Stripe webhook ${event.type} (${event.id}) failed and access may not have been granted: ${message}`,
+        ),
+      );
+      await this.tolerate(`record Stripe event ${event.id} as FAILED`, () =>
+        this.recordStripeEvent(event, stripeCreatedAt, StripeWebhookEventStatus.FAILED, message),
       );
 
       throw error;
     }
 
     await this.recordStripeEvent(event, stripeCreatedAt, StripeWebhookEventStatus.PROCESSED, null);
+  }
+
+  /** Runs a best-effort side effect that must never mask the failure it reports on. */
+  private async tolerate(description: string, run: () => Promise<void>) {
+    try {
+      await run();
+    } catch (error) {
+      this.logger.error(`Failed to ${description}: ${(error as Error).message}`);
+    }
   }
 
   private async recordStripeEvent(
@@ -132,7 +161,17 @@ export class WebhooksService {
     const userId = (sub.metadata?.userId as string | undefined) ?? null;
 
     if (!userId) {
+      // A subscription created outside `createCheckoutSession` - in the Stripe
+      // dashboard, or through a Payment Link - carries no userId, so there is
+      // nobody to grant access to. That may well be deliberate, so the event is
+      // not rejected, but it cannot pass quietly: somebody is being charged and
+      // receiving nothing.
       this.logger.warn(`Subscription ${sub.id} missing userId metadata`);
+      await this.alerter.send(
+        `Stripe subscription ${sub.id} (${sub.status}) carries no userId metadata and could not be ` +
+          `matched to a member - money is being taken and NOBODY has been granted access. ` +
+          `Grant it by hand today and check how the subscription was created.`,
+      );
       return;
     }
 
@@ -163,11 +202,20 @@ export class WebhooksService {
       lastEventAt: stripeCreatedAt,
     };
 
+    // A revoke must not be a one-way door. This event is already known to be
+    // newer than the recorded state (the ordering guard above), so a live status
+    // here means Stripe considers the subscription good again - which clears a
+    // refund, but never a chargeback.
+    const clearsRevocation =
+      existing?.revokedAt != null &&
+      existing.revokedReason === REVOKE_REASON_REFUND &&
+      isLiveStripeSubscription({ status: sub.status, revokedAt: null });
+
     // Upsert by the Stripe subscription id: a member can hold several rows over
     // time (cancel then resubscribe) and, briefly, at the same time.
     await this.prisma.client.subscription.upsert({
       where: { stripeSubscriptionId: sub.id },
-      update: fields,
+      update: clearsRevocation ? { ...fields, revokedAt: null, revokedReason: null } : fields,
       create: { ...fields, stripeSubscriptionId: sub.id },
     });
 
@@ -188,33 +236,24 @@ export class WebhooksService {
       return;
     }
 
-    const customerId = stripeCustomerIdOf(charge.customer);
-
-    if (!customerId) {
-      this.logger.warn(`Refunded charge ${charge.id} has no customer; cannot revoke access`);
-      return;
-    }
-
-    await this.revokeAccessForCustomer(customerId, 'refund');
+    await this.revokeAccessForCharge(charge, REVOKE_REASON_REFUND, `Refund on charge ${charge.id}`);
   }
 
   private async applyDispute(dispute: Stripe.Dispute) {
     const charge = await this.resolveDisputedCharge(dispute);
-    const customerId = charge ? stripeCustomerIdOf(charge.customer) : null;
 
-    if (!customerId) {
-      this.logger.warn(
-        `Dispute ${dispute.id} could not be traced to a customer; access left unchanged`,
-      );
+    if (!charge) {
+      this.logger.warn(`Dispute ${dispute.id} could not be traced to a charge; access unchanged`);
       await this.alerter.send(
-        `Chargeback ${dispute.id} could not be traced to a customer - access was NOT revoked. Check Stripe.`,
+        `Chargeback ${dispute.id} could not be traced to a charge - the money went back but access ` +
+          `was NOT withdrawn. Revoke it by hand and check Stripe.`,
       );
       return;
     }
 
     // A chargeback takes the money back and costs a fee on top, so access goes
     // immediately rather than at the end of the paid period.
-    await this.revokeAccessForCustomer(customerId, 'chargeback');
+    await this.revokeAccessForCharge(charge, REVOKE_REASON_CHARGEBACK, `Chargeback ${dispute.id}`);
   }
 
   private async resolveDisputedCharge(dispute: Stripe.Dispute): Promise<Stripe.Charge | null> {
@@ -239,26 +278,86 @@ export class WebhooksService {
     }
   }
 
-  private async revokeAccessForCustomer(stripeCustomerId: string, reason: string) {
-    const subscriptions = await this.prisma.client.subscription.findMany({
-      where: { stripeCustomerId, revokedAt: null },
-    });
+  /**
+   * Withdraws access for the one subscription the charge actually paid for.
+   *
+   * Deliberately never widens to the Stripe customer. A member who cancels and
+   * resubscribes keeps the same customer id, so revoking customer-wide would
+   * take access from a currently paying subscription because of a refund on an
+   * old one - permanently, since a revoke outlives the Stripe events that
+   * follow it. If the charge cannot be traced to a subscription, access is left
+   * alone and a human is told, because guessing is what caused the bug.
+   */
+  private async revokeAccessForCharge(charge: Stripe.Charge, reason: string, description: string) {
+    const stripeSubscriptionId = await this.resolveChargeSubscriptionId(charge);
 
-    if (subscriptions.length === 0) {
-      this.logger.warn(`No live subscription found for Stripe customer on ${reason}`);
+    if (!stripeSubscriptionId) {
+      this.logger.warn(`${description} could not be traced to a subscription; access unchanged`);
+      await this.alerter.send(
+        `${description} could not be traced to a subscription - the money went back but access was ` +
+          `NOT withdrawn. Revoke it by hand and check Stripe.`,
+      );
       return;
     }
 
-    await this.prisma.client.subscription.updateMany({
-      where: { stripeCustomerId, revokedAt: null },
+    const subscription = await this.prisma.client.subscription.findUnique({
+      where: { stripeSubscriptionId },
+    });
+
+    if (!subscription) {
+      this.logger.warn(`${description} names a subscription this API never recorded`);
+      await this.alerter.send(
+        `${description} points at Stripe subscription ${stripeSubscriptionId}, which this API has ` +
+          `no record of - the money went back but access was NOT withdrawn. Check Stripe.`,
+      );
+      return;
+    }
+
+    if (subscription.revokedAt) {
+      this.logger.log(`Subscription ${stripeSubscriptionId} is already revoked; nothing to do`);
+      return;
+    }
+
+    await this.prisma.client.subscription.update({
+      where: { stripeSubscriptionId },
       data: { revokedAt: new Date(), revokedReason: reason },
     });
 
-    for (const userId of new Set(subscriptions.map((subscription) => subscription.userId))) {
-      await this.syncEntitlementFromSubscriptions(userId);
+    await this.syncEntitlementFromSubscriptions(subscription.userId);
+
+    this.logger.log(`Revoked access for subscription ${stripeSubscriptionId} after a ${reason}`);
+  }
+
+  /**
+   * charge -> invoice -> subscription, the one path that ties money back to the
+   * access it bought. Shared by refunds and chargebacks so both scope the same
+   * way.
+   */
+  private async resolveChargeSubscriptionId(charge: Stripe.Charge): Promise<string | null> {
+    const invoice = await this.resolveChargeInvoice(charge);
+
+    return invoice ? stripeIdOf(invoice.subscription) : null;
+  }
+
+  private async resolveChargeInvoice(charge: Stripe.Charge): Promise<Stripe.Invoice | null> {
+    if (charge.invoice && typeof charge.invoice === 'object') {
+      return charge.invoice;
     }
 
-    this.logger.log(`Revoked access for ${subscriptions.length} subscription(s) after a ${reason}`);
+    if (!charge.invoice || !this.stripe) {
+      return null;
+    }
+
+    // Stripe sends the invoice as a bare id unless it was expanded, so it has to
+    // be read back to reach the subscription.
+    try {
+      return await this.stripe.invoices.retrieve(charge.invoice);
+    } catch (error) {
+      this.logger.error(
+        `Failed to retrieve invoice ${charge.invoice} for charge ${charge.id}: ${(error as Error).message}`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -384,12 +483,11 @@ export class WebhooksService {
   }
 }
 
-function stripeCustomerIdOf(
-  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined,
-): string | null {
-  if (!customer) {
+/** Stripe sends a linked object either expanded or as a bare id. */
+function stripeIdOf(value: string | { id: string } | null | undefined): string | null {
+  if (!value) {
     return null;
   }
 
-  return typeof customer === 'string' ? customer : customer.id;
+  return typeof value === 'string' ? value : value.id;
 }
