@@ -511,6 +511,48 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       ]);
     });
 
+    it('retries rather than leaving a refunded member premium when the Stripe read fails', async () => {
+      const user = await createUser('billing-test-refund-stripe-down');
+      const { service: alerting, alerts } = serviceWithAlerts();
+      const retrieve = vi.fn().mockRejectedValue(new Error('Stripe is temporarily unavailable'));
+      Reflect.set(alerting, 'stripe', { invoices: { retrieve } });
+
+      await alerting.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_stripe_down',
+          customerId: 'cus_stripe_down',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+
+      const refund = chargeEvent('charge.refunded', {
+        customerId: 'cus_stripe_down',
+        subscriptionId: 'sub_stripe_down',
+        expandInvoice: false,
+      });
+
+      // A 429 or a network blip must not look like a charge that genuinely has
+      // no invoice: that path gives up on revoking, and the event would be
+      // recorded PROCESSED, so a refunded member would keep access forever.
+      await expect(alerting.handleStripeEvent(refund)).rejects.toThrow(
+        'Stripe is temporarily unavailable',
+      );
+
+      const recorded = await prismaClient!.stripeWebhookEvent.findUnique({
+        where: { id: refund.id },
+      });
+      expect(recorded?.status).toBe('FAILED');
+      expect(alerts.some((alert) => alert.includes('Stripe is temporarily unavailable'))).toBe(true);
+
+      // Stripe retries, the read succeeds, and the revocation finally lands.
+      retrieve.mockResolvedValue({ id: 'in_test', subscription: 'sub_stripe_down' });
+      await alerting.handleStripeEvent(refund);
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+    });
+
     it('resolves the subscription through a bare invoice id when Stripe does not expand it', async () => {
       const user = await createUser('billing-test-refund-bare-invoice');
       const { service: alerting, alerts } = serviceWithAlerts();
@@ -984,29 +1026,34 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect(alerts[0]).toContain('NOBODY');
     });
 
-    it('does not re-alert for the lifetime of an unmatched subscription', async () => {
+    it('alerts exactly once when an unmatched subscription only goes live later', async () => {
       const { service: alerting, alerts } = serviceWithAlerts();
       const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
 
-      // Renewals and the eventual cancellation must stay quiet: a monthly alert
-      // that says money was taken, or one that says it on a cancellation, makes
-      // the channel the owner watches worth ignoring.
+      // A card that needs 3D Secure creates the subscription `incomplete`; the
+      // money is only taken when it turns `active` on a later update. Alerting
+      // only on creation would stay silent for exactly that case, and alerting
+      // on every event afterwards would make the channel worth ignoring.
       for (const [type, status, end] of [
+        ['customer.subscription.created', 'incomplete', periodEnd],
+        ['customer.subscription.updated', 'active', periodEnd],
         ['customer.subscription.updated', 'active', periodEnd + 30 * DAY],
         ['customer.subscription.updated', 'active', periodEnd + 60 * DAY],
         ['customer.subscription.deleted', 'canceled', periodEnd + 60 * DAY],
       ] as const) {
         await alerting.handleStripeEvent(
           subscriptionEvent(type, {
-            subscriptionId: 'sub_orphan_quiet',
-            customerId: 'cus_orphan_quiet',
+            subscriptionId: 'sub_orphan_late',
+            customerId: 'cus_orphan_late',
             status,
             currentPeriodEnd: end,
           }),
         );
       }
 
-      expect(alerts).toEqual([]);
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toContain('sub_orphan_late');
+      expect(alerts[0]).toContain('NOBODY');
     });
 
     it('stays quiet when an unmatched subscription is already dead', async () => {

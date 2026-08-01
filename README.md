@@ -174,7 +174,11 @@ Refund and chargeback scoping:
     covered by tests against a stubbed Stripe client, never a live one.
   - `stripe.charges.retrieve`, only when `charge.dispute.created` arrives with an unexpanded charge.
     The expanded fast path is tested; **this fallback is not exercised**, because doing so would
-    require a real Stripe call. If it ever fails, access is left unchanged and an alert fires.
+    require a real Stripe call.
+- A read that **throws** (429, 5xx, network) is deliberately *not* swallowed: it returns 5xx so
+  Stripe retries, exactly as a database failure does. Only a charge that genuinely carries no
+  invoice link takes the leave-access-alone-and-alert path. Treating the two the same is how a
+  transient blip would have become a refunded member with permanent access and a `PROCESSED` row.
 - Every revocation stores `revokedAt` **and** `revokedReason` together, so a member without access
   can always be shown *why* ("revoked by refund on <date>") rather than an unexplained gap. The
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
@@ -210,12 +214,15 @@ Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
   alert on. The alert is raised **before** the `FAILED` row is written and neither step can mask the
   original error, because the usual reason a delivery fails is the database - which is also what
   stops the row being written.
-- Alerts also fire for money that moved without access following it: a refund or chargeback that
-  cannot be traced to a subscription, and a **newly created, live** subscription carrying no
-  `userId` metadata (one created in the Stripe dashboard or through a Payment Link). Those are
-  processed, not rejected - they may be deliberate - but never silently. The unmatched-subscription
-  alert deliberately fires once, on creation only: re-alerting on every renewal, or claiming money
-  was taken when the event is a cancellation, would make the channel not worth watching.
+- Alerts also fire for money that moved without access following it: a refund or chargeback whose
+  charge genuinely carries no invoice link, and a **live** subscription carrying no `userId`
+  metadata (one created in the Stripe dashboard or through a Payment Link). Those are processed,
+  not rejected - they may be deliberate - but never silently.
+- The unmatched-subscription alert fires **exactly once per subscription**, on the first delivery
+  that shows it actually live. It waits for live rather than firing on creation because a card
+  needing 3D Secure starts `incomplete` and only turns `active` on a later update - money taken,
+  nobody granted access. `StripeWebhookEvent.stripeSubscriptionId` is stamped on the delivery that
+  raised the alert, which is what keeps renewals and the eventual cancellation quiet.
 - Set the optional `BILLING_ALERT_WEBHOOK_URL` to also POST `{"text": "..."}` to a Slack or Discord
   incoming webhook. Unset means log-only.
 

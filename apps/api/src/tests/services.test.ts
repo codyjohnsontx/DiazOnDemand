@@ -43,6 +43,7 @@ type MockPrismaClient = Partial<{
   entitlement: { upsert: ReturnType<typeof vi.fn> };
   stripeWebhookEvent: {
     findUnique: ReturnType<typeof vi.fn>;
+    findFirst?: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
   };
 }>;
@@ -238,6 +239,7 @@ describe('WebhooksService', () => {
           findUnique: vi
             .fn()
             .mockResolvedValue(options.alreadyProcessed ? { status: 'PROCESSED' } : null),
+          findFirst: vi.fn().mockResolvedValue(null),
           upsert: vi.fn().mockResolvedValue({}),
         },
         subscription: {

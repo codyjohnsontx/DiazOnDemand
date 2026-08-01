@@ -18,10 +18,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 
 const MUX_SIGNATURE_TOLERANCE_SECONDS = 300;
 
-const SUBSCRIPTION_CREATED_EVENT_TYPE = 'customer.subscription.created';
-
 const SUBSCRIPTION_EVENT_TYPES = new Set([
-  SUBSCRIPTION_CREATED_EVENT_TYPE,
+  'customer.subscription.created',
   'customer.subscription.updated',
   'customer.subscription.deleted',
 ]);
@@ -84,8 +82,10 @@ export class WebhooksService {
       return;
     }
 
+    let alertedSubscriptionId: string | null = null;
+
     try {
-      await this.applyStripeEvent(event, stripeCreatedAt);
+      alertedSubscriptionId = await this.applyStripeEvent(event, stripeCreatedAt);
     } catch (error) {
       const message = (error as Error).message;
 
@@ -106,7 +106,13 @@ export class WebhooksService {
       throw error;
     }
 
-    await this.recordStripeEvent(event, stripeCreatedAt, StripeWebhookEventStatus.PROCESSED, null);
+    await this.recordStripeEvent(
+      event,
+      stripeCreatedAt,
+      StripeWebhookEventStatus.PROCESSED,
+      null,
+      alertedSubscriptionId,
+    );
   }
 
   /** Runs a best-effort side effect that must never mask the failure it reports on. */
@@ -123,46 +129,54 @@ export class WebhooksService {
     stripeCreatedAt: Date,
     status: StripeWebhookEventStatus,
     error: string | null,
+    stripeSubscriptionId: string | null = null,
   ) {
     await this.prisma.client.stripeWebhookEvent.upsert({
       where: { id: event.id },
-      update: { status, error, attempts: { increment: 1 } },
-      create: { id: event.id, type: event.type, status, stripeCreatedAt, error },
+      update: { status, error, attempts: { increment: 1 }, stripeSubscriptionId },
+      create: { id: event.id, type: event.type, status, stripeCreatedAt, error, stripeSubscriptionId },
     });
   }
 
-  private async applyStripeEvent(event: Stripe.Event, stripeCreatedAt: Date) {
+  /**
+   * Returns the Stripe subscription id this delivery raised the unmatched
+   * -subscription alert for, so the event record can carry it and the next
+   * delivery for the same subscription stays quiet.
+   */
+  private async applyStripeEvent(
+    event: Stripe.Event,
+    stripeCreatedAt: Date,
+  ): Promise<string | null> {
     if (!('object' in event.data)) {
-      return;
+      return null;
     }
 
     if (SUBSCRIPTION_EVENT_TYPES.has(event.type)) {
-      await this.applySubscriptionEvent(
+      return this.applySubscriptionEvent(
         event.data.object as Stripe.Subscription,
         stripeCreatedAt,
-        event.type,
       );
-      return;
     }
 
     if (event.type === 'charge.refunded') {
       await this.applyRefund(event.data.object as Stripe.Charge, stripeCreatedAt);
-      return;
+      return null;
     }
 
     if (event.type === 'charge.dispute.created') {
       await this.applyDispute(event.data.object as Stripe.Dispute, stripeCreatedAt);
-      return;
+      return null;
     }
 
     this.logger.log(`Ignoring Stripe event type: ${event.type}`);
+
+    return null;
   }
 
   private async applySubscriptionEvent(
     sub: Stripe.Subscription,
     stripeCreatedAt: Date,
-    eventType: string,
-  ) {
+  ): Promise<string | null> {
     const userId = (sub.metadata?.userId as string | undefined) ?? null;
 
     if (!userId) {
@@ -173,23 +187,7 @@ export class WebhooksService {
       // receiving nothing.
       this.logger.warn(`Subscription ${sub.id} missing userId metadata`);
 
-      // Only on the first sighting of a subscription that is actually live.
-      // Alerting on every renewal, or claiming money was taken when the event
-      // is a cancellation, would make the one channel the owner watches
-      // untrustworthy.
-      if (
-        eventType === SUBSCRIPTION_CREATED_EVENT_TYPE &&
-        isLiveStripeSubscription({ status: sub.status, revokedAt: null })
-      ) {
-        await this.alerter.send(
-          `Stripe subscription ${sub.id} was created with status ${sub.status} but carries no ` +
-            `userId metadata, so it could not be matched to a member - somebody is paying and ` +
-            `NOBODY has been granted access. Grant it by hand today and check how the ` +
-            `subscription was created.`,
-        );
-      }
-
-      return;
+      return this.alertUnmatchedSubscription(sub);
     }
 
     const existing = await this.prisma.client.subscription.findUnique({
@@ -204,7 +202,7 @@ export class WebhooksService {
         `Ignoring out-of-order Stripe event for subscription ${sub.id}; ` +
           `event is older than the state already recorded`,
       );
-      return;
+      return null;
     }
 
     const currentPeriodEnd = sub.current_period_end
@@ -241,6 +239,43 @@ export class WebhooksService {
     this.logger.log(
       `Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}`,
     );
+
+    return null;
+  }
+
+  /**
+   * Tells a human that somebody is paying and nobody got access, exactly once
+   * per subscription.
+   *
+   * "Exactly once" is why this waits for the subscription to actually be live
+   * rather than firing on creation: a card that needs 3D Secure creates the
+   * subscription `incomplete` and only turns `active` on a later update, which
+   * is money taken with nobody granted access and the very silence this alert
+   * exists to break. Once raised, the delivery that raised it is stamped with
+   * the subscription id, so renewals and the eventual cancellation stay quiet -
+   * a channel that cries wolf monthly is one nobody reads.
+   */
+  private async alertUnmatchedSubscription(sub: Stripe.Subscription): Promise<string | null> {
+    if (!isLiveStripeSubscription({ status: sub.status, revokedAt: null })) {
+      return null;
+    }
+
+    const alreadyAlerted = await this.prisma.client.stripeWebhookEvent.findFirst({
+      where: { stripeSubscriptionId: sub.id },
+      select: { id: true },
+    });
+
+    if (alreadyAlerted) {
+      return null;
+    }
+
+    await this.alerter.send(
+      `Stripe subscription ${sub.id} is live (${sub.status}) but carries no userId metadata, so ` +
+        `it could not be matched to a member - somebody is paying and NOBODY has been granted ` +
+        `access. Grant it by hand today and check how the subscription was created.`,
+    );
+
+    return sub.id;
   }
 
   private async applyRefund(charge: Stripe.Charge, stripeCreatedAt: Date) {
@@ -296,14 +331,13 @@ export class WebhooksService {
     // detail of its own, so it has to be read back. One of the two Stripe reads
     // the billing path can make; unlike the invoice read below, this one only
     // happens when the dispute arrives unexpanded.
-    try {
-      return await this.stripe.charges.retrieve(dispute.charge);
-    } catch (error) {
-      this.logger.error(
-        `Failed to retrieve charge ${String(dispute.charge)} for dispute ${dispute.id}: ${(error as Error).message}`,
-      );
-      return null;
-    }
+    //
+    // A thrown read is deliberately not caught. Returning null here would be
+    // indistinguishable from a dispute that genuinely carries no charge, and
+    // that case gives up on revoking - so a 429 or a network blip would
+    // silently become a permanent wrong answer. Letting it out records the
+    // event FAILED and returns 5xx, which is Stripe's cue to retry.
+    return this.stripe.charges.retrieve(dispute.charge);
   }
 
   /**
@@ -392,15 +426,10 @@ export class WebhooksService {
 
     // `charge.refunded` carries the invoice as a bare id unless it was expanded,
     // so in practice this read runs on essentially every real refund - the one
-    // Stripe call on the ordinary billing path, not just a fallback.
-    try {
-      return await this.stripe.invoices.retrieve(charge.invoice);
-    } catch (error) {
-      this.logger.error(
-        `Failed to retrieve invoice ${charge.invoice} for charge ${charge.id}: ${(error as Error).message}`,
-      );
-      return null;
-    }
+    // Stripe call on the ordinary billing path, not just a fallback. A thrown
+    // read propagates for the same reason as the charge read above: a transient
+    // failure must become a retry, never a refunded member who keeps access.
+    return this.stripe.invoices.retrieve(charge.invoice);
   }
 
   /**
