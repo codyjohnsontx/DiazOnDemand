@@ -531,7 +531,14 @@ describe('entitlement resolution', () => {
 });
 
 describe('MeService', () => {
-  function createMeService(entitlement: { tier: string; validUntil: Date | null } | null) {
+  function createMeService(
+    entitlement: { tier: string; validUntil: Date | null } | null,
+    subscriptions: Array<{
+      status: string;
+      currentPeriodEnd: Date | null;
+      revokedAt: Date | null;
+    }> = [],
+  ) {
     return new MeService(
       createPrismaService({
         user: {
@@ -540,7 +547,7 @@ describe('MeService', () => {
             clerkUserId: 'clerk-1',
             role: 'STUDENT',
             entitlement,
-            subscriptions: [],
+            subscriptions,
           }),
         },
       }),
@@ -563,6 +570,39 @@ describe('MeService', () => {
 
     await expect(service.getMeByClerkId('clerk-1')).resolves.toMatchObject({
       entitlementTier: EntitlementTier.PREMIUM,
+    });
+  });
+
+  it('reports no active subscription and no period end for a revoked member', async () => {
+    // A chargeback leaves the Stripe row reading "active" with a future period
+    // end. Showing that next to a FREE entitlement reads as a contradiction.
+    const service = createMeService({ tier: 'FREE', validUntil: null }, [
+      {
+        status: 'active',
+        currentPeriodEnd: new Date('2026-08-31T00:00:00.000Z'),
+        revokedAt: new Date('2026-08-01T00:00:00.000Z'),
+      },
+    ]);
+
+    await expect(service.getMeByClerkId('clerk-1')).resolves.toMatchObject({
+      entitlementTier: EntitlementTier.FREE,
+      subscriptionStatus: null,
+      currentPeriodEnd: null,
+    });
+  });
+
+  it('still reports an unrevoked subscription', async () => {
+    const service = createMeService({ tier: 'PREMIUM', validUntil: null }, [
+      {
+        status: 'active',
+        currentPeriodEnd: new Date('2026-08-31T00:00:00.000Z'),
+        revokedAt: null,
+      },
+    ]);
+
+    await expect(service.getMeByClerkId('clerk-1')).resolves.toMatchObject({
+      subscriptionStatus: 'active',
+      currentPeriodEnd: '2026-08-31T00:00:00.000Z',
     });
   });
 });
