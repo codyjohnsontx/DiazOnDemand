@@ -1,6 +1,13 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { EntitlementTier, Role } from '@diaz/db';
 import Stripe from 'stripe';
+import { STRIPE_ACTIVE_STATUSES } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -40,6 +47,22 @@ export class BillingService {
       },
     });
 
+    const subscriptions = await this.prisma.client.subscription.findMany({
+      where: { userId: user.id },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    // Nothing in Stripe stops the same person subscribing twice, so the refusal
+    // has to happen here. Two live subscriptions means two charges a month.
+    if (subscriptions.some(isLive)) {
+      this.logger.warn('Refused a duplicate checkout for a member who is already subscribed');
+      throw new ConflictException('This account already has an active subscription');
+    }
+
+    // Reuse the Stripe customer a returning member already has, so one person
+    // stays one customer in Stripe instead of accumulating duplicates.
+    const existingCustomerId = subscriptions[0]?.stripeCustomerId;
+
     const session = await this.stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [
@@ -51,6 +74,7 @@ export class BillingService {
       success_url: `${webAppUrl}/subscribe/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${webAppUrl}/subscribe/cancel`,
       client_reference_id: user.id,
+      ...(existingCustomerId ? { customer: existingCustomerId } : {}),
       metadata: {
         userId: user.id,
         clerkUserId,
@@ -67,6 +91,47 @@ export class BillingService {
 
     return { url: session.url };
   }
+
+  /**
+   * Opens Stripe's hosted billing portal, which is where a member cancels,
+   * updates their card, and downloads invoices. Being unable to cancel without
+   * emailing the owner is a consumer-law problem, not just an inconvenience.
+   */
+  async createBillingPortalSession(clerkUserId: string) {
+    if (!this.stripe) {
+      this.logger.error('Stripe billing portal requested without STRIPE_SECRET_KEY configured');
+      throw new InternalServerErrorException('Stripe not configured');
+    }
+
+    const webAppUrl = normalizeWebAppUrl(process.env.WEB_APP_URL);
+    const user = await this.prisma.client.user.findUnique({ where: { clerkUserId } });
+
+    if (!user) {
+      throw new NotFoundException('No billing account exists for this member');
+    }
+
+    const subscription = await this.prisma.client.subscription.findFirst({
+      where: { userId: user.id },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('No billing account exists for this member');
+    }
+
+    const session = await this.stripe.billingPortal.sessions.create({
+      customer: subscription.stripeCustomerId,
+      return_url: `${webAppUrl}/account`,
+    });
+
+    this.logger.log('Created Stripe billing portal session [redacted] for user [redacted]');
+
+    return { url: session.url };
+  }
+}
+
+function isLive(subscription: { status: string; revokedAt: Date | null }) {
+  return subscription.revokedAt === null && STRIPE_ACTIVE_STATUSES.has(subscription.status);
 }
 
 function normalizeWebAppUrl(value: string | undefined) {

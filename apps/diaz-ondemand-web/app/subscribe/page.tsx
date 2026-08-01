@@ -5,6 +5,7 @@ import type { CheckoutSessionDto } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { PageHeader } from '@/components/page-header';
 import { useApiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-shared';
 
 export default function SubscribePage() {
   const apiFetch = useApiClient();
@@ -27,7 +28,13 @@ export default function SubscribePage() {
         setError('Stripe is not configured yet.');
       }
     } catch (checkoutError) {
-      setError((checkoutError as Error).message);
+      // A 409 means the member is already subscribed. Showing them the raw error
+      // would invite a second attempt, and a second attempt is a second charge.
+      setError(
+        checkoutError instanceof ApiError && checkoutError.status === 409
+          ? 'This account already has an active subscription. Manage it from your account page.'
+          : 'We could not start checkout. Please try again.',
+      );
     } finally {
       setLoading(false);
     }

@@ -5,7 +5,11 @@ import {
   type EntitlementsResponse,
 } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier, Role as DbRole } from '@diaz/db';
-import { isEntitlementActive, resolveEntitlementTier } from '../common/entitlement.js';
+import {
+  STRIPE_ACTIVE_STATUSES,
+  isEntitlementActive,
+  resolveEntitlementTier,
+} from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -15,12 +19,22 @@ export class MeService {
   async getMeByClerkId(clerkUserId: string) {
     const user = await this.prisma.client.user.findUnique({
       where: { clerkUserId },
-      include: { entitlement: true, subscription: true },
+      include: {
+        entitlement: true,
+        // A member can hold several subscription rows over time; the account
+        // page is about the current one.
+        subscriptions: { orderBy: { updatedAt: 'desc' } },
+      },
     });
 
     if (!user) {
       return null;
     }
+
+    const subscription =
+      user.subscriptions.find(
+        (row) => row.revokedAt === null && STRIPE_ACTIVE_STATUSES.has(row.status),
+      ) ?? user.subscriptions[0];
 
     const entitlementTier = resolveEntitlementTier(user.entitlement);
     const role =
@@ -35,8 +49,9 @@ export class MeService {
       clerkUserId: user.clerkUserId,
       role,
       entitlementTier,
-      subscriptionStatus: user.subscription?.status ?? null,
-      currentPeriodEnd: user.subscription?.currentPeriodEnd?.toISOString() ?? null,
+      subscriptionStatus: subscription?.status ?? null,
+      currentPeriodEnd: subscription?.currentPeriodEnd?.toISOString() ?? null,
+      canManageBilling: Boolean(subscription),
     };
   }
 

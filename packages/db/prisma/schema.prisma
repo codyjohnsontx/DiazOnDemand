@@ -35,15 +35,28 @@ enum EntitlementTier {
   PREMIUM
 }
 
+/// Where an entitlement's current value came from. MANUAL is the default
+/// because anything the Stripe webhook did not write was put there by a human
+/// (a comp, the seed, or a support fix).
+enum EntitlementSource {
+  MANUAL
+  STRIPE
+}
+
+enum StripeWebhookEventStatus {
+  PROCESSED
+  FAILED
+}
+
 model User {
-  id           String         @id @default(uuid())
-  clerkUserId  String         @unique
-  role         Role           @default(STUDENT)
-  createdAt    DateTime       @default(now())
-  progress     Progress[]
-  favorites    Favorite[]
-  subscription Subscription?
-  entitlement  Entitlement?
+  id            String         @id @default(uuid())
+  clerkUserId   String         @unique
+  role          Role           @default(STUDENT)
+  createdAt     DateTime       @default(now())
+  progress      Progress[]
+  favorites     Favorite[]
+  subscriptions Subscription[]
+  entitlement   Entitlement?
 }
 
 model Program {
@@ -139,25 +152,57 @@ model Favorite {
   @@index([lessonId])
 }
 
+/// A member's subscription history, not a single current-state row. A customer
+/// who cancels and resubscribes gets a new Stripe subscription id, so one row
+/// per user cannot represent them - see the resubscribe regression test in
+/// apps/api/src/tests/billing-lifecycle.db.test.ts.
 model Subscription {
   id                   String    @id @default(uuid())
-  userId               String    @unique
+  userId               String
   stripeCustomerId     String
   stripeSubscriptionId String    @unique
   status               String
   currentPeriodEnd     DateTime?
   planId               String?
+  /// Set when a refund or chargeback withdraws access. Kept separate from
+  /// `status`, which mirrors Stripe, so a later Stripe event cannot undo it.
+  revokedAt            DateTime?
+  revokedReason        String?
+  /// `created` of the newest Stripe event applied to this row. Stripe does not
+  /// guarantee delivery order, so an older event must not overwrite a newer one.
+  lastEventAt          DateTime?
+  createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@index([stripeCustomerId])
 }
 
 model Entitlement {
-  id         String          @id @default(uuid())
-  userId     String          @unique
-  tier       EntitlementTier @default(FREE)
+  id         String            @id @default(uuid())
+  userId     String            @unique
+  tier       EntitlementTier   @default(FREE)
   validUntil DateTime?
-  updatedAt  DateTime        @updatedAt
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source     EntitlementSource @default(MANUAL)
+  updatedAt  DateTime          @updatedAt
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Every Stripe webhook delivery this API has verified, and what happened to
+/// it. Doubles as the idempotency key (Stripe redelivers) and as the record the
+/// owner can query when a payment did not turn into access.
+model StripeWebhookEvent {
+  /// Stripe's own event id (`evt_...`).
+  id             String                   @id
+  type           String
+  status         StripeWebhookEventStatus
+  /// `created` on the Stripe event, i.e. when Stripe generated it.
+  stripeCreatedAt DateTime
+  error          String?
+  attempts       Int                      @default(1)
+  receivedAt     DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([status, receivedAt])
 }

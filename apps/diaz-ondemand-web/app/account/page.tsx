@@ -2,8 +2,11 @@ import Link from 'next/link';
 import type { MeDto } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
+import { ManageBillingButton } from '@/components/manage-billing-button';
 import { PageHeader } from '@/components/page-header';
+import { SignOutControl } from '@/components/sign-out-control';
 import { apiFetchServer } from '@/lib/api-server';
+import { clerkEnabled } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +52,24 @@ export default async function AccountPage() {
             </p>
           </div>
 
+          {me.canManageBilling ? (
+            <div className={ROW_CLASSES}>
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="type-kicker text-[var(--text-muted)]">Billing</p>
+                <h2 className="font-display text-2xl leading-none text-[var(--text)]">
+                  Cancel or update payment
+                </h2>
+              </div>
+              <div className="flex shrink-0 items-center gap-4">
+                <p className="hidden max-w-xs text-sm leading-7 text-[var(--text-muted)] sm:block">
+                  Cancel your subscription, change your card, or download invoices in Stripe. You
+                  keep access until the end of the period you have already paid for.
+                </p>
+                <ManageBillingButton />
+              </div>
+            </div>
+          ) : null}
+
           <div className={ROW_CLASSES}>
             <div className="min-w-0 flex-1 space-y-1">
               <p className="type-kicker text-[var(--text-muted)]">Next action</p>
@@ -70,6 +91,21 @@ export default async function AccountPage() {
               </Link>
             </div>
           </div>
+
+          {clerkEnabled ? (
+            <div className={ROW_CLASSES}>
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="type-kicker text-[var(--text-muted)]">Session</p>
+                <h2 className="font-display text-2xl leading-none text-[var(--text)]">Sign out</h2>
+              </div>
+              <div className="flex shrink-0 items-center gap-4">
+                <p className="hidden max-w-xs text-sm leading-7 text-[var(--text-muted)] sm:block">
+                  End this session, which matters most on a shared or family device.
+                </p>
+                <SignOutControl />
+              </div>
+            </div>
+          ) : null}
         </section>
       </AppShell>
     );

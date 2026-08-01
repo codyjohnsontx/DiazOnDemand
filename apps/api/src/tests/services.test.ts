@@ -23,8 +23,17 @@ type MockPrismaClient = Partial<{
     upsert?: ReturnType<typeof vi.fn>;
     deleteMany?: ReturnType<typeof vi.fn>;
   };
-  subscription: { upsert: ReturnType<typeof vi.fn> };
+  subscription: {
+    upsert: ReturnType<typeof vi.fn>;
+    findUnique?: ReturnType<typeof vi.fn>;
+    findMany?: ReturnType<typeof vi.fn>;
+    updateMany?: ReturnType<typeof vi.fn>;
+  };
   entitlement: { upsert: ReturnType<typeof vi.fn> };
+  stripeWebhookEvent: {
+    findUnique: ReturnType<typeof vi.fn>;
+    upsert: ReturnType<typeof vi.fn>;
+  };
 }>;
 
 function createPrismaService(client: MockPrismaClient): PrismaService {
@@ -194,85 +203,115 @@ describe('FavoritesService', () => {
 });
 
 describe('WebhooksService', () => {
-  it('syncs premium entitlements for active Stripe subscriptions', async () => {
+  /**
+   * These use mocked Prisma and only cover the shape of the writes. The
+   * lifecycle itself - resubscribe, double subscription, refunds, out-of-order
+   * events - is covered against a real database in billing-lifecycle.db.test.ts,
+   * because every one of those defects was a constraint violation a mock cannot
+   * raise.
+   */
+  type StoredSubscription = {
+    status: string;
+    currentPeriodEnd: Date | null;
+    revokedAt: Date | null;
+  };
+
+  function createWebhooksService(
+    options: { storedSubscriptions?: StoredSubscription[]; alreadyProcessed?: boolean } = {},
+  ) {
     const subscriptionUpsert = vi.fn().mockResolvedValue({});
     const entitlementUpsert = vi.fn().mockResolvedValue({});
     const service = new WebhooksService(
       createPrismaService({
-        subscription: { upsert: subscriptionUpsert },
+        stripeWebhookEvent: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue(options.alreadyProcessed ? { status: 'PROCESSED' } : null),
+          upsert: vi.fn().mockResolvedValue({}),
+        },
+        subscription: {
+          upsert: subscriptionUpsert,
+          findUnique: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue(options.storedSubscriptions ?? []),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
         entitlement: { upsert: entitlementUpsert },
       }),
     );
-    const currentPeriodEnd = 1_900_000_000;
 
-    await service.handleStripeSubscriptionEvent({
-      type: 'customer.subscription.updated',
-      data: {
-        object: {
-          id: 'sub_123',
-          customer: 'cus_123',
-          status: 'active',
-          current_period_end: currentPeriodEnd,
-          metadata: { userId: 'user-1' },
-          items: { data: [{ price: { id: 'price_monthly' } }] },
-        },
-      },
-    } as unknown as Parameters<WebhooksService['handleStripeSubscriptionEvent']>[0]);
+    return { service, subscriptionUpsert, entitlementUpsert };
+  }
+
+  function subscriptionEvent(type: string, object: Record<string, unknown>) {
+    return {
+      id: `evt_${type}`,
+      type,
+      created: 1_800_000_000,
+      data: { object },
+    } as unknown as Parameters<WebhooksService['handleStripeEvent']>[0];
+  }
+
+  it('records the subscription and syncs premium entitlements for active Stripe subscriptions', async () => {
+    const currentPeriodEnd = 1_900_000_000;
+    const { service, subscriptionUpsert, entitlementUpsert } = createWebhooksService({
+      storedSubscriptions: [
+        { status: 'active', currentPeriodEnd: new Date(currentPeriodEnd * 1000), revokedAt: null },
+      ],
+    });
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.updated', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'active',
+        current_period_end: currentPeriodEnd,
+        metadata: { userId: 'user-1' },
+        items: { data: [{ price: { id: 'price_monthly' } }] },
+      }),
+    );
 
     expect(subscriptionUpsert).toHaveBeenCalledWith({
       where: { stripeSubscriptionId: 'sub_123' },
-      update: {
+      update: expect.objectContaining({
         userId: 'user-1',
         stripeCustomerId: 'cus_123',
         status: 'active',
         currentPeriodEnd: new Date(currentPeriodEnd * 1000),
         planId: 'price_monthly',
-      },
-      create: {
-        userId: 'user-1',
-        stripeCustomerId: 'cus_123',
+        lastEventAt: new Date(1_800_000_000 * 1000),
+      }),
+      create: expect.objectContaining({
         stripeSubscriptionId: 'sub_123',
-        status: 'active',
-        currentPeriodEnd: new Date(currentPeriodEnd * 1000),
-        planId: 'price_monthly',
-      },
+        userId: 'user-1',
+      }),
     });
     expect(entitlementUpsert).toHaveBeenCalledWith({
       where: { userId: 'user-1' },
-      update: {
-        tier: 'PREMIUM',
-        validUntil: new Date(currentPeriodEnd * 1000),
-      },
+      update: { tier: 'PREMIUM', validUntil: new Date(currentPeriodEnd * 1000), source: 'STRIPE' },
       create: {
         userId: 'user-1',
         tier: 'PREMIUM',
         validUntil: new Date(currentPeriodEnd * 1000),
+        source: 'STRIPE',
       },
     });
   });
 
   it('downgrades entitlements for inactive Stripe subscriptions', async () => {
-    const entitlementUpsert = vi.fn().mockResolvedValue({});
-    const service = new WebhooksService(
-      createPrismaService({
-        subscription: { upsert: vi.fn().mockResolvedValue({}) },
-        entitlement: { upsert: entitlementUpsert },
+    const { service, entitlementUpsert } = createWebhooksService({
+      storedSubscriptions: [{ status: 'canceled', currentPeriodEnd: null, revokedAt: null }],
+    });
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.deleted', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'canceled',
+        current_period_end: null,
+        metadata: { userId: 'user-1' },
+        items: { data: [] },
       }),
     );
-
-    await service.handleStripeSubscriptionEvent({
-      type: 'customer.subscription.deleted',
-      data: {
-        object: {
-          id: 'sub_123',
-          customer: 'cus_123',
-          status: 'canceled',
-          current_period_end: null,
-          metadata: { userId: 'user-1' },
-          items: { data: [] },
-        },
-      },
-    } as unknown as Parameters<WebhooksService['handleStripeSubscriptionEvent']>[0]);
 
     expect(entitlementUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -283,31 +322,38 @@ describe('WebhooksService', () => {
   });
 
   it('ignores subscription events without user metadata', async () => {
-    const subscriptionUpsert = vi.fn().mockResolvedValue({});
-    const entitlementUpsert = vi.fn().mockResolvedValue({});
-    const service = new WebhooksService(
-      createPrismaService({
-        subscription: { upsert: subscriptionUpsert },
-        entitlement: { upsert: entitlementUpsert },
+    const { service, subscriptionUpsert, entitlementUpsert } = createWebhooksService();
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.updated', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'active',
+        current_period_end: null,
+        metadata: {},
+        items: { data: [] },
       }),
     );
 
-    await service.handleStripeSubscriptionEvent({
-      type: 'customer.subscription.updated',
-      data: {
-        object: {
-          id: 'sub_123',
-          customer: 'cus_123',
-          status: 'active',
-          current_period_end: null,
-          metadata: {},
-          items: { data: [] },
-        },
-      },
-    } as unknown as Parameters<WebhooksService['handleStripeSubscriptionEvent']>[0]);
-
     expect(subscriptionUpsert).not.toHaveBeenCalled();
     expect(entitlementUpsert).not.toHaveBeenCalled();
+  });
+
+  it('skips a Stripe event it has already processed', async () => {
+    const { service, subscriptionUpsert } = createWebhooksService({ alreadyProcessed: true });
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.created', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'active',
+        current_period_end: null,
+        metadata: { userId: 'user-1' },
+        items: { data: [] },
+      }),
+    );
+
+    expect(subscriptionUpsert).not.toHaveBeenCalled();
   });
 });
 
@@ -365,7 +411,7 @@ describe('MeService', () => {
             clerkUserId: 'clerk-1',
             role: 'STUDENT',
             entitlement,
-            subscription: null,
+            subscriptions: [],
           }),
         },
       }),

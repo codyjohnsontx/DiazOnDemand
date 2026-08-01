@@ -16,4 +16,9 @@ export class BillingController {
   createCheckoutSession(@CurrentUser() user: AuthUser) {
     return this.billingService.createCheckoutSession(user.clerkUserId);
   }
+
+  @Post('create-portal-session')
+  createPortalSession(@CurrentUser() user: AuthUser) {
+    return this.billingService.createBillingPortalSession(user.clerkUserId);
+  }
 }

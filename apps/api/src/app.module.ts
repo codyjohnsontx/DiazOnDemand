@@ -15,6 +15,7 @@ import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
+import { BILLING_ALERTER, LoggingBillingAlerter } from './billing/billing-alerter.js';
 import { WebhooksController } from './webhooks/webhooks.controller.js';
 import { WebhooksService } from './webhooks/webhooks.service.js';
 
@@ -38,6 +39,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     AdminService,
     BillingService,
     WebhooksService,
+    { provide: BILLING_ALERTER, useClass: LoggingBillingAlerter },
   ],
 })
 export class AppModule {}

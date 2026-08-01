@@ -25,8 +25,9 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Favorites create/list/remove
 - Admin CRUD + publish/unpublish for programs/courses/lessons
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
-- Stripe checkout session endpoint
-- Stripe webhook handler syncing `Subscription` + `Entitlement`
+- Stripe checkout session endpoint, and a Stripe billing portal endpoint so members can cancel
+- Stripe webhook handler syncing `Subscription` history + `Entitlement`, including refunds and
+  chargebacks
 - Mux webhook with signature verification, syncing playback ID + duration on `video.asset.ready`
 
 ## Repository Layout
@@ -67,6 +68,7 @@ Stripe:
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_ID_MONTHLY`
 - `WEB_APP_URL`
+- `BILLING_ALERT_WEBHOOK_URL` (optional; Slack/Discord incoming webhook for billing failures)
 
 Mux (optional now):
 - `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` (API access token, from Settings > Access Tokens)
@@ -131,18 +133,44 @@ After seed:
 - For real Clerk auth, provide `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`), and client publishable keys; the web/mobile clients will forward bearer tokens to the API.
 
 ## Stripe + Webhooks
-Create checkout session endpoint:
-- `POST /billing/create-checkout-session`
+Billing endpoints (both Clerk-authenticated):
+- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** when
+  the member already has an active subscription, so a second click cannot become a second charge.
+  Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
+- `POST /billing/create-portal-session` - opens Stripe's hosted billing portal, which is where a
+  member cancels, changes their card, and downloads invoices. Returns **404** when the member has
+  no Stripe customer yet.
 
 Stripe webhook endpoint:
 - `POST /webhooks/stripe`
 - Handles:
-  - `customer.subscription.created`
-  - `customer.subscription.updated`
-  - `customer.subscription.deleted`
+  - `customer.subscription.created` / `.updated` / `.deleted`
+  - `charge.refunded` - a **full** refund revokes access immediately; a partial refund does not
+  - `charge.dispute.created` - a chargeback revokes access immediately
 - Syncs:
-  - `Subscription` row
-  - `Entitlement` tier (`PREMIUM` while active/trialing/past_due, else `FREE`)
+  - a `Subscription` row per Stripe subscription. This is a **history**, not one row per member:
+    a member who cancels and resubscribes gets a new Stripe subscription id, and both rows are
+    kept.
+  - the `Entitlement`, always **derived from the member's stored subscriptions** rather than from
+    the event in hand. `PREMIUM` while any unrevoked subscription is `active`/`trialing`/`past_due`,
+    otherwise `FREE`. `Entitlement.source` records whether Stripe or a human last set it.
+
+Delivery safety:
+- Every verified event is recorded in `StripeWebhookEvent` with `PROCESSED` or `FAILED`. That table
+  is the answer to "somebody paid and did not get access" - query it rather than the Stripe
+  dashboard.
+- An event already recorded `PROCESSED` is skipped, so Stripe's redeliveries are safe. A `FAILED`
+  one is retried.
+- An event Stripe generated *before* the state already recorded on a subscription is ignored, so an
+  out-of-order delivery cannot restore access after a cancellation.
+- A signature failure returns 400. A verified event that fails to persist returns **5xx**, so Stripe
+  retries it instead of dropping it.
+
+Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
+- Every failure logs at `error` level prefixed `BILLING_ALERT`, which any host's log viewer can
+  alert on.
+- Set the optional `BILLING_ALERT_WEBHOOK_URL` to also POST `{"text": "..."}` to a Slack or Discord
+  incoming webhook. Unset means log-only.
 
 Test locally with Stripe CLI:
 ```bash
@@ -182,10 +210,29 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 - `pnpm dev:mobile` -> Expo mobile
 - `pnpm lint`
 - `pnpm typecheck`
-- `pnpm test`
+- `pnpm test` (see [Tests](#tests))
 - `pnpm db:generate`
 - `pnpm db:migrate`
 - `pnpm db:seed`
+
+## Tests
+`pnpm test` runs everything. Most of the API suite mocks Prisma, but the Stripe billing lifecycle
+does not: the resubscribe and double-subscription defects were unique-constraint violations that a
+mocked client cannot raise, so `apps/api/src/tests/billing-lifecycle.db.test.ts` runs the real
+services against a real Postgres.
+
+Those tests **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
+around - except on CI, where a missing `TEST_DATABASE_URL` fails the run rather than silently
+dropping the coverage. CI provides a Postgres service container.
+
+To run them locally:
+```bash
+docker run -d --name diaz-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=diaz \
+  -p 55433:5432 postgres:16-alpine
+DATABASE_URL='postgresql://postgres:postgres@localhost:55433/diaz?schema=public' \
+  pnpm --filter @diaz/db exec prisma migrate deploy --schema prisma/schema.prisma
+TEST_DATABASE_URL='postgresql://postgres:postgres@localhost:55433/diaz?schema=public' pnpm test
+```
 
 ## MVP TODO / Roadmap
 - Better admin UX for content ordering and bulk operations

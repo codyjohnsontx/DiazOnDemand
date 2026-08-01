@@ -186,6 +186,12 @@ export const meSchema = z.object({
   entitlementTier: z.nativeEnum(EntitlementTier),
   subscriptionStatus: z.string().nullable().optional(),
   currentPeriodEnd: z.string().datetime().nullable().optional(),
+  /** True when the member has a Stripe customer, so the billing portal can open. */
+  canManageBilling: z.boolean().optional(),
+});
+
+export const billingPortalSessionSchema = z.object({
+  url: z.string().url().nullable().optional(),
 });
 
 export const entitlementsResponseSchema = z.object({
@@ -219,3 +225,4 @@ export type AdminUpdateLessonDto = z.infer<typeof adminUpdateLessonSchema>;
 export type MeDto = z.infer<typeof meSchema>;
 export type EntitlementsResponse = z.infer<typeof entitlementsResponseSchema>;
 export type CheckoutSessionDto = z.infer<typeof checkoutSessionSchema>;
+export type BillingPortalSessionDto = z.infer<typeof billingPortalSessionSchema>;

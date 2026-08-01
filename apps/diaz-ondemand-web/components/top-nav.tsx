@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { MeDto } from '@diaz/shared';
+import { SignOutControl } from '@/components/sign-out-control';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 
@@ -70,6 +71,7 @@ export function TopNav() {
             >
               {me ? 'Account' : 'Sign In'}
             </Link>
+            {me ? <SignOutControl /> : null}
           </div>
         </div>
 
