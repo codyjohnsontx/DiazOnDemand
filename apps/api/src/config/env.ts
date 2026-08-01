@@ -7,9 +7,10 @@ const LOOPBACK_DB_HOSTS = new Set(['localhost', '::1']);
  *
  * The dev auth bypass authenticates a request carrying no credentials at all as
  * the seeded ADMIN/PREMIUM user, so it must never be reachable on a deployed
- * server. NODE_ENV cannot be trusted to tell us where we are running - nothing
- * in this repository sets it, so a host that happens not to export it leaves
- * every `NODE_ENV === 'production'` guard inert. The database a process is
+ * server. NODE_ENV cannot be trusted to tell us where we are running - the only
+ * thing in this repository that sets it is the `pnpm start` script, so a run
+ * that does not go through that script, on a host that does not export it,
+ * leaves every `NODE_ENV === 'production'` guard inert. The database a process is
  * pointed at is a fact about the deployment rather than a hint, so that is what
  * gates the bypass. Anything unparseable or non-loopback fails closed.
  */

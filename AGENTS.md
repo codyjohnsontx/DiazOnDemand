@@ -244,9 +244,10 @@ Two billing invariants that are easy to break by accident:
 
 Do not weaken these. Each exists because it failed in production once.
 - The dev auth bypass (`DEV_BYPASS_AUTH`) is gated on `DATABASE_URL` pointing at
-  loopback, not on `NODE_ENV`. Nothing in this repo sets `NODE_ENV`, so a
-  `NODE_ENV === 'production'` check alone is inert on a host that does not export
-  it. See `isDevAuthBypassEnabled` in `apps/api/src/config/env.ts` and the tests in
+  loopback, not on `NODE_ENV`. The only thing in this repo that sets `NODE_ENV` is the
+  `pnpm start` script (next bullet), so a `NODE_ENV === 'production'` check alone is
+  inert on any run that does not go through it and does not export it either. See
+  `isDevAuthBypassEnabled` in `apps/api/src/config/env.ts` and the tests in
   `apps/api/src/tests/env.test.ts`.
 - Deployed API runs start via `pnpm start`, which sets `NODE_ENV=production` itself.
   That makes the production-only startup checks live, so a deploy needs these set or the
