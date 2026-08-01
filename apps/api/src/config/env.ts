@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const LOOPBACK_DB_HOSTS = new Set(['localhost', '::1', '0:0:0:0:0:0:0:1']);
+const LOOPBACK_DB_HOSTS = new Set(['localhost', '::1']);
 
 /**
  * True only when DATABASE_URL points at a database on this machine.

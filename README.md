@@ -92,6 +92,15 @@ pnpm install
 ```bash
 cp .env.example .env
 ```
+`.env.example` ships every auth bypass flag as `false`, so a fresh copy has no working
+auth and the walkthrough below returns `401`. Pick one:
+- **Local bypass (fastest):** set `DEV_BYPASS_AUTH=true`, `NEXT_PUBLIC_DEV_BYPASS_AUTH=true`
+  and `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `.env`. This is only valid against the
+  localhost `DATABASE_URL` that `.env.example` already ships - the API refuses to start
+  with the bypass enabled against any other database. See "Clerk Setup Notes" below for
+  what the bypass grants.
+- **Real Clerk auth:** provide `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` and
+  `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (not in `.env.example`; add it yourself).
 
 3. Generate Prisma client and run migration:
 ```bash
@@ -330,6 +339,17 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 - API deploy: deploy `apps/api` as a separate service/project. Start it with `pnpm start`
   (root) or `pnpm --filter api start`, which sets `NODE_ENV=production` itself rather than
   relying on the host to export it.
+- Pre-deploy checklist. Because `pnpm start` sets `NODE_ENV=production`, the production-only
+  startup checks are now live. The API **exits instead of starting** if any of these is
+  missing:
+  - `DIAZ_INTERNAL_API_KEY` - always required in production.
+  - `STRIPE_WEBHOOK_SECRET` - required when Stripe is enabled (`STRIPE_SECRET_KEY` set).
+  - `MUX_WEBHOOK_SECRET` and the signing key pair `MUX_SIGNING_KEY_ID` +
+    `MUX_SIGNING_KEY_PRIVATE` - required when Mux is enabled (`MUX_TOKEN_ID` set).
+
+  This refusal is deliberate. Booting without them would mean unverified webhooks, an
+  unauthenticated internal entitlements endpoint, or paid lessons served over unsigned
+  playback URLs. Set the values, then deploy.
 - Ensure web has `NEXT_PUBLIC_API_URL` pointing at deployed API.
 - Keep server secrets only on API environment.
 - While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and

@@ -248,7 +248,18 @@ Do not weaken these. Each exists because it failed in production once.
   it. See `isDevAuthBypassEnabled` in `apps/api/src/config/env.ts` and the tests in
   `apps/api/src/tests/env.test.ts`.
 - Deployed API runs start via `pnpm start`, which sets `NODE_ENV=production` itself.
+  That makes the production-only startup checks live, so a deploy needs these set or the
+  API exits instead of starting: `DIAZ_INTERNAL_API_KEY` (always), `STRIPE_WEBHOOK_SECRET`
+  (when `STRIPE_SECRET_KEY` is set), and `MUX_WEBHOOK_SECRET` plus the signing key pair
+  `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` (when `MUX_TOKEN_ID` is set). The
+  refusal is deliberate - do not relax a check to get a deploy green.
 - `.env.example` ships every bypass flag as `false`. Keep it copy-safe.
+- Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so
+  a deployed API that reaches Postgres through a loopback proxy still satisfies it - a
+  Cloud SQL Auth Proxy or pgbouncer sidecar on `127.0.0.1`, or Prisma's socket form
+  `postgresql://u:p@localhost:5432/db?host=/cloudsql/...`. In that deployment shape the
+  bypass is gated only by `NODE_ENV` again. It still requires someone to deliberately set
+  `DEV_BYPASS_AUTH=true`. This is written down on purpose; do not add detection code for it.
 
 ## Maintaining this file
 
