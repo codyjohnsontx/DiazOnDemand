@@ -43,7 +43,9 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `git@github.com:codyjohnsontx/DiazMartialArts.git`
 
 ## Environment Variables
-Use root `.env.example` as source of truth.
+Root `.env.example` is the catalog of every variable. At runtime each app loads its own
+file: the API the monorepo-root `.env`, Next.js `apps/diaz-ondemand-web/.env`, Expo
+`apps/mobile/.env`. See "Local Setup" below.
 
 Required core values:
 - `DATABASE_URL`
@@ -88,19 +90,25 @@ corepack prepare pnpm@9.12.3 --activate
 pnpm install
 ```
 
-2. Configure env:
+2. Configure env. Each app reads its own `.env`, and turbo forwards nothing between them:
+the API loads the monorepo-root `.env` (see `apps/api/src/main.ts`), Next.js loads
+`apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy all three:
 ```bash
 cp .env.example .env
+cp apps/diaz-ondemand-web/.env.example apps/diaz-ondemand-web/.env
+cp apps/mobile/.env.example apps/mobile/.env
 ```
-`.env.example` ships every auth bypass flag as `false`, so a fresh copy has no working
-auth and the walkthrough below returns `401`. Pick one:
-- **Local bypass (fastest):** set `DEV_BYPASS_AUTH=true`, `NEXT_PUBLIC_DEV_BYPASS_AUTH=true`
-  and `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `.env`. This is only valid against the
-  localhost `DATABASE_URL` that `.env.example` already ships - the API refuses to start
-  with the bypass enabled against any other database. See "Clerk Setup Notes" below for
-  what the bypass grants.
-- **Real Clerk auth:** provide `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` and
-  `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (not in `.env.example`; add it yourself).
+Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy has no
+working auth and the walkthrough below returns `401`. Pick one:
+- **Local bypass (fastest):** set `DEV_BYPASS_AUTH=true` in the root `.env`,
+  `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/diaz-ondemand-web/.env`, and
+  `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. This is only valid against
+  the localhost `DATABASE_URL` the examples already ship - the API refuses to start with
+  the bypass enabled against any other database. See "Clerk Setup Notes" below for what
+  the bypass grants.
+- **Real Clerk auth:** set `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` in the root `.env`,
+  and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env` (its example
+  ships a placeholder - replace it with a real key).
 
 3. Generate Prisma client and run migration:
 ```bash
@@ -347,9 +355,20 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   - `MUX_WEBHOOK_SECRET` and the signing key pair `MUX_SIGNING_KEY_ID` +
     `MUX_SIGNING_KEY_PRIVATE` - required when Mux is enabled (`MUX_TOKEN_ID` set).
 
-  This refusal is deliberate. Booting without them would mean unverified webhooks, an
-  unauthenticated internal entitlements endpoint, or paid lessons served over unsigned
-  playback URLs. Set the values, then deploy.
+  This refusal is deliberate. Each of those paths already fails closed at request time -
+  `verifyStripeSignature`/`verifyMuxSignature` throw when the secret is absent,
+  `GET /users/:clerkUserId/entitlements` rejects every caller when
+  `DIAZ_INTERNAL_API_KEY` is unset, and paid lesson detail returns a 500 rather than an
+  unsigned playback URL. So booting without them is not an exposure; it is a service that
+  cannot do its job, silently, until someone notices. Refusing at startup makes that
+  visible immediately. Set the values, then deploy.
+- Put those production values in real host environment variables, or in the monorepo-root
+  `.env` - **not** in `apps/api/.env`. `validateApiEnv` runs in `apps/api/src/main.ts`
+  before `NestFactory.create`, while `ConfigModule.forRoot` loads `apps/api/.env` from the
+  working directory later, inside `NestFactory.create`. The symptom if you get this wrong:
+  the API exits reporting `DIAZ_INTERNAL_API_KEY: required in production` while that
+  variable is plainly set in `apps/api/.env`. The check is not broken - it never saw the
+  file. Correcting that load ordering is tracked as its own task.
 - Ensure web has `NEXT_PUBLIC_API_URL` pointing at deployed API.
 - Keep server secrets only on API environment.
 - While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and

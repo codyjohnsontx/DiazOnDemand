@@ -253,7 +253,15 @@ Do not weaken these. Each exists because it failed in production once.
   (when `STRIPE_SECRET_KEY` is set), and `MUX_WEBHOOK_SECRET` plus the signing key pair
   `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` (when `MUX_TOKEN_ID` is set). The
   refusal is deliberate - do not relax a check to get a deploy green.
-- `.env.example` ships every bypass flag as `false`. Keep it copy-safe.
+- Every `.env.example` in the repo - root, `apps/api`, `apps/diaz-ondemand-web`,
+  `apps/mobile` - ships its bypass flag as `false`. Keep all four copy-safe; the
+  `apps/api` one sits inside the deployed service and is the likeliest to be copied
+  onto a server.
+- Production API values belong in host env vars or the monorepo-root `.env`, not in
+  `apps/api/.env`: `validateApiEnv` runs in `main.ts` before `NestFactory.create`, while
+  `ConfigModule.forRoot` reads the cwd `.env` afterwards, so startup validation never
+  sees that file. Documented in the README pre-deploy checklist; the load ordering itself
+  is still unfixed.
 - Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so
   a deployed API that reaches Postgres through a loopback proxy still satisfies it - a
   Cloud SQL Auth Proxy or pgbouncer sidecar on `127.0.0.1`, or Prisma's socket form
