@@ -93,11 +93,13 @@ pnpm install
 2. Configure env. Each app reads its own `.env`, and turbo forwards nothing between them:
 the API loads the monorepo-root `.env` (see `apps/api/src/main.ts`), Next.js loads
 `apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy all three:
+
 ```bash
 cp .env.example .env
 cp apps/diaz-ondemand-web/.env.example apps/diaz-ondemand-web/.env
 cp apps/mobile/.env.example apps/mobile/.env
 ```
+
 Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy has no
 working auth and the walkthrough below returns `401`. Pick one:
 - **Local bypass (fastest):** set `DEV_BYPASS_AUTH=true` in the root `.env`,

@@ -240,7 +240,8 @@ Two billing invariants that are easy to break by accident:
   from the Stripe event being handled. See `resolveStripeEntitlement` in
   `apps/api/src/common/entitlement.ts`.
 
-Security Invariants
+## Security Invariants
+
 Do not weaken these. Each exists because it failed in production once.
 - The dev auth bypass (`DEV_BYPASS_AUTH`) is gated on `DATABASE_URL` pointing at
   loopback, not on `NODE_ENV`. Nothing in this repo sets `NODE_ENV`, so a
@@ -259,7 +260,7 @@ Do not weaken these. Each exists because it failed in production once.
   onto a server.
 - Production API values belong in host env vars or the monorepo-root `.env`, not in
   `apps/api/.env`: `validateApiEnv` runs in `main.ts` before `NestFactory.create`, while
-  `ConfigModule.forRoot` reads the cwd `.env` afterwards, so startup validation never
+  `ConfigModule.forRoot` reads the cwd `.env` afterward, so startup validation never
   sees that file. Documented in the README pre-deploy checklist; the load ordering itself
   is still unfixed.
 - Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so
