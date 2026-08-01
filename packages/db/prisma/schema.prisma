@@ -194,20 +194,20 @@ model Entitlement {
 /// owner can query when a payment did not turn into access.
 model StripeWebhookEvent {
   /// Stripe's own event id (`evt_...`).
-  id             String                   @id
-  type           String
-  status         StripeWebhookEventStatus
+  id                   String                   @id
+  type                 String
+  status               StripeWebhookEventStatus
   /// `created` on the Stripe event, i.e. when Stripe generated it.
-  stripeCreatedAt DateTime
-  error          String?
-  attempts       Int                      @default(1)
+  stripeCreatedAt      DateTime
+  error                String?
+  attempts             Int                      @default(1)
   /// Set only on the delivery that raised the "subscription matches no member"
   /// alert, and only for that subscription. That is what makes the alert fire
   /// exactly once per subscription instead of on every renewal, while still
   /// firing when a subscription starts `incomplete` and goes live later.
   stripeSubscriptionId String?
-  receivedAt     DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
+  receivedAt           DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
 
   @@index([status, receivedAt])
   @@index([stripeSubscriptionId])
