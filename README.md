@@ -47,7 +47,7 @@ Use root `.env.example` as source of truth.
 
 Required core values:
 - `DATABASE_URL`
-- `DEV_BYPASS_AUTH` (`true` for local MVP)
+- `DEV_BYPASS_AUTH` (`false` everywhere except local development - see below)
 - `DEFAULT_DEV_CLERK_USER_ID`
 - `NEXT_PUBLIC_API_URL`
 - `NEXT_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
@@ -130,7 +130,11 @@ After seed:
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).
 
 ## Clerk Setup Notes (Web + Expo)
-- Development bypass requires `DEV_BYPASS_AUTH=true` on the API and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` on clients.
+- `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
+  seeded admin, so it is local-only. The API refuses to start with it enabled unless
+  `DATABASE_URL` points at localhost, whatever `NODE_ENV` says - `NODE_ENV` alone is not
+  trusted, because nothing in this repo guarantees a host exports it.
+- Development bypass requires `DEV_BYPASS_AUTH=true` on the API and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` on clients. All three default to `false` in `.env.example`.
 - API reads `x-dev-user-id` header and auto-upserts a user.
 - For real Clerk auth, provide `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`), and client publishable keys; the web/mobile clients will forward bearer tokens to the API.
 
@@ -323,7 +327,9 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 
 ## Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
-- API deploy: deploy `apps/api` as a separate service/project.
+- API deploy: deploy `apps/api` as a separate service/project. Start it with `pnpm start`
+  (root) or `pnpm --filter api start`, which sets `NODE_ENV=production` itself rather than
+  relying on the host to export it.
 - Ensure web has `NEXT_PUBLIC_API_URL` pointing at deployed API.
 - Keep server secrets only on API environment.
 - While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and
@@ -333,6 +339,7 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 ## Scripts
 - `pnpm dev` -> API + web
 - `pnpm dev:mobile` -> Expo mobile
+- `pnpm start` -> built API with `NODE_ENV=production` (deployed runs)
 - `pnpm lint`
 - `pnpm typecheck`
 - `pnpm test` (see [Tests](#tests))

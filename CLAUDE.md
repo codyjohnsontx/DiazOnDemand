@@ -240,6 +240,16 @@ Two billing invariants that are easy to break by accident:
   from the Stripe event being handled. See `resolveStripeEntitlement` in
   `apps/api/src/common/entitlement.ts`.
 
+Security Invariants
+Do not weaken these. Each exists because it failed in production once.
+- The dev auth bypass (`DEV_BYPASS_AUTH`) is gated on `DATABASE_URL` pointing at
+  loopback, not on `NODE_ENV`. Nothing in this repo sets `NODE_ENV`, so a
+  `NODE_ENV === 'production'` check alone is inert on a host that does not export
+  it. See `isDevAuthBypassEnabled` in `apps/api/src/config/env.ts` and the tests in
+  `apps/api/src/tests/env.test.ts`.
+- Deployed API runs start via `pnpm start`, which sets `NODE_ENV=production` itself.
+- `.env.example` ships every bypass flag as `false`. Keep it copy-safe.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
