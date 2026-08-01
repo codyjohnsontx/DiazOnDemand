@@ -4,6 +4,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { EntitlementTier, Role } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier } from '@diaz/db';
 import {
+  REVOKE_REASON_CHARGEBACK,
+  REVOKE_REASON_REFUND,
+  planRevocation,
+  releasesRevocation,
+} from '../billing/subscription-revocation.js';
+import {
   isEntitlementActive,
   isLiveStripeSubscription,
   resolveEntitlementTier,
@@ -440,6 +446,75 @@ describe('entitlement resolution', () => {
       expect(
         resolveStripeEntitlement([{ status: 'active', currentPeriodEnd: null, revokedAt: null }]),
       ).toEqual({ tier: DbEntitlementTier.PREMIUM, validUntil: null });
+    });
+
+    it('records a reason and a date together so a revocation can always be explained', () => {
+      const now = new Date('2026-07-29T12:00:00.000Z');
+
+      expect(
+        planRevocation({ revokedAt: null, revokedReason: null }, REVOKE_REASON_REFUND, now),
+      ).toEqual({ revokedAt: now, revokedReason: REVOKE_REASON_REFUND });
+    });
+
+    it('upgrades a refund revocation to a chargeback but never the other way', () => {
+      const now = new Date('2026-07-29T12:00:00.000Z');
+      const refunded = { revokedAt: past, revokedReason: REVOKE_REASON_REFUND };
+      const chargedBack = { revokedAt: past, revokedReason: REVOKE_REASON_CHARGEBACK };
+
+      expect(planRevocation(refunded, REVOKE_REASON_CHARGEBACK, now)).toEqual({
+        revokedAt: now,
+        revokedReason: REVOKE_REASON_CHARGEBACK,
+      });
+      expect(planRevocation(chargedBack, REVOKE_REASON_REFUND, now)).toBeNull();
+      expect(planRevocation(refunded, REVOKE_REASON_REFUND, now)).toBeNull();
+    });
+
+    describe('releasesRevocation', () => {
+      const revokedAt = new Date('2026-07-01T00:00:00.000Z');
+      const refunded = {
+        revokedAt,
+        revokedReason: REVOKE_REASON_REFUND,
+        currentPeriodEnd: future,
+      };
+      const renewal = {
+        status: 'active',
+        currentPeriodEnd: new Date('2026-09-29T00:00:00.000Z'),
+        stripeCreatedAt: now,
+      };
+
+      it('releases a refund revocation when the paid period moves forward', () => {
+        expect(releasesRevocation(refunded, renewal)).toBe(true);
+      });
+
+      it('holds when the period did not move, whatever the status says', () => {
+        // cancel_at_period_end, a card update and a plan change all look like this.
+        expect(releasesRevocation(refunded, { ...renewal, currentPeriodEnd: future })).toBe(false);
+        expect(releasesRevocation(refunded, { ...renewal, currentPeriodEnd: past })).toBe(false);
+        expect(releasesRevocation(refunded, { ...renewal, currentPeriodEnd: null })).toBe(false);
+      });
+
+      it('holds for a chargeback however genuine the renewal looks', () => {
+        expect(
+          releasesRevocation(
+            { ...refunded, revokedReason: REVOKE_REASON_CHARGEBACK },
+            renewal,
+          ),
+        ).toBe(false);
+      });
+
+      it('holds for an event Stripe generated before the revocation', () => {
+        expect(releasesRevocation(refunded, { ...renewal, stripeCreatedAt: past })).toBe(false);
+      });
+
+      it('holds when the subscription is not live', () => {
+        expect(releasesRevocation(refunded, { ...renewal, status: 'canceled' })).toBe(false);
+      });
+
+      it('holds when the row was never revoked', () => {
+        expect(
+          releasesRevocation({ ...refunded, revokedAt: null, revokedReason: null }, renewal),
+        ).toBe(false);
+      });
     });
 
     it('drops to FREE once the dateless subscription stops being live', () => {

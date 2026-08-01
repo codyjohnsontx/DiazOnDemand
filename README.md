@@ -168,14 +168,31 @@ Refund and chargeback scoping:
 - If the charge cannot be traced to a subscription, access is left **unchanged** and an alert fires
   saying the money went back but access was not withdrawn. Guessing is what the scoping rule exists
   to prevent.
-- A revoke is not a one-way door:
+- Two paths read back from the Stripe API, both on the revocation side:
+  - `stripe.invoices.retrieve`, to get from a charge to its subscription. `charge.refunded` carries
+    `invoice` as a bare id unless expanded, so this runs on **essentially every real refund**. It is
+    covered by tests against a stubbed Stripe client, never a live one.
+  - `stripe.charges.retrieve`, only when `charge.dispute.created` arrives with an unexpanded charge.
+    The expanded fast path is tested; **this fallback is not exercised**, because doing so would
+    require a real Stripe call. If it ever fails, access is left unchanged and an alert fires.
+- Every revocation stores `revokedAt` **and** `revokedReason` together, so a member without access
+  can always be shown *why* ("revoked by refund on <date>") rather than an unexplained gap. The
+  rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
+  just its first caller.
+- A revoke is not a one-way door, but only a **genuine renewal** opens it:
   - Resubscribing always works. A new Stripe subscription id is a new row, which was never revoked.
-  - For the same subscription, a **newer** Stripe event (one that passes the ordering guard)
-    reporting a live status clears a **refund** revocation - refunds get issued by mistake and as
-    goodwill on top of a continuing subscription.
-  - A **chargeback** revocation is sticky. The customer forcibly took the money back, so a routine
-    subscription update must not hand access back; they have to subscribe again.
-  - A stale event still clears nothing.
+  - For the same subscription, a **refund** revocation clears only when a later Stripe event moves
+    `current_period_end` **strictly forward** - i.e. the member was actually charged again. A live
+    status is deliberately *not* enough: `cancel_at_period_end`, a card update and a plan change all
+    keep the status `active`, and treating those as proof would let a refunded member press Cancel
+    and keep the period they were refunded for.
+  - The cost of that strictness is accepted knowingly: a member refunded **by mistake** stays locked
+    out until their next renewal unless somebody corrects the record by hand.
+  - A **chargeback** revocation is sticky and never clears. The customer forcibly took the money
+    back, so they have to subscribe again. A chargeback landing on a subscription already revoked by
+    a refund **upgrades** the stored reason, so the sticky outcome cannot inherit the clearable one.
+  - Only an event Stripe generated *after* the revocation can clear it. The subscription ordering
+    guard alone does not cover this, because a revoke does not advance `lastEventAt`.
 
 Delivery safety:
 - Every verified event is recorded in `StripeWebhookEvent` with `PROCESSED` or `FAILED`. That table
@@ -194,9 +211,11 @@ Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
   original error, because the usual reason a delivery fails is the database - which is also what
   stops the row being written.
 - Alerts also fire for money that moved without access following it: a refund or chargeback that
-  cannot be traced to a subscription, and a subscription event carrying no `userId` metadata (one
-  created in the Stripe dashboard or through a Payment Link). Those are processed, not rejected -
-  they may be deliberate - but never silently.
+  cannot be traced to a subscription, and a **newly created, live** subscription carrying no
+  `userId` metadata (one created in the Stripe dashboard or through a Payment Link). Those are
+  processed, not rejected - they may be deliberate - but never silently. The unmatched-subscription
+  alert deliberately fires once, on creation only: re-alerting on every renewal, or claiming money
+  was taken when the event is a cancellation, would make the channel not worth watching.
 - Set the optional `BILLING_ALERT_WEBHOOK_URL` to also POST `{"text": "..."}` to a Slack or Discord
   incoming webhook. Unset means log-only.
 

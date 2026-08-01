@@ -7,27 +7,24 @@ import {
   LoggingBillingAlerter,
   type BillingAlerter,
 } from '../billing/billing-alerter.js';
+import {
+  REVOKE_REASON_CHARGEBACK,
+  REVOKE_REASON_REFUND,
+  planRevocation,
+  releasesRevocation,
+} from '../billing/subscription-revocation.js';
 import { isLiveStripeSubscription, resolveStripeEntitlement } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const MUX_SIGNATURE_TOLERANCE_SECONDS = 300;
 
+const SUBSCRIPTION_CREATED_EVENT_TYPE = 'customer.subscription.created';
+
 const SUBSCRIPTION_EVENT_TYPES = new Set([
-  'customer.subscription.created',
+  SUBSCRIPTION_CREATED_EVENT_TYPE,
   'customer.subscription.updated',
   'customer.subscription.deleted',
 ]);
-
-/**
- * Why a subscription's access was withdrawn, and whether it can come back.
- *
- * A refund is reversible - it can be goodwill, or issued by mistake - so a
- * later Stripe event that says the subscription is live again clears it. A
- * chargeback is not: the customer forcibly took the money back, and a routine
- * metadata update must never hand access back on its own.
- */
-const REVOKE_REASON_REFUND = 'refund';
-const REVOKE_REASON_CHARGEBACK = 'chargeback';
 
 type MuxPlaybackId = {
   id?: string;
@@ -140,24 +137,32 @@ export class WebhooksService {
     }
 
     if (SUBSCRIPTION_EVENT_TYPES.has(event.type)) {
-      await this.applySubscriptionEvent(event.data.object as Stripe.Subscription, stripeCreatedAt);
+      await this.applySubscriptionEvent(
+        event.data.object as Stripe.Subscription,
+        stripeCreatedAt,
+        event.type,
+      );
       return;
     }
 
     if (event.type === 'charge.refunded') {
-      await this.applyRefund(event.data.object as Stripe.Charge);
+      await this.applyRefund(event.data.object as Stripe.Charge, stripeCreatedAt);
       return;
     }
 
     if (event.type === 'charge.dispute.created') {
-      await this.applyDispute(event.data.object as Stripe.Dispute);
+      await this.applyDispute(event.data.object as Stripe.Dispute, stripeCreatedAt);
       return;
     }
 
     this.logger.log(`Ignoring Stripe event type: ${event.type}`);
   }
 
-  private async applySubscriptionEvent(sub: Stripe.Subscription, stripeCreatedAt: Date) {
+  private async applySubscriptionEvent(
+    sub: Stripe.Subscription,
+    stripeCreatedAt: Date,
+    eventType: string,
+  ) {
     const userId = (sub.metadata?.userId as string | undefined) ?? null;
 
     if (!userId) {
@@ -167,11 +172,23 @@ export class WebhooksService {
       // not rejected, but it cannot pass quietly: somebody is being charged and
       // receiving nothing.
       this.logger.warn(`Subscription ${sub.id} missing userId metadata`);
-      await this.alerter.send(
-        `Stripe subscription ${sub.id} (${sub.status}) carries no userId metadata and could not be ` +
-          `matched to a member - money is being taken and NOBODY has been granted access. ` +
-          `Grant it by hand today and check how the subscription was created.`,
-      );
+
+      // Only on the first sighting of a subscription that is actually live.
+      // Alerting on every renewal, or claiming money was taken when the event
+      // is a cancellation, would make the one channel the owner watches
+      // untrustworthy.
+      if (
+        eventType === SUBSCRIPTION_CREATED_EVENT_TYPE &&
+        isLiveStripeSubscription({ status: sub.status, revokedAt: null })
+      ) {
+        await this.alerter.send(
+          `Stripe subscription ${sub.id} was created with status ${sub.status} but carries no ` +
+            `userId metadata, so it could not be matched to a member - somebody is paying and ` +
+            `NOBODY has been granted access. Grant it by hand today and check how the ` +
+            `subscription was created.`,
+        );
+      }
+
       return;
     }
 
@@ -202,20 +219,20 @@ export class WebhooksService {
       lastEventAt: stripeCreatedAt,
     };
 
-    // A revoke must not be a one-way door. This event is already known to be
-    // newer than the recorded state (the ordering guard above), so a live status
-    // here means Stripe considers the subscription good again - which clears a
-    // refund, but never a chargeback.
-    const clearsRevocation =
-      existing?.revokedAt != null &&
-      existing.revokedReason === REVOKE_REASON_REFUND &&
-      isLiveStripeSubscription({ status: sub.status, revokedAt: null });
+    // A revoke must not be a one-way door, but only a genuine renewal opens it.
+    const released =
+      existing !== null &&
+      releasesRevocation(existing, {
+        status: sub.status,
+        currentPeriodEnd,
+        stripeCreatedAt,
+      });
 
     // Upsert by the Stripe subscription id: a member can hold several rows over
     // time (cancel then resubscribe) and, briefly, at the same time.
     await this.prisma.client.subscription.upsert({
       where: { stripeSubscriptionId: sub.id },
-      update: clearsRevocation ? { ...fields, revokedAt: null, revokedReason: null } : fields,
+      update: released ? { ...fields, revokedAt: null, revokedReason: null } : fields,
       create: { ...fields, stripeSubscriptionId: sub.id },
     });
 
@@ -226,7 +243,7 @@ export class WebhooksService {
     );
   }
 
-  private async applyRefund(charge: Stripe.Charge) {
+  private async applyRefund(charge: Stripe.Charge, stripeCreatedAt: Date) {
     // Only a full refund withdraws access; a partial refund (a pro-rated
     // adjustment, say) leaves the member subscribed.
     const fullyRefunded = charge.refunded || charge.amount_refunded >= charge.amount;
@@ -236,10 +253,15 @@ export class WebhooksService {
       return;
     }
 
-    await this.revokeAccessForCharge(charge, REVOKE_REASON_REFUND, `Refund on charge ${charge.id}`);
+    await this.revokeAccessForCharge(
+      charge,
+      REVOKE_REASON_REFUND,
+      `Refund on charge ${charge.id}`,
+      stripeCreatedAt,
+    );
   }
 
-  private async applyDispute(dispute: Stripe.Dispute) {
+  private async applyDispute(dispute: Stripe.Dispute, stripeCreatedAt: Date) {
     const charge = await this.resolveDisputedCharge(dispute);
 
     if (!charge) {
@@ -253,7 +275,12 @@ export class WebhooksService {
 
     // A chargeback takes the money back and costs a fee on top, so access goes
     // immediately rather than at the end of the paid period.
-    await this.revokeAccessForCharge(charge, REVOKE_REASON_CHARGEBACK, `Chargeback ${dispute.id}`);
+    await this.revokeAccessForCharge(
+      charge,
+      REVOKE_REASON_CHARGEBACK,
+      `Chargeback ${dispute.id}`,
+      stripeCreatedAt,
+    );
   }
 
   private async resolveDisputedCharge(dispute: Stripe.Dispute): Promise<Stripe.Charge | null> {
@@ -265,9 +292,10 @@ export class WebhooksService {
       return null;
     }
 
-    // Stripe sends the charge as a bare id, and a Dispute carries no customer of
-    // its own, so the customer has to be read back. This is the one Stripe API
-    // call the billing path makes.
+    // Stripe sends the charge as a bare id, and a Dispute carries no charge
+    // detail of its own, so it has to be read back. One of the two Stripe reads
+    // the billing path can make; unlike the invoice read below, this one only
+    // happens when the dispute arrives unexpanded.
     try {
       return await this.stripe.charges.retrieve(dispute.charge);
     } catch (error) {
@@ -287,8 +315,17 @@ export class WebhooksService {
    * old one - permanently, since a revoke outlives the Stripe events that
    * follow it. If the charge cannot be traced to a subscription, access is left
    * alone and a human is told, because guessing is what caused the bug.
+   *
+   * `revokedAt` is stamped with Stripe's `created`, not the wall clock, so it
+   * sits on the same timeline as the subscription events that are later checked
+   * against it.
    */
-  private async revokeAccessForCharge(charge: Stripe.Charge, reason: string, description: string) {
+  private async revokeAccessForCharge(
+    charge: Stripe.Charge,
+    reason: string,
+    description: string,
+    stripeCreatedAt: Date,
+  ) {
     const stripeSubscriptionId = await this.resolveChargeSubscriptionId(charge);
 
     if (!stripeSubscriptionId) {
@@ -313,14 +350,19 @@ export class WebhooksService {
       return;
     }
 
-    if (subscription.revokedAt) {
-      this.logger.log(`Subscription ${stripeSubscriptionId} is already revoked; nothing to do`);
+    const revocation = planRevocation(subscription, reason, stripeCreatedAt);
+
+    if (!revocation) {
+      this.logger.log(
+        `Subscription ${stripeSubscriptionId} is already revoked as a ` +
+          `${subscription.revokedReason}; nothing to do`,
+      );
       return;
     }
 
     await this.prisma.client.subscription.update({
       where: { stripeSubscriptionId },
-      data: { revokedAt: new Date(), revokedReason: reason },
+      data: revocation,
     });
 
     await this.syncEntitlementFromSubscriptions(subscription.userId);
@@ -348,8 +390,9 @@ export class WebhooksService {
       return null;
     }
 
-    // Stripe sends the invoice as a bare id unless it was expanded, so it has to
-    // be read back to reach the subscription.
+    // `charge.refunded` carries the invoice as a bare id unless it was expanded,
+    // so in practice this read runs on essentially every real refund - the one
+    // Stripe call on the ordinary billing path, not just a fallback.
     try {
       return await this.stripe.invoices.retrieve(charge.invoice);
     } catch (error) {
