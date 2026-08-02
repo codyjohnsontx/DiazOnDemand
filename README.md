@@ -111,8 +111,8 @@ Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy lea
 with no working auth: it rejects the walkthrough below with `401` until you enable the bypass
 or configure real Clerk credentials.
 
-The web app has a separate and larger problem: with a fresh copy, `pnpm dev` serves HTTP `500`
-on **every** route, including the unprotected home page `/`. The trigger is an
+Copying the web example is what breaks the web app: with that file in place, `pnpm dev` serves
+HTTP `500` on **every** route, including the unprotected home page `/`. The trigger is an
 `apps/diaz-ondemand-web/.env` that carries a publishable key but no `CLERK_SECRET_KEY` -
 `clerkMiddleware` then throws `@clerk/nextjs: Missing secretKey` in the Edge runtime before any
 provider mounts. `CLERK_SECRET_KEY` ships in the root and `apps/api/.env.example`, but not in
@@ -124,17 +124,19 @@ puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, the w
 and serves pages normally, with no Clerk error.
 
 What actually works, each verified by running it:
-- **API only, via the local bypass:** set `DEV_BYPASS_AUTH=true` in the root `.env`,
-  `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/diaz-ondemand-web/.env`, and
-  `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. The API then authenticates a request
-  carrying **no credentials at all** as the seeded admin; a request that does present a Bearer
-  token still goes through Clerk verification. This requires a loopback `DATABASE_URL` - `localhost`, any
-  `127.x.x.x` address such as `127.0.0.1`, or the IPv6 loopback written as `[::1]` - which is
-  what the examples already ship; the API refuses to start with the bypass enabled against any
-  other database. See "Clerk Setup Notes" below for what the bypass grants. **This does not fix
-  the web app:** `/`, `/library` and `/admin/programs` still `500` with the same
-  `Missing secretKey`, because `clerkMiddleware` wraps every route regardless of the flag.
-- **A working web app:** put real Clerk credentials - **both** `CLERK_SECRET_KEY` and
+- **Local bypass (fastest), and the recommended local setup:** set `DEV_BYPASS_AUTH=true` in
+  the root `.env`, and `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env` only if you are
+  running the Expo app. Leave `apps/diaz-ondemand-web/.env` absent. The API then authenticates a
+  request carrying **no credentials at all** as the seeded admin; a request that does present a
+  Bearer token still goes through Clerk verification. This requires a loopback `DATABASE_URL` -
+  `localhost`, any `127.x.x.x` address such as `127.0.0.1`, or the IPv6 loopback written as
+  `[::1]` - which is what the examples already ship; the API refuses to start with the bypass
+  enabled against any other database. See "Clerk Setup Notes" below for what the bypass grants.
+  With no `apps/diaz-ondemand-web/.env`, the web app that `pnpm dev` serves on
+  `http://localhost:3000` works end to end against that API: `/`, `/library` and
+  `/admin/programs` all render seeded content, and the header shows **ACCOUNT** rather than
+  Sign In. The web client sends no token, so the API resolves its calls as the seeded admin.
+- **Real Clerk auth:** put real Clerk credentials - **both** `CLERK_SECRET_KEY` and
   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` - in `apps/diaz-ondemand-web/.env`. Nothing less does it:
   the secret key alone clears `Missing secretKey` but then fails `Publishable key not valid`,
   because `pk_test_your_key` is a placeholder, and putting `CLERK_SECRET_KEY` in the root
@@ -183,7 +185,11 @@ After seed:
   `DATABASE_URL` points at a loopback host - `localhost`, any `127.x.x.x` address such as
   `127.0.0.1`, or the IPv6 loopback written as `[::1]` - whatever `NODE_ENV` says.
   `NODE_ENV` alone is not trusted, because nothing in this repo guarantees a host exports it.
-- Development bypass requires `DEV_BYPASS_AUTH=true` on the API and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` on clients. All three default to `false` in `.env.example`.
+- `DEV_BYPASS_AUTH=true` on the API is what enables the bypass. The client flags
+  `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` are separate: they
+  make a client skip Clerk and send `x-dev-user-id`, so it acts as that specific seeded user
+  instead of the seeded admin. A client without its flag simply sends no credentials, which
+  the bypassed API already accepts as the admin. All three default to `false` in `.env.example`.
 - API reads `x-dev-user-id` header and auto-upserts a user.
 - For real Clerk auth, each app needs its own keys in its own `.env`: the API needs `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`) in the root `.env`; the web app needs **both** `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env`; Expo needs `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/mobile/.env`. The web/mobile clients then forward bearer tokens to the API.
 
