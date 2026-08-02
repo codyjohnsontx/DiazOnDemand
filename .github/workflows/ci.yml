@@ -15,7 +15,9 @@ jobs:
     # that a mocked Prisma client can never raise.
     services:
       postgres:
-        image: postgres:16-alpine
+        # Pinned by digest so a silent upstream retag cannot change what the
+        # billing regression tests run against. This is postgres:16-alpine.
+        image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

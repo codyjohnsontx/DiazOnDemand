@@ -40,7 +40,10 @@ type MockPrismaClient = Partial<{
     findMany?: ReturnType<typeof vi.fn>;
     updateMany?: ReturnType<typeof vi.fn>;
   };
-  entitlement: { upsert: ReturnType<typeof vi.fn> };
+  entitlement: {
+    upsert: ReturnType<typeof vi.fn>;
+    findUnique?: ReturnType<typeof vi.fn>;
+  };
   stripeWebhookEvent: {
     findUnique: ReturnType<typeof vi.fn>;
     findFirst?: ReturnType<typeof vi.fn>;
@@ -229,7 +232,11 @@ describe('WebhooksService', () => {
   };
 
   function createWebhooksService(
-    options: { storedSubscriptions?: StoredSubscription[]; alreadyProcessed?: boolean } = {},
+    options: {
+      storedSubscriptions?: StoredSubscription[];
+      alreadyProcessed?: boolean;
+      existingEntitlement?: { tier: string; validUntil: Date | null; source: string } | null;
+    } = {},
   ) {
     const subscriptionUpsert = vi.fn().mockResolvedValue({});
     const entitlementUpsert = vi.fn().mockResolvedValue({});
@@ -248,7 +255,11 @@ describe('WebhooksService', () => {
           findMany: vi.fn().mockResolvedValue(options.storedSubscriptions ?? []),
           updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
-        entitlement: { upsert: entitlementUpsert },
+        entitlement: {
+          upsert: entitlementUpsert,
+          // No existing entitlement: nothing manual to protect.
+          findUnique: vi.fn().mockResolvedValue(options.existingEntitlement ?? null),
+        },
       }),
     );
 
@@ -352,6 +363,47 @@ describe('WebhooksService', () => {
     expect(entitlementUpsert).not.toHaveBeenCalled();
   });
 
+  it('does not write over a live manual grant', async () => {
+    const { service, entitlementUpsert } = createWebhooksService({
+      storedSubscriptions: [{ status: 'canceled', currentPeriodEnd: null, revokedAt: null }],
+      existingEntitlement: { tier: 'PREMIUM', validUntil: null, source: 'MANUAL' },
+    });
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.deleted', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'canceled',
+        current_period_end: null,
+        metadata: { userId: 'user-1' },
+        items: { data: [] },
+      }),
+    );
+
+    expect(entitlementUpsert).not.toHaveBeenCalled();
+  });
+
+  it('normalises an expanded customer object rather than stringifying it', async () => {
+    const { service, subscriptionUpsert } = createWebhooksService();
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.updated', {
+        id: 'sub_123',
+        customer: { id: 'cus_expanded', object: 'customer' },
+        status: 'active',
+        current_period_end: null,
+        metadata: { userId: 'user-1' },
+        items: { data: [] },
+      }),
+    );
+
+    expect(subscriptionUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ stripeCustomerId: 'cus_expanded' }),
+      }),
+    );
+  });
+
   it('skips a Stripe event it has already processed', async () => {
     const { service, subscriptionUpsert } = createWebhooksService({ alreadyProcessed: true });
 
@@ -450,6 +502,17 @@ describe('entitlement resolution', () => {
       ).toEqual({ tier: DbEntitlementTier.PREMIUM, validUntil: null });
     });
 
+    it('drops to FREE once the dateless subscription stops being live', () => {
+      expect(
+        resolveStripeEntitlement([{ status: 'canceled', currentPeriodEnd: null, revokedAt: null }]),
+      ).toEqual({ tier: DbEntitlementTier.FREE, validUntil: null });
+      expect(
+        resolveStripeEntitlement([{ status: 'active', currentPeriodEnd: null, revokedAt: past }]),
+      ).toEqual({ tier: DbEntitlementTier.FREE, validUntil: null });
+    });
+  });
+
+  describe('subscription revocation', () => {
     it('records a reason and a date together so a revocation can always be explained', () => {
       const now = new Date('2026-07-29T12:00:00.000Z');
 
@@ -517,15 +580,6 @@ describe('entitlement resolution', () => {
           releasesRevocation({ ...refunded, revokedAt: null, revokedReason: null }, renewal),
         ).toBe(false);
       });
-    });
-
-    it('drops to FREE once the dateless subscription stops being live', () => {
-      expect(
-        resolveStripeEntitlement([{ status: 'canceled', currentPeriodEnd: null, revokedAt: null }]),
-      ).toEqual({ tier: DbEntitlementTier.FREE, validUntil: null });
-      expect(
-        resolveStripeEntitlement([{ status: 'active', currentPeriodEnd: null, revokedAt: past }]),
-      ).toEqual({ tier: DbEntitlementTier.FREE, validUntil: null });
     });
   });
 });

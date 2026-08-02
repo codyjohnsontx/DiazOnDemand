@@ -136,8 +136,8 @@ After seed:
 ## Stripe + Webhooks
 Billing endpoints (both Clerk-authenticated):
 - `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** when
-  the member already has an active subscription, so a second click cannot become a second charge.
-  Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
+  the member already has an active subscription, or when a checkout for them is already in
+  flight. Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
 - `POST /billing/create-portal-session` - opens Stripe's hosted billing portal, which is where a
   member cancels, changes their card, and downloads invoices. Returns **404** when the member has
   no Stripe customer yet.
@@ -148,6 +148,8 @@ Stripe webhook endpoint:
   - `customer.subscription.created` / `.updated` / `.deleted`
   - `charge.refunded` - a **full** refund revokes access immediately; a partial refund does not
   - `charge.dispute.created` - a chargeback revokes access immediately
+  - `charge.dispute.closed` - a dispute Diaz **won** restores the access that chargeback took
+  - `checkout.session.completed` / `.expired` / `.async_payment_failed` - release the checkout lock
 - Syncs:
   - a `Subscription` row per Stripe subscription. This is a **history**, not one row per member:
     a member who cancels and resubscribes gets a new Stripe subscription id, and both rows are
@@ -166,9 +168,9 @@ Refund and chargeback scoping:
   through charge -> invoice -> subscription. It is never applied customer-wide: checkout reuses a
   returning member's Stripe customer, so a refund of an old charge would otherwise take access from
   the subscription they are paying for right now.
-- If the charge cannot be traced to a subscription, access is left **unchanged** and an alert fires
-  saying the money went back but access was not withdrawn. Guessing is what the scoping rule exists
-  to prevent.
+- If the charge cannot be traced to a subscription - it carries no invoice, **or its invoice names
+  no subscription** - access is left **unchanged** and an alert fires saying the money went back but
+  access was not withdrawn. Guessing is what the scoping rule exists to prevent.
 - Two paths read back from the Stripe API, both on the revocation side:
   - `stripe.invoices.retrieve`, to get from a charge to its subscription. `charge.refunded` carries
     `invoice` as a bare id unless expanded, so this runs on **essentially every real refund**. It is
@@ -177,9 +179,44 @@ Refund and chargeback scoping:
     The expanded fast path is tested; **this fallback is not exercised**, because doing so would
     require a real Stripe call.
 - A read that **throws** (429, 5xx, network) is deliberately *not* swallowed: it returns 5xx so
-  Stripe retries, exactly as a database failure does. Only a charge that genuinely carries no
-  invoice link takes the leave-access-alone-and-alert path. Treating the two the same is how a
+  Stripe retries, exactly as a database failure does. Only a charge that genuinely resolves to no
+  subscription takes the leave-access-alone-and-alert path. Treating the two the same is how a
   transient blip would have become a refunded member with permanent access and a `PROCESSED` row.
+
+One checkout at a time (`CheckoutReservation`):
+- Checking for an active subscription is a read-then-act test, and two concurrent requests both
+  pass it. Measured against a real database before this existed: an **established member with no
+  active subscription**, clicking twice at once, opened **two** Stripe checkout sessions and could
+  be charged twice. A brand-new member was safe only by accident, via the `User.clerkUserId`
+  constraint, and the loser got a 500.
+- So a checkout now takes a lock first: a `CheckoutReservation` row with a **unique `userId`**,
+  created before the Stripe call. The database picks the winner; the loser gets a clean **409**.
+- The lock is released when Stripe says the checkout resolved - `checkout.session.completed`,
+  `.expired`, or `.async_payment_failed` - rather than being inferred from subscription rows,
+  because a checkout that expired or failed never produces one. **Subscribe to those three events
+  on the Stripe webhook endpoint**, or reservations will only clear by expiry.
+- It also expires after an hour (`CHECKOUT_RESERVATION_TTL_MS`), and an expired one is cleared on
+  the member's next attempt. That bounds how long a process dying mid-checkout can keep somebody
+  from paying. A failed Stripe call releases it immediately, so a retry is not blocked.
+- To clear a stuck reservation by hand, delete the member's `CheckoutReservation` row. All of the
+  take/release logic lives in `apps/api/src/billing/checkout-reservation.ts`, so a members screen
+  can call it later without restating the rules.
+- **Design note:** this was the reviewer's proposal, chosen by the owner over a cheaper
+  alternative - passing a Stripe `idempotency_key` on `checkout.sessions.create`, which would make
+  concurrent duplicates return the same session with no new table or lifecycle. The durable
+  reservation was preferred as the more thorough option, knowing it adds a table, a TTL and a
+  reconciliation path.
+
+Giving access back:
+- A revocation is cleared on exactly two events, and nothing else. A **genuine paid renewal**
+  (`current_period_end` moving strictly forward) clears a *refund* revocation; a status of `active`
+  is not enough on its own, because `cancel_at_period_end`, a card update and a plan change all
+  keep it active.
+- `charge.dispute.closed` with status **`won`** clears a *chargeback* revocation, because the money
+  stayed with Diaz and the member is a paying customer again. Any other close status leaves the
+  revocation standing. Without this a chargeback is a one-way door: the revocation is sticky against
+  renewals by design, so a member who disputes and loses would keep paying and never get access
+  back.
 - Every revocation stores `revokedAt` **and** `revokedReason` together, so a member without access
   can always be shown *why* ("revoked by refund on <date>") rather than an unexplained gap. The
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
@@ -271,6 +308,7 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 - `pnpm db:seed`
 
 ## Tests
+
 `pnpm test` runs everything. Most of the API suite mocks Prisma, but the Stripe billing lifecycle
 does not: the resubscribe and double-subscription defects were unique-constraint violations that a
 mocked client cannot raise, so `apps/api/src/tests/billing-lifecycle.db.test.ts` runs the real
@@ -280,10 +318,11 @@ Those tests **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still wor
 around - except on CI, where a missing `TEST_DATABASE_URL` fails the run rather than silently
 dropping the coverage. CI provides a Postgres service container.
 
-To run them locally:
+To run them locally, using the same digest-pinned image CI runs:
+
 ```bash
 docker run -d --name diaz-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=diaz \
-  -p 55433:5432 postgres:16-alpine
+  -p 55433:5432 postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
 DATABASE_URL='postgresql://postgres:postgres@localhost:55433/diaz?schema=public' \
   pnpm --filter @diaz/db exec prisma migrate deploy --schema prisma/schema.prisma
 TEST_DATABASE_URL='postgresql://postgres:postgres@localhost:55433/diaz?schema=public' pnpm test

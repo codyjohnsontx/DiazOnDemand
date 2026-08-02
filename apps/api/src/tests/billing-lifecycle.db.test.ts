@@ -89,8 +89,9 @@ function subscriptionEvent(
  * `null` models the untraceable charge (no invoice at all).
  */
 function chargeEvent(
-  type: 'charge.refunded' | 'charge.dispute.created',
+  type: 'charge.refunded' | 'charge.dispute.created' | 'charge.dispute.closed',
   options: {
+    disputeStatus?: string;
     customerId: string;
     subscriptionId: string | null;
     amount?: number;
@@ -113,7 +114,10 @@ function chargeEvent(
     amount_refunded: options.amountRefunded ?? options.amount ?? 5000,
     refunded: options.refunded ?? true,
   };
-  const object = type === 'charge.refunded' ? charge : { id: 'dp_test', charge };
+  const object =
+    type === 'charge.refunded'
+      ? charge
+      : { id: 'dp_test', charge, status: options.disputeStatus ?? 'lost' };
 
   return {
     id: `evt_${type}_${options.created ?? eventClock}`,
@@ -213,6 +217,17 @@ function prismaWithDatabaseDown(): PrismaService {
   } as unknown as PrismaService;
 }
 
+// One connection for the whole file. Both suites below share `prismaClient`, so
+// per-suite connect/disconnect hooks meant whichever suite finished first tore
+// down the client the other was still using.
+beforeAll(async () => {
+  await prismaClient?.$connect();
+});
+
+afterAll(async () => {
+  await prismaClient?.$disconnect();
+});
+
 describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () => {
   let service: WebhooksService;
 
@@ -228,22 +243,14 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
     return { service: alerting, alerts };
   }
 
-  beforeAll(async () => {
-    await prismaClient!.$connect();
-  });
-
-  afterAll(async () => {
-    await prismaClient!.$disconnect();
+  beforeAll(() => {
+    service = new WebhooksService(prisma);
   });
 
   afterEach(async () => {
     await prismaClient!.stripeWebhookEvent.deleteMany({});
     await prismaClient!.user.deleteMany({ where: { clerkUserId: { startsWith: 'billing-test-' } } });
     vi.restoreAllMocks();
-  });
-
-  beforeAll(() => {
-    service = new WebhooksService(prisma);
   });
 
   describe('finding 1: a returning customer pays and gets nothing', () => {
@@ -1097,6 +1104,187 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
     });
   });
 
+  describe('a member who wins a dispute gets access back', () => {
+    /** Subscribe, then lose the money to a chargeback. */
+    async function chargedBack(clerkUserId: string, customerId: string, subscriptionId: string) {
+      const user = await createUser(clerkUserId);
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
+      );
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+
+      return { user, periodEnd };
+    }
+
+    it('restores access when the dispute closes as won', async () => {
+      const { user } = await chargedBack('billing-test-dispute-won', 'cus_won', 'sub_won');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.closed', {
+          customerId: 'cus_won',
+          subscriptionId: 'sub_won',
+          disputeStatus: 'won',
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedAt).toBeNull();
+      expect(subscription?.revokedReason).toBeNull();
+    });
+
+    it('keeps the member locked out when the dispute closes as lost', async () => {
+      const { user } = await chargedBack('billing-test-dispute-lost', 'cus_lost', 'sub_lost');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.closed', {
+          customerId: 'cus_lost',
+          subscriptionId: 'sub_lost',
+          disputeStatus: 'lost',
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+      expect((await subscriptionsOf(user.id))[0]?.revokedAt).not.toBeNull();
+    });
+
+    it('does not let a won dispute clear a refund revocation', async () => {
+      const user = await createUser('billing-test-dispute-won-refund');
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_won_refund',
+          customerId: 'cus_won_refund',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', {
+          customerId: 'cus_won_refund',
+          subscriptionId: 'sub_won_refund',
+        }),
+      );
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.closed', {
+          customerId: 'cus_won_refund',
+          subscriptionId: 'sub_won_refund',
+          disputeStatus: 'won',
+        }),
+      );
+
+      // The money went back for a reason the dispute says nothing about.
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+    });
+
+    it('alerts rather than failing silently when a won dispute cannot be traced', async () => {
+      const { service: alerting, alerts } = serviceWithAlerts();
+
+      await alerting.handleStripeEvent(
+        chargeEvent('charge.dispute.closed', {
+          customerId: 'cus_untraceable',
+          subscriptionId: null,
+          disputeStatus: 'won',
+        }),
+      );
+
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toMatch(/NOT restored/);
+    });
+  });
+
+  describe('Stripe must not overwrite a manual grant', () => {
+    /** What in-person collection looks like today: a hand-written entitlement. */
+    async function withManualGrant(clerkUserId: string, validUntil: Date | null) {
+      const user = await createUser(clerkUserId);
+      await prismaClient!.entitlement.update({
+        where: { userId: user.id },
+        data: { tier: 'PREMIUM', validUntil, source: 'MANUAL' },
+      });
+      return user;
+    }
+
+    async function cancelSubscriptionFor(userId: string, customerId: string, subId: string) {
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.deleted', {
+          subscriptionId: subId,
+          customerId,
+          userId,
+          status: 'canceled',
+        }),
+      );
+    }
+
+    it('leaves a lifetime comp alone when a Stripe subscription is cancelled', async () => {
+      const user = await withManualGrant('billing-test-manual-lifetime', null);
+
+      await cancelSubscriptionFor(user.id, 'cus_manual_1', 'sub_manual_1');
+
+      const entitlement = await entitlementOf(user.id);
+      expect(entitlement?.tier).toBe('PREMIUM');
+      expect(entitlement?.source).toBe('MANUAL');
+      expect(entitlement?.validUntil).toBeNull();
+    });
+
+    it('leaves an unexpired paid-in-person month alone', async () => {
+      const paidUntil = new Date(Date.now() + 20 * DAY * 1000);
+      const user = await withManualGrant('billing-test-manual-month', paidUntil);
+
+      await cancelSubscriptionFor(user.id, 'cus_manual_2', 'sub_manual_2');
+
+      const entitlement = await entitlementOf(user.id);
+      expect(entitlement?.tier).toBe('PREMIUM');
+      expect(entitlement?.source).toBe('MANUAL');
+      expect(entitlement?.validUntil?.getTime()).toBe(paidUntil.getTime());
+    });
+
+    it('still writes over an expired manual grant', async () => {
+      const user = await withManualGrant(
+        'billing-test-manual-expired',
+        new Date(Date.now() - DAY * 1000),
+      );
+
+      await cancelSubscriptionFor(user.id, 'cus_manual_3', 'sub_manual_3');
+
+      const entitlement = await entitlementOf(user.id);
+      expect(entitlement?.tier).toBe('FREE');
+      expect(entitlement?.source).toBe('STRIPE');
+    });
+
+    it('still grants premium over the MANUAL FREE row checkout leaves behind', async () => {
+      const user = await createUser('billing-test-manual-free');
+      expect((await entitlementOf(user.id))?.source).toBe('MANUAL');
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_manual_4',
+          customerId: 'cus_manual_4',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+
+      const entitlement = await entitlementOf(user.id);
+      expect(entitlement?.tier).toBe('PREMIUM');
+      expect(entitlement?.source).toBe('STRIPE');
+    });
+  });
+
   describe('entitlement source', () => {
     it('marks Stripe-granted entitlements as coming from Stripe', async () => {
       const user = await createUser('billing-test-source');
@@ -1143,8 +1331,157 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
     await prismaClient!.user.deleteMany({ where: { clerkUserId: { startsWith: 'billing-test-' } } });
   });
 
-  afterAll(async () => {
-    await prismaClient!.$disconnect();
+  /**
+   * The three cases measured before the reservation existed. (c) is the one the
+   * reservation is for: two sessions, so a double charge. (a) already worked and
+   * must not regress; (b) was safe only by accident and answered with a 500.
+   */
+  describe('concurrent checkout is held to one session', () => {
+    async function twoAtOnce(clerkUserId: string) {
+      stripeStub.checkout.sessions.create.mockImplementation(async () => ({
+        id: `cs_${Math.random().toString(36).slice(2)}`,
+        url: 'https://stripe.test/session',
+      }));
+
+      const service = createService();
+      const results = await Promise.allSettled([
+        service.createCheckoutSession(clerkUserId),
+        service.createCheckoutSession(clerkUserId),
+      ]);
+
+      return {
+        sessionsCreated: stripeStub.checkout.sessions.create.mock.calls.length,
+        fulfilled: results.filter((r) => r.status === 'fulfilled').length,
+        conflicts: results.filter(
+          (r) => r.status === 'rejected' && (r.reason as { status?: number }).status === 409,
+        ).length,
+        otherRejections: results.filter(
+          (r) => r.status === 'rejected' && (r.reason as { status?: number }).status !== 409,
+        ).length,
+      };
+    }
+
+    // Probe (c): the case this exists for.
+    it('opens ONE session for an existing member with no subscription', async () => {
+      await createUser('billing-test-concurrent-existing');
+
+      const result = await twoAtOnce('billing-test-concurrent-existing');
+
+      expect(result.sessionsCreated).toBe(1);
+      expect(result.fulfilled).toBe(1);
+      expect(result.conflicts).toBe(1);
+    });
+
+    // Probe (b): was accidentally safe, but answered with a 500.
+    it('answers a brand-new member cleanly instead of leaking a constraint error', async () => {
+      const result = await twoAtOnce('billing-test-concurrent-new');
+
+      expect(result.sessionsCreated).toBe(1);
+      expect(result.otherRejections).toBe(0);
+      expect(result.conflicts).toBe(1);
+    });
+
+    // Probe (a): already worked; pinned so the reservation cannot regress it.
+    it('still refuses both when the member is already subscribed', async () => {
+      const user = await createUser('billing-test-concurrent-subscribed');
+      await prismaClient!.subscription.create({
+        data: {
+          userId: user.id,
+          stripeCustomerId: 'cus_concurrent',
+          stripeSubscriptionId: 'sub_concurrent',
+          status: 'active',
+          currentPeriodEnd: new Date(Date.now() + 30 * DAY * 1000),
+        },
+      });
+
+      const result = await twoAtOnce('billing-test-concurrent-subscribed');
+
+      expect(result.sessionsCreated).toBe(0);
+      expect(result.conflicts).toBe(2);
+    });
+
+    it('lets the member try again once the reservation has expired', async () => {
+      const user = await createUser('billing-test-reservation-expired');
+      await prismaClient!.checkoutReservation.create({
+        data: { userId: user.id, expiresAt: new Date(Date.now() - 1000) },
+      });
+
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_after_expiry',
+        url: 'https://stripe.test/session',
+      });
+
+      await expect(
+        service.createCheckoutSession('billing-test-reservation-expired'),
+      ).resolves.toEqual({ url: 'https://stripe.test/session' });
+    });
+
+    it('does not strand the member when Stripe fails to open the session', async () => {
+      await createUser('billing-test-reservation-stripe-fails');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockRejectedValueOnce(new Error('stripe is down'));
+
+      await expect(
+        service.createCheckoutSession('billing-test-reservation-stripe-fails'),
+      ).rejects.toThrow('stripe is down');
+
+      // The lock is gone, so an immediate retry works rather than waiting an hour.
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_retry',
+        url: 'https://stripe.test/session',
+      });
+      await expect(
+        service.createCheckoutSession('billing-test-reservation-stripe-fails'),
+      ).resolves.toEqual({ url: 'https://stripe.test/session' });
+    });
+
+    it('releases the reservation when Stripe says the checkout resolved', async () => {
+      const user = await createUser('billing-test-reservation-release');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_release',
+        url: 'https://stripe.test/session',
+      });
+
+      await service.createCheckoutSession('billing-test-reservation-release');
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
+      ).not.toBeNull();
+
+      await new WebhooksService(prisma).handleStripeEvent({
+        id: 'evt_checkout_completed',
+        type: 'checkout.session.completed',
+        created: nextEventTime(),
+        data: { object: { id: 'cs_release', object: 'checkout.session' } },
+      } as unknown as Stripe.Event);
+
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
+      ).toBeNull();
+    });
+
+    it('releases the reservation when a checkout expires unpaid', async () => {
+      const user = await createUser('billing-test-reservation-expiry-event');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_expired',
+        url: 'https://stripe.test/session',
+      });
+
+      await service.createCheckoutSession('billing-test-reservation-expiry-event');
+
+      await new WebhooksService(prisma).handleStripeEvent({
+        id: 'evt_checkout_expired',
+        type: 'checkout.session.expired',
+        created: nextEventTime(),
+        data: { object: { id: 'cs_expired', object: 'checkout.session' } },
+      } as unknown as Stripe.Event);
+
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
+      ).toBeNull();
+    });
   });
 
   describe('finding 8: a second checkout must not double-charge', () => {
@@ -1161,7 +1498,10 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       });
 
       const service = createService();
-      stripeStub.checkout.sessions.create.mockResolvedValue({ url: 'https://stripe.test/session' });
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/session',
+      });
 
       await expect(service.createCheckoutSession('billing-test-checkout-guard')).rejects.toMatchObject(
         { status: 409 },
@@ -1181,7 +1521,10 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       });
 
       const service = createService();
-      stripeStub.checkout.sessions.create.mockResolvedValue({ url: 'https://stripe.test/session' });
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/session',
+      });
 
       await expect(
         service.createCheckoutSession('billing-test-checkout-after-cancel'),
@@ -1200,7 +1543,10 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       });
 
       const service = createService();
-      stripeStub.checkout.sessions.create.mockResolvedValue({ url: 'https://stripe.test/session' });
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/session',
+      });
 
       await service.createCheckoutSession('billing-test-customer-reuse');
 

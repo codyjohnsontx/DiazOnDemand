@@ -7,16 +7,30 @@ import {
   LoggingBillingAlerter,
   type BillingAlerter,
 } from '../billing/billing-alerter.js';
+import { releaseCheckout } from '../billing/checkout-reservation.js';
 import {
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
+  type RevokeReason,
+  planDisputeWonRelease,
   planRevocation,
   releasesRevocation,
 } from '../billing/subscription-revocation.js';
-import { isLiveStripeSubscription, resolveStripeEntitlement } from '../common/entitlement.js';
+import {
+  isEntitlementActive,
+  isLiveStripeSubscription,
+  resolveStripeEntitlement,
+} from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const MUX_SIGNATURE_TOLERANCE_SECONDS = 300;
+
+/** A checkout that is over, however it ended - the member's lock is released. */
+const CHECKOUT_RESOLVED_EVENT_TYPES = new Set([
+  'checkout.session.completed',
+  'checkout.session.expired',
+  'checkout.session.async_payment_failed',
+]);
 
 const SUBSCRIPTION_EVENT_TYPES = new Set([
   'customer.subscription.created',
@@ -168,6 +182,19 @@ export class WebhooksService {
       return null;
     }
 
+    if (event.type === 'charge.dispute.closed') {
+      await this.applyDisputeClosed(event.data.object as Stripe.Dispute);
+      return null;
+    }
+
+    if (CHECKOUT_RESOLVED_EVENT_TYPES.has(event.type)) {
+      await this.releaseCheckoutReservation(
+        event.data.object as Stripe.Checkout.Session,
+        event.type,
+      );
+      return null;
+    }
+
     this.logger.log(`Ignoring Stripe event type: ${event.type}`);
 
     return null;
@@ -210,7 +237,9 @@ export class WebhooksService {
       : null;
     const fields = {
       userId,
-      stripeCustomerId: String(sub.customer),
+      // Normalised rather than stringified: an expanded customer object would
+      // otherwise be stored as "[object Object]" and never match again.
+      stripeCustomerId: stripeIdOf(sub.customer) ?? '',
       status: sub.status,
       currentPeriodEnd,
       planId: sub.items.data[0]?.price.id,
@@ -318,6 +347,52 @@ export class WebhooksService {
     );
   }
 
+  /**
+   * A checkout has resolved one way or another, so the member's lock on
+   * starting another one goes.
+   *
+   * Keyed on the Stripe session rather than inferred from subscription rows: a
+   * checkout that expired or failed never produces one, and those are exactly
+   * the cases where a member would otherwise stay locked out until the TTL.
+   */
+  private async releaseCheckoutReservation(
+    session: Stripe.Checkout.Session,
+    eventType: string,
+  ) {
+    const released = await releaseCheckout(this.prisma, { stripeSessionId: session.id });
+
+    this.logger.log(
+      released > 0
+        ? `Released the checkout reservation held for session on ${eventType}`
+        : `No checkout reservation to release on ${eventType}`,
+    );
+  }
+
+  /**
+   * A dispute closing is only interesting when Diaz won it. `lost` means the
+   * money is genuinely gone, so the revocation stands, and the intermediate
+   * statuses are not an outcome yet.
+   */
+  private async applyDisputeClosed(dispute: Stripe.Dispute) {
+    if (dispute.status !== 'won') {
+      this.logger.log(`Dispute ${dispute.id} closed as ${dispute.status}; access unchanged`);
+      return;
+    }
+
+    const charge = await this.resolveDisputedCharge(dispute);
+
+    if (!charge) {
+      this.logger.warn(`Won dispute ${dispute.id} could not be traced to a charge; access unchanged`);
+      await this.alerter.send(
+        `Dispute ${dispute.id} was won but could not be traced to a charge - the money stayed with ` +
+          `us and the member is still locked out. Restore access by hand and check Stripe.`,
+      );
+      return;
+    }
+
+    await this.releaseChargebackForCharge(charge, `Won dispute ${dispute.id}`);
+  }
+
   private async resolveDisputedCharge(dispute: Stripe.Dispute): Promise<Stripe.Charge | null> {
     if (dispute.charge && typeof dispute.charge === 'object') {
       return dispute.charge;
@@ -354,21 +429,28 @@ export class WebhooksService {
    * sits on the same timeline as the subscription events that are later checked
    * against it.
    */
-  private async revokeAccessForCharge(
+  /**
+   * Traces a charge back to the subscription row it paid for.
+   *
+   * Shared by the revoke and the release paths so both fail the same way: never
+   * guess a subscription, and never fall silent when the trace fails. The
+   * caller supplies what a failure costs, because giving access back and taking
+   * it away need different words in the alert.
+   */
+  private async findSubscriptionForCharge(
     charge: Stripe.Charge,
-    reason: string,
     description: string,
-    stripeCreatedAt: Date,
+    failureConsequence: string,
   ) {
     const stripeSubscriptionId = await this.resolveChargeSubscriptionId(charge);
 
     if (!stripeSubscriptionId) {
       this.logger.warn(`${description} could not be traced to a subscription; access unchanged`);
       await this.alerter.send(
-        `${description} could not be traced to a subscription - the money went back but access was ` +
-          `NOT withdrawn. Revoke it by hand and check Stripe.`,
+        `${description} could not be traced to a subscription - ${failureConsequence} ` +
+          `Check Stripe.`,
       );
-      return;
+      return null;
     }
 
     const subscription = await this.prisma.client.subscription.findUnique({
@@ -379,8 +461,27 @@ export class WebhooksService {
       this.logger.warn(`${description} names a subscription this API never recorded`);
       await this.alerter.send(
         `${description} points at Stripe subscription ${stripeSubscriptionId}, which this API has ` +
-          `no record of - the money went back but access was NOT withdrawn. Check Stripe.`,
+          `no record of - ${failureConsequence} Check Stripe.`,
       );
+      return null;
+    }
+
+    return subscription;
+  }
+
+  private async revokeAccessForCharge(
+    charge: Stripe.Charge,
+    reason: RevokeReason,
+    description: string,
+    stripeCreatedAt: Date,
+  ) {
+    const subscription = await this.findSubscriptionForCharge(
+      charge,
+      description,
+      'the money went back but access was NOT withdrawn. Revoke it by hand.',
+    );
+
+    if (!subscription) {
       return;
     }
 
@@ -388,20 +489,63 @@ export class WebhooksService {
 
     if (!revocation) {
       this.logger.log(
-        `Subscription ${stripeSubscriptionId} is already revoked as a ` +
+        `Subscription ${subscription.stripeSubscriptionId} is already revoked as a ` +
           `${subscription.revokedReason}; nothing to do`,
       );
       return;
     }
 
     await this.prisma.client.subscription.update({
-      where: { stripeSubscriptionId },
+      where: { stripeSubscriptionId: subscription.stripeSubscriptionId },
       data: revocation,
     });
 
     await this.syncEntitlementFromSubscriptions(subscription.userId);
 
-    this.logger.log(`Revoked access for subscription ${stripeSubscriptionId} after a ${reason}`);
+    this.logger.log(
+      `Revoked access for subscription ${subscription.stripeSubscriptionId} after a ${reason}`,
+    );
+  }
+
+  /**
+   * A won dispute means the money stayed with Diaz, so the member it was taken
+   * from is a paying customer again.
+   *
+   * Without this, a chargeback is a one-way door: the revocation is deliberately
+   * sticky against renewals, so a member who disputes and loses would keep
+   * paying and never get access back.
+   */
+  private async releaseChargebackForCharge(charge: Stripe.Charge, description: string) {
+    const subscription = await this.findSubscriptionForCharge(
+      charge,
+      description,
+      'the money stayed with us but access was NOT restored. Restore it by hand.',
+    );
+
+    if (!subscription) {
+      return;
+    }
+
+    const release = planDisputeWonRelease(subscription);
+
+    if (!release) {
+      this.logger.log(
+        `Subscription ${subscription.stripeSubscriptionId} carries no chargeback revocation ` +
+          `to release; nothing to do`,
+      );
+      return;
+    }
+
+    await this.prisma.client.subscription.update({
+      where: { stripeSubscriptionId: subscription.stripeSubscriptionId },
+      data: release,
+    });
+
+    await this.syncEntitlementFromSubscriptions(subscription.userId);
+
+    this.logger.log(
+      `Restored access for subscription ${subscription.stripeSubscriptionId} after a won dispute`,
+    );
   }
 
   /**
@@ -437,6 +581,27 @@ export class WebhooksService {
    * derived, never inferred from the event in hand.
    */
   private async syncEntitlementFromSubscriptions(userId: string) {
+    const existing = await this.prisma.client.entitlement.findUnique({ where: { userId } });
+
+    // A live manual grant is access Diaz collected for in person. Stripe is not
+    // the only way access is granted, and it must not silently overwrite the
+    // way that is not Stripe: a gym member paying cash would lose the month
+    // they already paid for the moment any subscription event touched them.
+    //
+    // Only a *live* manual grant is protected. A MANUAL row that is FREE, or a
+    // PREMIUM one that has expired, is not a grant anybody is relying on, so
+    // Stripe still writes those - including the FREE row created at checkout.
+    if (
+      existing &&
+      existing.source === EntitlementSource.MANUAL &&
+      isEntitlementActive(existing)
+    ) {
+      this.logger.log(
+        'Left a live manually granted entitlement in place rather than overwriting it from Stripe',
+      );
+      return;
+    }
+
     const subscriptions = await this.prisma.client.subscription.findMany({ where: { userId } });
     const { tier, validUntil } = resolveStripeEntitlement(subscriptions);
     const fields = { tier, validUntil, source: EntitlementSource.STRIPE };

@@ -227,6 +227,7 @@ Validate results.
 Communicate clearly.
 
 ## Billing and tests
+
 Most of the API suite mocks Prisma. The Stripe billing lifecycle deliberately does not:
 `apps/api/src/tests/billing-lifecycle.db.test.ts` needs `TEST_DATABASE_URL` pointing at a
 migrated Postgres, and skips without it (but fails the run on CI). See the Tests section of

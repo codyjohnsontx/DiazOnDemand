@@ -49,14 +49,15 @@ enum StripeWebhookEventStatus {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  clerkUserId   String         @unique
-  role          Role           @default(STUDENT)
-  createdAt     DateTime       @default(now())
-  progress      Progress[]
-  favorites     Favorite[]
-  subscriptions Subscription[]
-  entitlement   Entitlement?
+  id                  String               @id @default(uuid())
+  clerkUserId         String               @unique
+  role                Role                 @default(STUDENT)
+  createdAt           DateTime             @default(now())
+  progress            Progress[]
+  favorites           Favorite[]
+  subscriptions       Subscription[]
+  entitlement         Entitlement?
+  checkoutReservation CheckoutReservation?
 }
 
 model Program {
@@ -187,6 +188,31 @@ model Entitlement {
   source     EntitlementSource @default(MANUAL)
   updatedAt  DateTime          @updatedAt
   user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// A checkout the member has started but not finished.
+///
+/// The row exists to be a lock: `userId` is unique, so two concurrent checkout
+/// requests cannot both reserve, and the loser is refused cleanly instead of
+/// opening a second Stripe session and being charged twice. Measured before
+/// this existed: an established member clicking twice at once got two sessions.
+///
+/// It is deliberately short-lived. `expiresAt` bounds how long a member can be
+/// stranded if the process dies between reserving and hearing back from Stripe,
+/// and the Stripe `checkout.session.*` webhooks clear it as soon as the checkout
+/// actually resolves.
+model CheckoutReservation {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  /// Set once Stripe has issued the session, so a `checkout.session.*` event can
+  /// find the reservation it belongs to.
+  stripeSessionId String?  @unique
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 /// Every Stripe webhook delivery this API has verified, and what happened to

@@ -23,8 +23,20 @@ export const REVOKE_REASON_REFUND = 'refund';
 /** A chargeback took the money back by force, so it is final. */
 export const REVOKE_REASON_CHARGEBACK = 'chargeback';
 
+/**
+ * The only reasons access is ever withdrawn. Callers pass one of these rather
+ * than a free string, so a typo cannot invent a reason that no release path
+ * knows how to clear - which would strand a member with access nothing can
+ * give back.
+ */
+export type RevokeReason = typeof REVOKE_REASON_REFUND | typeof REVOKE_REASON_CHARGEBACK;
+
 export type RevocationState = {
   revokedAt: Date | null;
+  /**
+   * Read back from the database, so it stays a plain string: a row written by
+   * an older build may carry a reason this build no longer defines.
+   */
   revokedReason: string | null;
 };
 
@@ -49,7 +61,7 @@ type IncomingSubscriptionState = {
  */
 export function planRevocation(
   current: RevocationState,
-  reason: string,
+  reason: RevokeReason,
   now: Date,
 ): RevocationState | null {
   if (current.revokedAt === null) {
@@ -61,6 +73,31 @@ export function planRevocation(
   }
 
   return null;
+}
+
+/** A revocation cleared: both fields go back to null together. */
+export const NO_REVOCATION: RevocationState = { revokedAt: null, revokedReason: null };
+
+/**
+ * What winning a dispute should write to the row, or `null` when there is
+ * nothing to give back.
+ *
+ * This is the second and only other way a revocation is cleared. It is
+ * deliberately separate from the renewal rule rather than folded into it: a won
+ * dispute is proof the money stayed with Diaz, which the renewal rule cannot
+ * observe, and widening that rule to cover it would also hand access back on a
+ * cancel or a card update.
+ *
+ * Only a chargeback revocation is released. A refund revocation standing next
+ * to a won dispute means the money went back for a different reason, and that
+ * reason still holds.
+ */
+export function planDisputeWonRelease(current: RevocationState): RevocationState | null {
+  if (current.revokedAt === null || current.revokedReason !== REVOKE_REASON_CHARGEBACK) {
+    return null;
+  }
+
+  return NO_REVOCATION;
 }
 
 /**

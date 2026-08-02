@@ -62,8 +62,8 @@ export default async function AccountPage() {
               </div>
               <div className="flex shrink-0 items-center gap-4">
                 <p className="hidden max-w-xs text-sm leading-7 text-[var(--text-muted)] sm:block">
-                  Cancel your subscription, change your card, or download invoices in Stripe. You
-                  keep access until the end of the period you have already paid for.
+                  Manage your subscription, update your payment method, or download invoices in
+                  Stripe.
                 </p>
                 <ManageBillingButton />
               </div>
