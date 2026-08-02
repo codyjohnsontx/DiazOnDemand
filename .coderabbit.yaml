@@ -37,15 +37,29 @@ reviews:
   # the highest-risk change in this repo (see the Database Safety rules in
   # CLAUDE.md) and is exactly what a reviewer should be reading.
   path_filters:
+    # pnpm-lock.yaml is DELIBERATELY NOT filtered - do not add it back.
     # This is a pnpm workspace (packageManager pnpm@9.12.3, pnpm-workspace.yaml),
-    # so pnpm-lock.yaml is the only lockfile that can appear here.
-    - "!**/pnpm-lock.yaml"
+    # so pnpm-lock.yaml is the only lockfile that can appear here, and it is
+    # where a transitive dependency first appears, where an integrity hash
+    # changes, and where a registry URL gets rewritten. Those are the places a
+    # supply-chain problem shows up and nowhere else. The lockfile is also the
+    # input CodeRabbit's dependency-vulnerability scanning reads, so filtering
+    # it does not merely hide a diff, it switches off a whole class of scanning,
+    # and it would quietly override the Dependency Policy in CLAUDE.md that
+    # makes introducing a dependency explicitly review-worthy. Lockfile diffs
+    # are enormous and nobody reads them by hand - that is the argument for
+    # letting the bot read them, not for filtering them to reclaim quota.
     # Tracked today: apps/diaz-ondemand-web/tsconfig.tsbuildinfo
     - "!**/*.tsbuildinfo"
     # Prisma writes this; it is not hand-edited.
     - "!**/prisma/migrations/migration_lock.toml"
     # Build output. Gitignored today, so these are cheap insurance against a
     # stray `git add -f` rather than a live problem.
+    # `dist` and `build` match at any depth, the same way .gitignore and the
+    # turbo.json `outputs` globs treat them, so they would also hide a source
+    # directory that happened to take one of those names (a `src/build/`
+    # module). Nothing tracked collides today; revisit these two if one ever
+    # does, because hiding real source is the failure this file exists to avoid.
     - "!**/dist/**"
     - "!**/build/**"
     - "!**/.next/**"
@@ -54,14 +68,20 @@ reviews:
     # apps/mobile), and neither generic build-output glob above covers them.
     - "!**/.turbo/**"
     - "!**/.expo/**"
-    # No binary assets are tracked yet. Kept because a web and mobile product
-    # will grow them, and there is nothing to review in an image diff.
+    # Raster images. None are tracked yet, kept because a web and mobile
+    # product will grow them and there is nothing to review in a binary
+    # image diff.
+    # SVG is deliberately absent from this group: it is text, it diffs
+    # readably, and when inlined into the web app rather than served through an
+    # <img> it can carry executable content (inline <script>, on* handlers,
+    # javascript: hrefs). A filtered SVG is an unreviewed script that looks
+    # like a picture. Zero are tracked today, which is exactly why it is cheap
+    # to get right now instead of after the first one lands.
     - "!**/*.png"
     - "!**/*.jpg"
     - "!**/*.jpeg"
     - "!**/*.gif"
     - "!**/*.webp"
-    - "!**/*.svg"
     - "!**/*.ico"
 
   # Keep. This is the summary Cody actually reads.
