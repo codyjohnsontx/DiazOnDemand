@@ -104,20 +104,24 @@ Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy lea
 with no working auth: it rejects the walkthrough below with `401` until you enable the bypass
 or configure real Clerk credentials.
 
-The web app has a separate and larger problem, and it is pre-existing rather than something
-these examples introduce: with a fresh copy, `pnpm dev` serves HTTP `500` on **every** route,
-including the unprotected home page `/`. `CLERK_SECRET_KEY` ships in the root and
-`apps/api/.env.example`, but not in `apps/diaz-ondemand-web/.env.example` - and that is the
-file Next.js reads - so `clerkMiddleware` throws `@clerk/nextjs: Missing secretKey` in the
-Edge runtime before any provider mounts. The bypass flags being `false` is not the trigger:
-the same example previously shipped `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same
-placeholder publishable key and no secret key, and `500`s identically.
+The web app has a separate and larger problem: with a fresh copy, `pnpm dev` serves HTTP `500`
+on **every** route, including the unprotected home page `/`. The trigger is an
+`apps/diaz-ondemand-web/.env` that carries a publishable key but no `CLERK_SECRET_KEY` -
+`clerkMiddleware` then throws `@clerk/nextjs: Missing secretKey` in the Edge runtime before any
+provider mounts. `CLERK_SECRET_KEY` ships in the root and `apps/api/.env.example`, but not in
+`apps/diaz-ondemand-web/.env.example`, and that is the file Next.js reads. The bypass flags
+being `false` is not the trigger: the same example previously shipped
+`NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable key and no secret key,
+and `500`s identically. The middleware behaviour is not new, but step 2 above is what puts a
+web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, `/`, `/library` and
+`/admin/programs` all serve `200`.
 
 What actually works, each verified by running it:
 - **API only, via the local bypass:** set `DEV_BYPASS_AUTH=true` in the root `.env`,
   `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/diaz-ondemand-web/.env`, and
-  `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. The API then authenticates every
-  request as the seeded admin. This requires a loopback `DATABASE_URL` - `localhost`, any
+  `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. The API then authenticates a request
+  carrying **no credentials at all** as the seeded admin; a request that does present a Bearer
+  token still goes through Clerk verification. This requires a loopback `DATABASE_URL` - `localhost`, any
   `127.x.x.x` address such as `127.0.0.1`, or the IPv6 loopback written as `[::1]` - which is
   what the examples already ship; the API refuses to start with the bypass enabled against any
   other database. See "Clerk Setup Notes" below for what the bypass grants. **This does not fix
@@ -390,8 +394,13 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   the API exits reporting `DIAZ_INTERNAL_API_KEY: required in production` while that
   variable is plainly set in `apps/api/.env`. The check is not broken - it never saw the
   file. Correcting that load ordering is tracked as its own task.
-- Ensure web has `NEXT_PUBLIC_API_URL` pointing at deployed API.
-- Keep server secrets only on API environment.
+- Web project environment: `NEXT_PUBLIC_API_URL` pointing at the deployed API, plus **both**
+  Clerk keys - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`. The secret key is
+  required there because `clerkMiddleware` asserts it before any handler runs, the same reason
+  it is needed locally (see "Local Setup" above); a web environment without it serves
+  `Missing secretKey` on every route.
+- Keep the API-only secrets - `DATABASE_URL`, `STRIPE_SECRET_KEY`, the Mux credentials and
+  `DIAZ_INTERNAL_API_KEY` - on the API environment only. None of them belong on the web project.
 - While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and
   `NEXT_PUBLIC_VOD_COMING_SOON=true` on production web/API deployments. Leave both unset or
   `false` for local and preview deployments so development routes stay usable.
