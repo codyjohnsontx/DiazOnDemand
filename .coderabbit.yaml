@@ -50,9 +50,9 @@ reviews:
     # are enormous and nobody reads them by hand - that is the argument for
     # letting the bot read them, not for filtering them to reclaim quota.
     # Tracked today: apps/diaz-ondemand-web/tsconfig.tsbuildinfo
-    - "!**/*.tsbuildinfo"
+    - '!**/*.tsbuildinfo'
     # Prisma writes this; it is not hand-edited.
-    - "!**/prisma/migrations/migration_lock.toml"
+    - '!**/prisma/migrations/migration_lock.toml'
     # Build output. Gitignored today, so these are cheap insurance against a
     # stray `git add -f` rather than a live problem.
     # `dist` and `build` match at any depth, the same way .gitignore and the
@@ -60,14 +60,14 @@ reviews:
     # directory that happened to take one of those names (a `src/build/`
     # module). Nothing tracked collides today; revisit these two if one ever
     # does, because hiding real source is the failure this file exists to avoid.
-    - "!**/dist/**"
-    - "!**/build/**"
-    - "!**/.next/**"
-    - "!**/coverage/**"
+    - '!**/dist/**'
+    - '!**/build/**'
+    - '!**/.next/**'
+    - '!**/coverage/**'
     # Turborepo and Expo caches - both toolchains are in use here (turbo.json,
     # apps/mobile), and neither generic build-output glob above covers them.
-    - "!**/.turbo/**"
-    - "!**/.expo/**"
+    - '!**/.turbo/**'
+    - '!**/.expo/**'
     # Raster images. None are tracked yet, kept because a web and mobile
     # product will grow them and there is nothing to review in a binary
     # image diff.
@@ -77,12 +77,12 @@ reviews:
     # javascript: hrefs). A filtered SVG is an unreviewed script that looks
     # like a picture. Zero are tracked today, which is exactly why it is cheap
     # to get right now instead of after the first one lands.
-    - "!**/*.png"
-    - "!**/*.jpg"
-    - "!**/*.jpeg"
-    - "!**/*.gif"
-    - "!**/*.webp"
-    - "!**/*.ico"
+    - '!**/*.png'
+    - '!**/*.jpg'
+    - '!**/*.jpeg'
+    - '!**/*.gif'
+    - '!**/*.webp'
+    - '!**/*.ico'
 
   # Keep. This is the summary Cody actually reads.
   high_level_summary: true
