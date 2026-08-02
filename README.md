@@ -101,7 +101,10 @@ cp apps/mobile/.env.example apps/mobile/.env
 ```
 
 Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy has no
-working auth and the walkthrough below returns `401`. Pick one:
+working auth: the API rejects the walkthrough below with `401`, and the web app - whose
+example still carries the placeholder `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_your_key` -
+mounts Clerk with that invalid key, so `http://localhost:3000/library` fails at the Clerk
+provider rather than rendering. Pick one:
 - **Local bypass (fastest):** set `DEV_BYPASS_AUTH=true` in the root `.env`,
   `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/diaz-ondemand-web/.env`, and
   `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. This requires a loopback

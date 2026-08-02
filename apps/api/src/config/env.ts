@@ -88,7 +88,7 @@ const apiEnvSchema = z
         code: z.ZodIssueCode.custom,
         path: ['DEV_BYPASS_AUTH'],
         message:
-          'must be false unless DATABASE_URL points at localhost - the bypass authenticates uncredentialed requests as an admin, so it may only run against a local database',
+          'must be false unless DATABASE_URL points at a loopback host - localhost, any 127.x.x.x address such as 127.0.0.1, or the IPv6 loopback written as [::1] - because the bypass authenticates uncredentialed requests as an admin, so it may only run against a local database',
       });
     }
 

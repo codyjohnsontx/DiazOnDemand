@@ -38,7 +38,7 @@ describe('dev auth bypass startup refusal', () => {
   it('refuses the bypass against a non-local database with NODE_ENV unset', () => {
     expect(() =>
       validateApiEnv({ DATABASE_URL: REMOTE_DB, DEV_BYPASS_AUTH: 'true' }),
-    ).toThrow(/DEV_BYPASS_AUTH.*DATABASE_URL points at localhost/s);
+    ).toThrow(/DEV_BYPASS_AUTH.*DATABASE_URL points at a loopback host.*127\.0\.0\.1.*\[::1\]/s);
   });
 
   it('refuses the bypass against a non-local database in development and test', () => {
