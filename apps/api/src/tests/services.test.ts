@@ -1066,10 +1066,7 @@ describe('WebhooksService Mux asset sync', () => {
       data: {
         id: 'asset-1',
         duration: 60,
-        playback_ids: [
-          { id: 'public-playback', policy: 'public' },
-          { id: 'signed-playback', policy: 'signed' },
-        ],
+        playback_ids: [{ id: 'signed-playback', policy: 'signed' }],
       },
     });
 
@@ -1078,6 +1075,41 @@ describe('WebhooksService Mux asset sync', () => {
         data: expect.objectContaining({ muxPlaybackId: 'signed-playback' }),
       }),
     );
+  });
+
+  // A signed playback id next to a public one does not cancel the public one -
+  // nothing stops a caller using it, so the asset is still watchable by anyone
+  // holding that id. This is also the shape the refusal's own recovery path
+  // invites: adding a signed id to the offending asset is cheaper than
+  // re-uploading it, and must not turn the delivery green.
+  it('refuses a mixed-policy asset for a paid lesson, signed sibling and all', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: {
+          id: 'asset-1',
+          duration: 60,
+          playback_ids: [
+            { id: 'public-playback', policy: 'public' },
+            { id: 'signed-playback', policy: 'signed' },
+          ],
+        },
+      }),
+    ).rejects.toThrow(
+      /asset-1 has a public playback id.*PAID lesson lesson-1.*signed-only playback policy/,
+    );
+
+    expect(update).not.toHaveBeenCalled();
   });
 
   // A public playback id on a paid lesson makes the video watchable by anyone
@@ -1104,7 +1136,7 @@ describe('WebhooksService Mux asset sync', () => {
           playback_ids: [{ id: 'public-playback', policy: 'public' }],
         },
       }),
-    ).rejects.toThrow(/asset-1 has no signed playback id.*PAID lesson lesson-1/);
+    ).rejects.toThrow(/asset-1 has a public playback id.*PAID lesson lesson-1/);
 
     expect(update).not.toHaveBeenCalled();
   });
@@ -1151,7 +1183,7 @@ describe('WebhooksService Mux asset sync', () => {
           playback_ids: [{ id: 'public-playback' }, { id: 'another-public', policy: 'public' }],
         },
       }),
-    ).rejects.toThrow(/no signed playback id/);
+    ).rejects.toThrow(/has a public playback id/);
 
     expect(update).not.toHaveBeenCalled();
   });

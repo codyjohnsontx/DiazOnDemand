@@ -135,16 +135,37 @@ describe('isUnsignedPaidPlaybackAllowed', () => {
 });
 
 describe('Mux signing key startup refusal', () => {
-  it('refuses Mux without a signing key against a deployed database, NODE_ENV unset', () => {
+  it('refuses a deployed database without signing keys, NODE_ENV unset', () => {
+    expect(() => validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB }))).toThrow(
+      /MUX_SIGNING_KEY_ID: required on a deployment together with MUX_SIGNING_KEY_PRIVATE/,
+    );
+  });
+
+  // The refusal is keyed on the deployment, never on an "is Mux enabled" proxy:
+  // nothing in the runtime reads MUX_TOKEN_ID, so a deployment can serve Mux
+  // video without it and would otherwise slip past this check.
+  it('refuses a deployed database with no Mux access token set at all', () => {
+    expect(() =>
+      validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB, MUX_WEBHOOK_SECRET: 'whsec' })),
+    ).toThrow(/MUX_SIGNING_KEY_ID: required on a deployment/);
+  });
+
+  it('refuses a deployed database that sets only half the signing key pair', () => {
+    expect(() =>
+      validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB, MUX_SIGNING_KEY_ID: 'key' })),
+    ).toThrow(/MUX_SIGNING_KEY_ID: required on a deployment/);
+  });
+
+  it('accepts a deployed database once the signing key pair is set', () => {
     expect(() =>
       validateApiEnv(
         envWithoutBypass({
           DATABASE_URL: REMOTE_DB,
-          MUX_TOKEN_ID: 'token',
-          MUX_TOKEN_SECRET: 'secret',
+          MUX_SIGNING_KEY_ID: 'key',
+          MUX_SIGNING_KEY_PRIVATE: 'private',
         }),
       ),
-    ).toThrow(/MUX_SIGNING_KEY_ID: required when Mux is enabled outside local development/);
+    ).not.toThrow();
   });
 
   it('still lets a developer run Mux against a local database without signing keys', () => {
@@ -220,7 +241,7 @@ describe('existing startup refusals', () => {
           DIAZ_INTERNAL_API_KEY: 'internal',
         }),
       ),
-    ).toThrow(/MUX_SIGNING_KEY_ID: required when Mux is enabled outside local development/);
+    ).toThrow(/MUX_SIGNING_KEY_ID: required on a deployment together with MUX_SIGNING_KEY_PRIVATE/);
   });
 
   it('requires the internal API key in production', () => {

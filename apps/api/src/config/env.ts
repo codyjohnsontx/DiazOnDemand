@@ -184,16 +184,27 @@ const apiEnvSchema = z
     // to mint tokens rather than falling back to an unsigned url. Refusing on
     // the database as well as on NODE_ENV is what makes that hold for a server
     // started without NODE_ENV set - the same reasoning as the bypass above.
+    //
+    // Deliberately keyed on the deployment alone, with no "is Mux enabled"
+    // proxy. This used to be gated on MUX_TOKEN_ID, which drifted: no runtime
+    // code reads that variable, so a deployment that serves Mux video without
+    // ever setting it skipped the check entirely and every PAID lesson answered
+    // 500 with no boot-time signal. Any proxy can drift the same way. The
+    // signing key pair cannot, because what is required here is exactly what
+    // createMuxPlaybackToken reads, and it is the only thing standing between a
+    // PAID lesson and either a 500 or an unsigned url. A deployed API can never
+    // serve paid Mux video without it, so there is no configuration in which
+    // the requirement is wrong - the same unconditional shape as the
+    // DIAZ_INTERNAL_API_KEY production requirement below.
     if (
       (value.NODE_ENV === 'production' || !isLoopbackDatabaseUrl(value.DATABASE_URL)) &&
-      value.MUX_TOKEN_ID &&
-      !value.MUX_SIGNING_KEY_ID
+      (!value.MUX_SIGNING_KEY_ID || !value.MUX_SIGNING_KEY_PRIVATE)
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['MUX_SIGNING_KEY_ID'],
         message:
-          'required when Mux is enabled outside local development - it signs PAID lesson playback, and without it a paid lesson would be served over an unsigned, non-expiring url',
+          'required on a deployment together with MUX_SIGNING_KEY_PRIVATE - a deployment being NODE_ENV=production, or a DATABASE_URL that is not loopback - because the pair signs PAID lesson playback, and without it a paid lesson is served over an unsigned, non-expiring url or not served at all',
       });
     }
 

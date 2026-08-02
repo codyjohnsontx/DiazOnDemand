@@ -695,30 +695,40 @@ export class WebhooksService {
       return;
     }
 
-    // A PAID lesson needs the signed playback id, and there is no acceptable
-    // second choice: a public playback id makes the asset watchable by anyone
-    // holding it, whatever this API serves.
+    // A PAID lesson needs a signed playback id and nothing else. A public
+    // playback id makes the asset watchable by anyone holding it, whatever this
+    // API serves, and a signed sibling does not take that away - nothing stops
+    // a caller using the public one. So the asset has to be signed-only.
     const playbackIds = event.data?.playback_ids ?? [];
     const signedPlaybackId = playbackIds.find((entry) => entry.policy === 'signed')?.id ?? null;
+    const hasPublicPlaybackId = playbackIds.some((entry) => entry.policy === 'public');
 
-    if (lesson.accessLevel === 'PAID' && !signedPlaybackId) {
+    if (lesson.accessLevel === 'PAID' && (hasPublicPlaybackId || !signedPlaybackId)) {
       // Refused rather than accepted, and noisily rather than quietly. The
       // asset was uploaded with the wrong playback policy, which is a mistake
       // only a human can correct in Mux - so this fails the delivery, which
       // puts it in the Mux dashboard as a failed webhook next to the asset that
       // caused it. Answering 200 and silently leaving the lesson alone would
-      // hide a paid video that is public from everybody. Mux redelivers, so
-      // adding a signed playback id to the asset is all it takes to recover.
+      // hide a paid video that is public from everybody. Mux redelivers, so a
+      // signed-only asset in place of this one is all it takes to recover.
       const offered = playbackIds.map((entry) => entry.policy ?? 'unknown').join(', ') || 'none';
+      const problem = hasPublicPlaybackId
+        ? 'has a public playback id'
+        : 'has no signed playback id';
+      const reason = hasPublicPlaybackId
+        ? 'A public playback policy was found on paid content. Anyone holding that id can ' +
+          'watch the video, and a signed playback id alongside it does not take that away.'
+        : 'A paid video has no acceptable second choice.';
 
       this.logger.error(
-        `Refusing to sync Mux asset ${assetId} to PAID lesson ${lesson.id}: the asset has no ` +
-          `signed playback id (policies offered: ${offered}). A public playback id makes a paid ` +
-          `video watchable by anyone. Re-upload the asset with a signed playback policy.`,
+        `Refusing to sync Mux asset ${assetId} to PAID lesson ${lesson.id}: the asset ${problem} ` +
+          `(playback policies on the asset: ${offered}). ${reason} Re-create the asset in Mux ` +
+          `with a signed-only playback policy, then redeliver this webhook.`,
       );
 
       throw new Error(
-        `Mux asset ${assetId} has no signed playback id, so it cannot back PAID lesson ${lesson.id}`,
+        `Mux asset ${assetId} ${problem}, so it cannot back PAID lesson ${lesson.id} - re-create ` +
+          `the asset with a signed-only playback policy`,
       );
     }
 

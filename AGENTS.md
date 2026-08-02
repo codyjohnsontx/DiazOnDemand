@@ -271,8 +271,9 @@ the reason it exists is stated with it.
 - Deployed API runs start via `pnpm start`, which sets `NODE_ENV=production` itself.
   That makes the production-only startup checks live, so a deploy needs these set or the
   API exits instead of starting: `DIAZ_INTERNAL_API_KEY` (always), `STRIPE_WEBHOOK_SECRET`
-  (when `STRIPE_SECRET_KEY` is set), and `MUX_WEBHOOK_SECRET` plus the signing key pair
-  `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` (when `MUX_TOKEN_ID` is set). The
+  (when `STRIPE_SECRET_KEY` is set), and `MUX_WEBHOOK_SECRET` (when `MUX_TOKEN_ID` is set).
+  The signing key pair `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` is required on any
+  deployment as well, and does not depend on `pnpm start` - see the Mux entry below. The
   refusal is deliberate - do not relax a check to get a deploy green.
 - Every `.env.example` in the repo - root, `apps/api`, `apps/diaz-ondemand-web`,
   `apps/mobile` - ships its bypass flag as `false`. Keep all four copy-safe; the
@@ -305,21 +306,35 @@ the reason it exists is stated with it.
   payload would not merely widen the exposure, it would silently switch signed playback off.
 - The unsigned-playback fallback for a PAID lesson is gated on a loopback `DATABASE_URL`, not
   on `NODE_ENV`: `isUnsignedPaidPlaybackAllowed` in `apps/api/src/config/env.ts`, the same
-  predicate and the same reasoning as the auth bypass above. Startup validation refuses
-  `MUX_TOKEN_ID` without `MUX_SIGNING_KEY_ID` on a non-loopback database as well as in
-  production. Verified against the built API with `NODE_ENV` unset throughout: it exits
-  without opening a port when Mux is enabled with no signing key on a deployed database, and
-  a paid lesson answers 500 rather than an unsigned url when only the request-time half
-  applies - both still behave the old way against a localhost database.
-- The Mux `video.asset.ready` webhook refuses an asset that offers no `signed` playback id for
-  a PAID lesson: it logs an error and throws, so the delivery fails in the Mux dashboard next
-  to the asset whose upload policy is wrong, rather than quietly attaching a public id to a
-  paid video. FREE lessons still take a public id. See `syncMuxAsset` in
+  predicate and the same reasoning as the auth bypass above. Startup validation is the other
+  half of the same rule and is keyed on the same fact: `MUX_SIGNING_KEY_ID` +
+  `MUX_SIGNING_KEY_PRIVATE` are required whenever the run is a deployment - `NODE_ENV`
+  production *or* a non-loopback database - unconditionally, with no "is Mux enabled" proxy.
+  It used to be gated on `MUX_TOKEN_ID`; that drifted, because no runtime code reads that
+  variable, so a deployment serving Mux video without it skipped the check and answered 500
+  on every paid lesson with no boot-time signal. Any proxy can drift the same way; the
+  signing key pair cannot, because it is exactly what `createMuxPlaybackToken` reads. Do not
+  reintroduce a condition here. Verified against the built API with `NODE_ENV` unset
+  throughout: it exits without opening a port when a signing key is missing on a deployed
+  database, and a paid lesson answers 500 rather than an unsigned url when only the
+  request-time half applies - both still behave the old way against a localhost database.
+- The Mux `video.asset.ready` webhook requires a PAID lesson's asset to be signed-only: it
+  refuses an asset offering no `signed` playback id, and equally refuses one carrying a
+  `public` playback id even when a signed id sits beside it, because nothing stops a caller
+  using the public one. It logs an error and throws, so the delivery fails in the Mux
+  dashboard next to the asset whose upload policy is wrong, rather than quietly attaching a
+  watchable id to a paid video. FREE lessons still take a public id. See `syncMuxAsset` in
   `apps/api/src/webhooks/webhooks.service.ts`.
 - What none of that fixes, and only the owner can: an asset already uploaded to Mux with a
   `public` playback policy stays public, and no code change can retract an id that has already
   been served. Confirming every paid asset uses a signed playback policy is a Mux dashboard
-  job. Agents must not touch the Mux account to check.
+  job. Agents must not touch the Mux account to check. The audit covers two populations, not
+  one: lessons that are PAID today, and lessons that were FREE and later flipped to PAID.
+  `updateLesson` in `apps/api/src/admin/admin.service.ts` changes `accessLevel` while the row
+  keeps its `muxPlaybackId`, and that id was served to every anonymous `/programs` caller
+  while the lesson was free. Rotating the asset in Mux is the only fix; it is separate work,
+  and it is deliberately not mitigated in code, because a partial mitigation would only make
+  it look handled.
 
 ## Maintaining this file
 
