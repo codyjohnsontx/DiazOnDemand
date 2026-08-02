@@ -416,20 +416,6 @@ export class WebhooksService {
   }
 
   /**
-   * Withdraws access for the one subscription the charge actually paid for.
-   *
-   * Deliberately never widens to the Stripe customer. A member who cancels and
-   * resubscribes keeps the same customer id, so revoking customer-wide would
-   * take access from a currently paying subscription because of a refund on an
-   * old one - permanently, since a revoke outlives the Stripe events that
-   * follow it. If the charge cannot be traced to a subscription, access is left
-   * alone and a human is told, because guessing is what caused the bug.
-   *
-   * `revokedAt` is stamped with Stripe's `created`, not the wall clock, so it
-   * sits on the same timeline as the subscription events that are later checked
-   * against it.
-   */
-  /**
    * Traces a charge back to the subscription row it paid for.
    *
    * Shared by the revoke and the release paths so both fail the same way: never
@@ -469,6 +455,20 @@ export class WebhooksService {
     return subscription;
   }
 
+  /**
+   * Withdraws access for the one subscription the charge actually paid for.
+   *
+   * Deliberately never widens to the Stripe customer. A member who cancels and
+   * resubscribes keeps the same customer id, so revoking customer-wide would
+   * take access from a currently paying subscription because of a refund on an
+   * old one - permanently, since a revoke outlives the Stripe events that
+   * follow it. If the charge cannot be traced to a subscription, access is left
+   * alone and a human is told, because guessing is what caused the bug.
+   *
+   * `revokedAt` is stamped with Stripe's `created`, not the wall clock, so it
+   * sits on the same timeline as the subscription events that are later checked
+   * against it.
+   */
   private async revokeAccessForCharge(
     charge: Stripe.Charge,
     reason: RevokeReason,

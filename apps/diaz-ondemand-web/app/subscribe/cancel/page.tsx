@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { AppShell } from '@/components/app-shell';
 import { PageHeader } from '@/components/page-header';
+import { ReleaseCheckoutReservation } from '@/components/release-checkout-reservation';
 
 export default function SubscribeCancelPage() {
   return (
     <AppShell className="space-y-8">
+      <ReleaseCheckoutReservation />
       <PageHeader
         description="No charge was made. You can return to premium access any time from the same monthly checkout."
         eyebrow="Billing"

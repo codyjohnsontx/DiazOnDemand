@@ -6,11 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EntitlementTier, Role } from '@diaz/db';
+import { CHECKOUT_CONFLICT_CODES } from '@diaz/shared';
 import Stripe from 'stripe';
 import { isLiveStripeSubscription } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   attachSessionToReservation,
+  checkoutSessionExpiresAt,
   isUniqueViolation,
   releaseCheckout,
   reserveCheckout,
@@ -50,7 +52,10 @@ export class BillingService {
     // has to happen here. Two live subscriptions means two charges a month.
     if (subscriptions.some(isLiveStripeSubscription)) {
       this.logger.warn('Refused a duplicate checkout for a member who is already subscribed');
-      throw new ConflictException('This account already has an active subscription');
+      throw new ConflictException({
+        code: CHECKOUT_CONFLICT_CODES.subscriptionExists,
+        message: 'This account already has an active subscription',
+      });
     }
 
     // Reuse the Stripe customer a returning member already has, so one person
@@ -61,11 +66,14 @@ export class BillingService {
     // cannot cover this: two concurrent requests both read zero live
     // subscriptions and both proceed, which is how an established member
     // clicking twice at once ended up with two checkout sessions.
-    const { reserved } = await reserveCheckout(this.prisma, user.id);
+    const { reserved, expiresAt } = await reserveCheckout(this.prisma, user.id);
 
-    if (!reserved) {
+    if (!reserved || !expiresAt) {
       this.logger.warn('Refused a checkout while another one for the same member is in flight');
-      throw new ConflictException('A checkout is already in progress for this account');
+      throw new ConflictException({
+        code: CHECKOUT_CONFLICT_CODES.checkoutInFlight,
+        message: 'A checkout is already in progress for this account',
+      });
     }
 
     let session: Stripe.Response<Stripe.Checkout.Session>;
@@ -81,6 +89,11 @@ export class BillingService {
         ],
         success_url: `${webAppUrl}/subscribe/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${webAppUrl}/subscribe/cancel`,
+        // Stripe's default is 24 hours, and it only emits
+        // `checkout.session.expired` when the session actually expires. Tying
+        // the session to the reservation is what makes that event arrive while
+        // the member is still trying to pay rather than a day later.
+        expires_at: checkoutSessionExpiresAt(expiresAt),
         client_reference_id: user.id,
         ...(existingCustomerId ? { customer: existingCustomerId } : {}),
         metadata: {
@@ -106,6 +119,34 @@ export class BillingService {
     this.logger.log('Created Stripe checkout session [redacted] for user [redacted]');
 
     return { url: session.url };
+  }
+
+  /**
+   * Drops the calling member's own checkout lock, so returning from Stripe's
+   * cancel button frees it at once instead of at the TTL.
+   *
+   * Scoped to the authenticated member on purpose: it takes no user id and no
+   * session id from the client, because either would let one member clear
+   * another's lock. Releasing a lock the member no longer needs is idempotent
+   * and harmless - the worst case is that a checkout they left open in another
+   * tab stops blocking a new one, which is what they asked for by cancelling.
+   */
+  async cancelCheckout(clerkUserId: string) {
+    const user = await this.prisma.client.user.findUnique({ where: { clerkUserId } });
+
+    if (!user) {
+      return { released: false };
+    }
+
+    const released = await releaseCheckout(this.prisma, { userId: user.id });
+
+    this.logger.log(
+      released > 0
+        ? 'Released a checkout reservation after the member cancelled'
+        : 'No checkout reservation to release after the member cancelled',
+    );
+
+    return { released: released > 0 };
   }
 
   /**

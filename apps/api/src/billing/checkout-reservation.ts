@@ -16,12 +16,28 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 /**
  * How long a reservation holds before it stops blocking the member.
  *
- * Long enough to finish a Stripe checkout unhurried, short enough that a
- * process dying mid-checkout does not lock somebody out of paying for an
- * afternoon. Anything with a lock and a TTL eventually strands someone; the
- * point of the bound is that it un-strands them without anyone being called.
+ * This is Stripe's minimum `expires_at` on a checkout session, and the two are
+ * deliberately the same number: the Stripe session is given this reservation's
+ * own expiry, so a member who closes the tab gets `checkout.session.expired`
+ * promptly instead of a day later, and the lock and the session can never
+ * disagree about how long a checkout lasts. Anything with a lock and a TTL
+ * eventually strands someone; the point of the bound is that it un-strands them
+ * without anyone being called.
  */
-export const CHECKOUT_RESERVATION_TTL_MS = 60 * 60 * 1000;
+export const CHECKOUT_RESERVATION_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Stripe rejects an `expires_at` less than 30 minutes out, and the reservation
+ * expiry is computed before the round trip, so the session is given a little
+ * more than the TTL. It also puts the events in the useful order: the lock
+ * lapses first, and the `.expired` that follows finds nothing left to release.
+ */
+const CHECKOUT_SESSION_EXPIRY_SKEW_MS = 2 * 60 * 1000;
+
+/** The Stripe `expires_at` (unix seconds) that belongs to a held reservation. */
+export function checkoutSessionExpiresAt(reservationExpiresAt: Date): number {
+  return Math.ceil((reservationExpiresAt.getTime() + CHECKOUT_SESSION_EXPIRY_SKEW_MS) / 1000);
+}
 
 /** Prisma's unique-constraint violation - the concurrent loser. */
 const UNIQUE_VIOLATION = 'P2002';
@@ -44,20 +60,22 @@ export async function reserveCheckout(
   prisma: PrismaService,
   userId: string,
   now: Date = new Date(),
-): Promise<{ reserved: boolean }> {
+): Promise<{ reserved: boolean; expiresAt: Date | null }> {
   await prisma.client.checkoutReservation.deleteMany({
     where: { userId, expiresAt: { lte: now } },
   });
 
+  const expiresAt = reservationExpiry(now);
+
   try {
     await prisma.client.checkoutReservation.create({
-      data: { userId, expiresAt: reservationExpiry(now) },
+      data: { userId, expiresAt },
     });
 
-    return { reserved: true };
+    return { reserved: true, expiresAt };
   } catch (error) {
     if (isUniqueViolation(error)) {
-      return { reserved: false };
+      return { reserved: false, expiresAt: null };
     }
 
     throw error;

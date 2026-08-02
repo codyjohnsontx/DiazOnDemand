@@ -205,6 +205,28 @@ export const checkoutSessionSchema = z.object({
   url: z.string().url().nullable().optional(),
 });
 
+/**
+ * Why checkout answered 409. Both refusals share the status, so the client
+ * needs this to tell them apart: sending a member who merely double-clicked to
+ * an account page that shows no subscription produces a support message rather
+ * than a payment.
+ */
+export const CHECKOUT_CONFLICT_CODES = {
+  subscriptionExists: 'subscription_exists',
+  checkoutInFlight: 'checkout_in_flight',
+} as const;
+
+export type CheckoutConflictCode =
+  (typeof CHECKOUT_CONFLICT_CODES)[keyof typeof CHECKOUT_CONFLICT_CODES];
+
+export const checkoutConflictSchema = z.object({
+  code: z.enum([
+    CHECKOUT_CONFLICT_CODES.subscriptionExists,
+    CHECKOUT_CONFLICT_CODES.checkoutInFlight,
+  ]),
+  message: z.string(),
+});
+
 export type LessonSummary = z.infer<typeof lessonSummarySchema>;
 export type LessonDetailDto = z.infer<typeof lessonDetailSchema>;
 export type CourseDto = z.infer<typeof courseSchema>;
@@ -225,4 +247,5 @@ export type AdminUpdateLessonDto = z.infer<typeof adminUpdateLessonSchema>;
 export type MeDto = z.infer<typeof meSchema>;
 export type EntitlementsResponse = z.infer<typeof entitlementsResponseSchema>;
 export type CheckoutSessionDto = z.infer<typeof checkoutSessionSchema>;
+export type CheckoutConflictDto = z.infer<typeof checkoutConflictSchema>;
 export type BillingPortalSessionDto = z.infer<typeof billingPortalSessionSchema>;

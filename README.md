@@ -135,9 +135,14 @@ After seed:
 
 ## Stripe + Webhooks
 Billing endpoints (both Clerk-authenticated):
-- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** when
-  the member already has an active subscription, or when a checkout for them is already in
-  flight. Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
+- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for two
+  different reasons, told apart by a `code` on the body so the client can say the right thing:
+  `subscription_exists` (the member already has an active subscription) and `checkout_in_flight`
+  (a checkout for them is already open). The codes live in `packages/shared/src/schemas.ts`.
+  Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
+- `POST /billing/cancel-checkout` - releases the calling member's checkout lock, called by the
+  cancel return page. Takes no body: the member comes from the auth guard, never the request, so
+  nobody can clear somebody else's lock.
 - `POST /billing/create-portal-session` - opens Stripe's hosted billing portal, which is where a
   member cancels, changes their card, and downloads invoices. Returns **404** when the member has
   no Stripe customer yet.
@@ -156,7 +161,13 @@ Stripe webhook endpoint:
     kept.
   - the `Entitlement`, always **derived from the member's stored subscriptions** rather than from
     the event in hand. `PREMIUM` while any unrevoked subscription is `active`/`trialing`/`past_due`,
-    otherwise `FREE`. `Entitlement.source` records whether Stripe or a human last set it.
+    otherwise `FREE`. `Entitlement.source` records whether Stripe or a human last set it, and a
+    **live** `MANUAL` `PREMIUM` row is left alone, so access collected in person does not vanish the
+    moment a Stripe event touches that member. The column defaults to `MANUAL`, which would have
+    relabelled every row Stripe had already written and made that guard protect them from their own
+    refunds - so `20260802120000_backfill_entitlement_source` stamps `STRIPE` on the entitlement of
+    every user who has a `Subscription` row. That is sound because nothing granted an entitlement by
+    hand before this change.
   - `validUntil` is the **furthest** `current_period_end` across the granting subscriptions. A
     subscription Stripe gave no period end for counts as *unknown*, not "never expires", so it can
     never override a sibling that has a real date. `validUntil` stays open only while **every**
@@ -191,13 +202,21 @@ One checkout at a time (`CheckoutReservation`):
   constraint, and the loser got a 500.
 - So a checkout now takes a lock first: a `CheckoutReservation` row with a **unique `userId`**,
   created before the Stripe call. The database picks the winner; the loser gets a clean **409**.
-- The lock is released when Stripe says the checkout resolved - `checkout.session.completed`,
-  `.expired`, or `.async_payment_failed` - rather than being inferred from subscription rows,
-  because a checkout that expired or failed never produces one. **Subscribe to those three events
-  on the Stripe webhook endpoint**, or reservations will only clear by expiry.
-- It also expires after an hour (`CHECKOUT_RESERVATION_TTL_MS`), and an expired one is cleared on
-  the member's next attempt. That bounds how long a process dying mid-checkout can keep somebody
-  from paying. A failed Stripe call releases it immediately, so a retry is not blocked.
+- The lock has three release paths, because no one of them covers everyone:
+  - the member returning to `/subscribe/cancel` calls `POST /billing/cancel-checkout`, which frees
+    it at once. This is the member who clicks back or Stripe's cancel button, and Stripe emits
+    nothing at all for them.
+  - Stripe saying the checkout resolved - `checkout.session.completed`, `.expired`, or
+    `.async_payment_failed` - rather than being inferred from subscription rows, because a checkout
+    that expired or failed never produces one. **Subscribe to those three events on the Stripe
+    webhook endpoint.** This is the member who closes the tab without coming back.
+  - the TTL, as the backstop for a process that dies mid-checkout.
+- The TTL is 30 minutes (`CHECKOUT_RESERVATION_TTL_MS`), and an expired one is cleared on the
+  member's next attempt. The Stripe session is given that same expiry (plus a small allowance, since
+  Stripe rejects an `expires_at` under 30 minutes), so `.expired` arrives while the member is still
+  trying to pay instead of at Stripe's 24-hour default, and the lock and the session cannot disagree
+  about how long a checkout lasts. A failed Stripe call releases it immediately, so a retry is not
+  blocked.
 - To clear a stuck reservation by hand, delete the member's `CheckoutReservation` row. All of the
   take/release logic lives in `apps/api/src/billing/checkout-reservation.ts`, so a members screen
   can call it later without restating the rules.

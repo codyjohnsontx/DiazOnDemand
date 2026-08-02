@@ -6,10 +6,13 @@
  * violations that only a real database can raise. These tests therefore run the
  * real services against a real Postgres.
  *
- * Point TEST_DATABASE_URL at a throwaway database with the migrations applied:
+ * Point TEST_DATABASE_URL at a throwaway database with the migrations applied.
+ * The image is pinned to the same digest CI runs, so a local reproduction is
+ * against the same Postgres rather than whatever `16-alpine` points at today:
  *
  *   docker run -d --name diaz-test-pg -e POSTGRES_PASSWORD=postgres \
- *     -e POSTGRES_DB=diaz -p 55433:5432 postgres:16-alpine
+ *     -e POSTGRES_DB=diaz -p 55433:5432 \
+ *     postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
  *   DATABASE_URL=postgresql://postgres:postgres@localhost:55433/diaz \
  *     pnpm --filter @diaz/db exec prisma migrate deploy --schema prisma/schema.prisma
  *   TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55433/diaz pnpm --filter api test
@@ -18,10 +21,12 @@
  * machine with no Postgres - except on CI, where a skip would silently drop the
  * only coverage these defects have.
  */
+import { readFile } from 'node:fs/promises';
 import { PrismaClient } from '@diaz/db';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type Stripe from 'stripe';
 import { BillingService } from '../billing/billing.service.js';
+import { CHECKOUT_RESERVATION_TTL_MS } from '../billing/checkout-reservation.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 
@@ -1303,8 +1308,64 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
 
       expect((await entitlementOf(user.id))?.source).toBe('STRIPE');
     });
+
+    /**
+     * `source` arrived with DEFAULT 'MANUAL', so every entitlement Stripe had
+     * already written was relabelled as a human grant - and the guard above then
+     * refuses to downgrade those. Without the backfill migration a refund takes
+     * a pre-existing member's money back and leaves their access standing, which
+     * is the exact defect this work exists to close.
+     *
+     * The migration is run from its own file rather than restated here, so
+     * deleting the statement fails this test.
+     */
+    it('revokes a member whose entitlement predates the source column', async () => {
+      const user = await createUser('billing-test-backfill');
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId: 'sub_backfill',
+          customerId: 'cus_backfill',
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+
+      // What the old Stripe path left behind once the column defaulted in:
+      // premium, unexpired, and indistinguishable from a hand-written grant.
+      await prismaClient!.entitlement.update({
+        where: { userId: user.id },
+        data: { source: 'MANUAL' },
+      });
+
+      await prismaClient!.$executeRawUnsafe(await backfillMigrationSql());
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', {
+          customerId: 'cus_backfill',
+          subscriptionId: 'sub_backfill',
+        }),
+      );
+
+      const entitlement = await entitlementOf(user.id);
+      expect(entitlement?.tier).toBe('FREE');
+      expect(entitlement?.source).toBe('STRIPE');
+    });
   });
 });
+
+/** The backfill statement itself, so the test cannot pass without it. */
+async function backfillMigrationSql() {
+  return readFile(
+    new URL(
+      '../../../../packages/db/prisma/migrations/20260802120000_backfill_entitlement_source/migration.sql',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+}
 
 describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
   const stripeStub = {
@@ -1434,6 +1495,78 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       await expect(
         service.createCheckoutSession('billing-test-reservation-stripe-fails'),
       ).resolves.toEqual({ url: 'https://stripe.test/session' });
+    });
+
+    /**
+     * The abandoned checkout, which the three concurrent probes above never
+     * touched: nobody clicked twice at once, they clicked once and walked away.
+     * Stripe emits nothing when a member hits back or Stripe's own cancel
+     * button, so without the release on the cancel return the lock stands and
+     * the member cannot pay - on the primary revenue path.
+     */
+    it('lets the member start another checkout after abandoning one', async () => {
+      const user = await createUser('billing-test-reservation-abandoned');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_abandoned',
+        url: 'https://stripe.test/session',
+      });
+
+      await service.createCheckoutSession('billing-test-reservation-abandoned');
+
+      // The member closes Stripe and lands back on /subscribe/cancel.
+      await expect(service.cancelCheckout('billing-test-reservation-abandoned')).resolves.toEqual({
+        released: true,
+      });
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
+      ).toBeNull();
+
+      await expect(
+        service.createCheckoutSession('billing-test-reservation-abandoned'),
+      ).resolves.toEqual({ url: 'https://stripe.test/session' });
+      expect(stripeStub.checkout.sessions.create.mock.calls.length).toBe(2);
+    });
+
+    it('clears only the cancelling member\'s own lock', async () => {
+      const other = await createUser('billing-test-reservation-other');
+      await createUser('billing-test-reservation-canceller');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_other',
+        url: 'https://stripe.test/session',
+      });
+
+      await service.createCheckoutSession('billing-test-reservation-other');
+      await service.cancelCheckout('billing-test-reservation-canceller');
+
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: other.id } }),
+      ).not.toBeNull();
+    });
+
+    /**
+     * Stripe only emits `checkout.session.expired` when the session actually
+     * expires, and its default is 24 hours - long after the lock has lapsed.
+     * Tying the session to the reservation is what keeps the two agreeing.
+     */
+    it('expires the Stripe session on the reservation\'s own clock', async () => {
+      await createUser('billing-test-reservation-expires-at');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_expires_at',
+        url: 'https://stripe.test/session',
+      });
+
+      const before = Date.now();
+      await service.createCheckoutSession('billing-test-reservation-expires-at');
+
+      const [{ expires_at: expiresAt }] = stripeStub.checkout.sessions.create.mock
+        .calls[0] as [{ expires_at: number }];
+      // Never under Stripe's 30-minute floor, and never so far out that the
+      // event lands long after the lock it is meant to match.
+      expect(expiresAt * 1000).toBeGreaterThan(before + CHECKOUT_RESERVATION_TTL_MS);
+      expect(expiresAt * 1000).toBeLessThan(before + CHECKOUT_RESERVATION_TTL_MS + 5 * 60 * 1000);
     });
 
     it('releases the reservation when Stripe says the checkout resolved', async () => {

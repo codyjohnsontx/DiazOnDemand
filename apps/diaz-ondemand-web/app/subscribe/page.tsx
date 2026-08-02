@@ -2,10 +2,36 @@
 
 import { useState } from 'react';
 import type { CheckoutSessionDto } from '@diaz/shared';
+import { CHECKOUT_CONFLICT_CODES } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { PageHeader } from '@/components/page-header';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
+
+/**
+ * Checkout refuses with 409 for two different reasons, and they need different
+ * words: telling a member who double-clicked that they already subscribe sends
+ * them to an account page with nothing on it.
+ */
+function checkoutErrorMessage(error: unknown) {
+  if (!(error instanceof ApiError) || error.status !== 409) {
+    return 'We could not start checkout. Please try again.';
+  }
+
+  let code: string | undefined;
+
+  try {
+    code = (JSON.parse(error.detail) as { code?: string }).code;
+  } catch {
+    code = undefined;
+  }
+
+  if (code === CHECKOUT_CONFLICT_CODES.checkoutInFlight) {
+    return 'A checkout is already in progress for this account. Finish it in the Stripe tab, or try again in a moment.';
+  }
+
+  return 'This account already has an active subscription. Manage it from your account page.';
+}
 
 export default function SubscribePage() {
   const apiFetch = useApiClient();
@@ -28,13 +54,9 @@ export default function SubscribePage() {
         setError('Stripe is not configured yet.');
       }
     } catch (checkoutError) {
-      // A 409 means the member is already subscribed. Showing them the raw error
-      // would invite a second attempt, and a second attempt is a second charge.
-      setError(
-        checkoutError instanceof ApiError && checkoutError.status === 409
-          ? 'This account already has an active subscription. Manage it from your account page.'
-          : 'We could not start checkout. Please try again.',
-      );
+      // Showing the raw error would invite a second attempt, and a second
+      // attempt against a live subscription is a second charge.
+      setError(checkoutErrorMessage(checkoutError));
     } finally {
       setLoading(false);
     }
