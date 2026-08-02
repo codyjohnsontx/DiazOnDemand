@@ -7,6 +7,7 @@
     "dev": "turbo run dev --filter=api --filter=diaz-ondemand-web --filter=@diaz/shared --filter=@diaz/db --filter=@diaz/ui",
     "dev:mobile": "pnpm --filter mobile dev",
     "build": "turbo run build",
+    "start": "pnpm --filter api start",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",

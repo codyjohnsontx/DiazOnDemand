@@ -1,5 +1,51 @@
 import { z } from 'zod';
 
+const LOOPBACK_DB_HOSTS = new Set(['localhost', '::1']);
+
+/**
+ * True only when DATABASE_URL points at a database on this machine.
+ *
+ * The dev auth bypass authenticates a request carrying no credentials at all as
+ * the seeded ADMIN/PREMIUM user, so it must never be reachable on a deployed
+ * server. NODE_ENV cannot be trusted to tell us where we are running - the only
+ * thing in this repository that sets it is the `pnpm start` script, so a run
+ * that does not go through that script, on a host that does not export it,
+ * leaves every `NODE_ENV === 'production'` guard inert. The database a process is
+ * pointed at is a fact about the deployment rather than a hint, so that is what
+ * gates the bypass. Anything unparseable or non-loopback fails closed.
+ */
+export function isLoopbackDatabaseUrl(databaseUrl: string | undefined): boolean {
+  if (!databaseUrl) {
+    return false;
+  }
+
+  let hostname: string;
+
+  try {
+    hostname = new URL(databaseUrl).hostname;
+  } catch {
+    return false;
+  }
+
+  // URL keeps IPv6 hosts wrapped in brackets.
+  const host = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+
+  return LOOPBACK_DB_HOSTS.has(host) || /^127\.\d+\.\d+\.\d+$/.test(host);
+}
+
+/**
+ * The single predicate for whether the dev auth bypass may be used. Startup
+ * validation refuses the same combination outright, so a server should never
+ * reach this - it is the request-time half of the same fail-closed rule.
+ */
+export function isDevAuthBypassEnabled(source: NodeJS.ProcessEnv): boolean {
+  return (
+    source.NODE_ENV !== 'production' &&
+    source.DEV_BYPASS_AUTH === 'true' &&
+    isLoopbackDatabaseUrl(source.DATABASE_URL)
+  );
+}
+
 const apiEnvSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -31,6 +77,18 @@ const apiEnvSchema = z
         code: z.ZodIssueCode.custom,
         path: ['DEV_BYPASS_AUTH'],
         message: 'must be false in production',
+      });
+    }
+
+    // Refusing on the database rather than on NODE_ENV is what makes this
+    // impossible to leave on by accident: a process pointed at a real database
+    // cannot start with the bypass enabled no matter what NODE_ENV says.
+    if (value.DEV_BYPASS_AUTH === 'true' && !isLoopbackDatabaseUrl(value.DATABASE_URL)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DEV_BYPASS_AUTH'],
+        message:
+          'must be false unless DATABASE_URL points at a loopback host - localhost, any 127.x.x.x address such as 127.0.0.1, or the IPv6 loopback written as [::1] - because the bypass authenticates uncredentialed requests as an admin, so it may only run against a local database',
       });
     }
 

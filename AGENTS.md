@@ -240,6 +240,48 @@ Two billing invariants that are easy to break by accident:
   from the Stripe event being handled. See `resolveStripeEntitlement` in
   `apps/api/src/common/entitlement.ts`.
 
+## Security Invariants
+
+Do not weaken these. Each one is load-bearing for a security property of this repo, and
+the reason it exists is stated with it.
+- The dev auth bypass (`DEV_BYPASS_AUTH`) is gated on `DATABASE_URL` pointing at
+  loopback, not on `NODE_ENV`. The only thing in this repo that sets `NODE_ENV` is the
+  `pnpm start` script (next bullet), so a `NODE_ENV === 'production'` check alone is
+  inert on any run that does not go through it and does not export it either. See
+  `isDevAuthBypassEnabled` in `apps/api/src/config/env.ts` and the tests in
+  `apps/api/src/tests/env.test.ts`. Verified end to end against the built API with `NODE_ENV`
+  unset throughout: it exits without opening a port whenever `DEV_BYPASS_AUTH=true` meets a
+  non-loopback `DATABASE_URL` - whether the flag comes from the host environment or from an
+  app-directory `.env` - and still boots and authenticates an uncredentialed request as the
+  seeded admin on a loopback database. On 2026-08-02 the project owner confirmed the
+  deployed API running with `NODE_ENV=development` and `DEV_BYPASS_AUTH=true`, and set the
+  flag to `false` that day as an immediate mitigation.
+- Deployed API runs start via `pnpm start`, which sets `NODE_ENV=production` itself.
+  That makes the production-only startup checks live, so a deploy needs these set or the
+  API exits instead of starting: `DIAZ_INTERNAL_API_KEY` (always), `STRIPE_WEBHOOK_SECRET`
+  (when `STRIPE_SECRET_KEY` is set), and `MUX_WEBHOOK_SECRET` plus the signing key pair
+  `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` (when `MUX_TOKEN_ID` is set). The
+  refusal is deliberate - do not relax a check to get a deploy green.
+- Every `.env.example` in the repo - root, `apps/api`, `apps/diaz-ondemand-web`,
+  `apps/mobile` - ships its bypass flag as `false`. Keep all four copy-safe; the
+  `apps/api` one sits inside the deployed service and is the likeliest to be copied
+  onto a server.
+- Prefer host env vars or the monorepo-root `.env` for production API values - ordinary good
+  practice, not a workaround. `apps/api/.env` is still covered by startup validation:
+  `ConfigModule.forRoot` sits in the `@Module` decorator argument in `app.module.ts`, evaluated
+  when `main.ts` statically imports `AppModule`, and it writes the cwd `.env` into `process.env`
+  synchronously - both before `bootstrap()` calls `validateApiEnv`. This entry previously
+  claimed the opposite and called the load ordering unfixed; there is no defect and nothing
+  to fix. It is also why the bypass refusal fires for a flag set in `apps/api/.env`.
+- Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so a
+  deployment whose database URL is itself loopback satisfies that check - an API reaching
+  Postgres through a Cloud SQL Auth Proxy or pgbouncer sidecar on `127.0.0.1`, or Prisma's
+  socket form `postgresql://u:p@localhost:5432/db?host=/cloudsql/...`. The loopback gate
+  passes in that shape, but the bypass still does not activate unless someone also
+  deliberately sets `DEV_BYPASS_AUTH=true` and the run is not `NODE_ENV=production`. The
+  residual risk is that combination, not the loopback proxy on its own. This is written
+  down on purpose; do not add detection code for it.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

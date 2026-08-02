@@ -43,11 +43,13 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `git@github.com:codyjohnsontx/DiazMartialArts.git`
 
 ## Environment Variables
-Use root `.env.example` as source of truth.
+Root `.env.example` is the catalog of every variable. At runtime each app loads its own
+file: the API the monorepo-root `.env`, Next.js `apps/diaz-ondemand-web/.env`, Expo
+`apps/mobile/.env`. See "Local Setup" below.
 
 Required core values:
 - `DATABASE_URL`
-- `DEV_BYPASS_AUTH` (`true` for local MVP)
+- `DEV_BYPASS_AUTH` (`false` everywhere except local development - see below)
 - `DEFAULT_DEV_CLERK_USER_ID`
 - `NEXT_PUBLIC_API_URL`
 - `NEXT_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
@@ -88,10 +90,63 @@ corepack prepare pnpm@9.12.3 --activate
 pnpm install
 ```
 
-2. Configure env:
+2. Configure env. Each app reads its own `.env`, and turbo forwards nothing between them:
+the API loads the monorepo-root `.env` (see `apps/api/src/main.ts`), Next.js loads
+`apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy the root and mobile
+ones:
+
 ```bash
 cp .env.example .env
+cp apps/mobile/.env.example apps/mobile/.env
 ```
+
+Copy the web one **only** when you have real Clerk credentials to put in it - see the next
+paragraph for why an example-only copy is worse than no file:
+
+```bash
+cp apps/diaz-ondemand-web/.env.example apps/diaz-ondemand-web/.env
+```
+
+Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy leaves the API
+with no working auth: it rejects the walkthrough below with `401` until you enable the bypass
+or configure real Clerk credentials.
+
+Copying the web example is what breaks the web app: with that file in place, `pnpm dev` serves
+HTTP `500` on **every** route, including the unprotected home page `/`. The trigger is an
+`apps/diaz-ondemand-web/.env` that carries a publishable key but no `CLERK_SECRET_KEY` -
+`clerkMiddleware` then throws `@clerk/nextjs: Missing secretKey` in the Edge runtime before any
+provider mounts. `CLERK_SECRET_KEY` ships in the root and `apps/api/.env.example`, but not in
+`apps/diaz-ondemand-web/.env.example`, and that is the file Next.js reads. The bypass flags
+being `false` is not the trigger: the same example previously shipped
+`NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable key and no secret key,
+and `500`s identically. The middleware behaviour is not new, but copying that example is what
+puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, the web app starts
+and serves pages normally, with no Clerk error.
+
+What actually works, each verified by running it:
+- **Local bypass (fastest), and the recommended local setup:** set `DEV_BYPASS_AUTH=true` in
+  the root `.env`, and `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env` only if you are
+  running the Expo app. Leave `apps/diaz-ondemand-web/.env` absent. The API then authenticates a
+  request carrying **no credentials at all** as the seeded admin; a request that does present a
+  Bearer token still goes through Clerk verification. This requires a loopback `DATABASE_URL` -
+  `localhost`, any `127.x.x.x` address such as `127.0.0.1`, or the IPv6 loopback written as
+  `[::1]` - which is what the examples already ship; the API refuses to start with the bypass
+  enabled against any other database. See "Clerk Setup Notes" below for what the bypass grants.
+  With no `apps/diaz-ondemand-web/.env`, the web app that `pnpm dev` serves on
+  `http://localhost:3000` works end to end against that API: `/`, `/library` and
+  `/admin/programs` all render seeded content, and the header shows **ACCOUNT** rather than
+  Sign In. The web client sends no token, so the API resolves its calls as the seeded admin.
+  Note that `/admin/programs` is one of the protected routes listed in
+  `apps/diaz-ondemand-web/middleware.ts`, so reading that file alone would suggest it cannot
+  render here. The behaviour above is what the running app does, measured rather than derived;
+  the mechanism is not fully understood, so re-test it after a Clerk upgrade instead of
+  assuming this still holds.
+- **Real Clerk auth:** put real Clerk credentials - **both** `CLERK_SECRET_KEY` and
+  `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` - in `apps/diaz-ondemand-web/.env`. Nothing less does it:
+  the secret key alone clears `Missing secretKey` but then fails `Publishable key not valid`,
+  because `pk_test_your_key` is a placeholder, and putting `CLERK_SECRET_KEY` in the root
+  `.env` has no effect at all, since Next.js does not read that file. The API separately needs
+  `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` in the root `.env`.
 
 3. Generate Prisma client and run migration:
 ```bash
@@ -130,9 +185,24 @@ After seed:
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).
 
 ## Clerk Setup Notes (Web + Expo)
-- Development bypass requires `DEV_BYPASS_AUTH=true` on the API and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` on clients.
+- `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
+  seeded admin, so it is local-only. The API refuses to start with it enabled unless
+  `DATABASE_URL` points at a loopback host - `localhost`, any `127.x.x.x` address such as
+  `127.0.0.1`, or the IPv6 loopback written as `[::1]` - whatever `NODE_ENV` says.
+  `NODE_ENV` alone is not trusted, because nothing in this repo guarantees a host exports it.
+  Verified end to end against the built API with `NODE_ENV` unset throughout: it exits without
+  opening a port whenever `DEV_BYPASS_AUTH=true` meets a non-loopback `DATABASE_URL` - whether
+  the flag arrives from the host environment or from an app-directory `.env` - and still boots
+  and authenticates an uncredentialed request as the seeded admin on a loopback database.
+- `DEV_BYPASS_AUTH=true` on the API is what enables the bypass. The client flags
+  `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` are separate: they
+  make a client skip Clerk and send `x-dev-user-id`, so it acts as whichever seeded user
+  `NEXT_PUBLIC_DEV_USER_ID` / `EXPO_PUBLIC_DEV_USER_ID` names. That defaults to `dev_clerk_user`,
+  the same seeded admin the API already resolves an uncredentialed request to, so the two
+  identities diverge only if you point one of those at a different id. A client without its flag
+  simply sends no credentials. All three default to `false` in `.env.example`.
 - API reads `x-dev-user-id` header and auto-upserts a user.
-- For real Clerk auth, provide `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`), and client publishable keys; the web/mobile clients will forward bearer tokens to the API.
+- For real Clerk auth, each app needs its own keys in its own `.env`: the API needs `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`) in the root `.env`; the web app needs **both** `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env`; Expo needs `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/mobile/.env`. The web/mobile clients then forward bearer tokens to the API.
 
 ## Stripe + Webhooks
 Billing endpoints (both Clerk-authenticated):
@@ -323,9 +393,49 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 
 ## Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
-- API deploy: deploy `apps/api` as a separate service/project.
-- Ensure web has `NEXT_PUBLIC_API_URL` pointing at deployed API.
-- Keep server secrets only on API environment.
+- API deploy: deploy `apps/api` as a separate service/project. Start it with `pnpm start`
+  (root) or `pnpm --filter api start`, which sets `NODE_ENV=production` itself rather than
+  relying on the host to export it.
+- Pre-deploy checklist. Because `pnpm start` sets `NODE_ENV=production`, the production-only
+  startup checks are now live. The API **exits instead of starting** if any of these is
+  missing:
+  - `DIAZ_INTERNAL_API_KEY` - always required in production.
+  - `STRIPE_WEBHOOK_SECRET` - required when Stripe is enabled (`STRIPE_SECRET_KEY` set).
+  - `MUX_WEBHOOK_SECRET` and the signing key pair `MUX_SIGNING_KEY_ID` +
+    `MUX_SIGNING_KEY_PRIVATE` - required when Mux is enabled (`MUX_TOKEN_ID` set).
+
+  This refusal is deliberate. The webhook and internal-API paths already fail closed at
+  request time - `verifyStripeSignature`/`verifyMuxSignature` throw when the secret is
+  absent, and `GET /users/:clerkUserId/entitlements` rejects every caller when
+  `DIAZ_INTERNAL_API_KEY` is unset. For those, booting without the value is not an
+  exposure; it is a service that cannot do its job, silently, until someone notices.
+  Refusing at startup makes that visible immediately.
+
+  The Mux signing keys are not like that. Paid lesson detail returns a 500 instead of an
+  unsigned playback URL only when `NODE_ENV=production` - see
+  `apps/api/src/content/lesson-presentation.ts`. That is the same guard the auth bypass
+  deliberately does not rely on, because only `pnpm start` sets it. So a run started some
+  other way (`node dist/main.js`, a Dockerfile `CMD`, a Procfile) that does not export
+  `NODE_ENV` itself skips both the startup check and the 500: with `MUX_TOKEN_ID` set and
+  the signing keys absent, an entitled viewer of a **paid** lesson gets an unsigned,
+  non-expiring `stream.mux.com` playback URL. That is an exposure, and it is why the
+  signing keys matter. Start the API with `pnpm start`, set the values, then deploy.
+- Prefer real host environment variables for those production values, with the monorepo-root
+  `.env` as the local fallback. That is ordinary good practice for a deployed service, not a
+  workaround for a load-ordering bug. `apps/api/.env` is **not** a blind spot: `app.module.ts`
+  calls `ConfigModule.forRoot` inside its `@Module({ ... })` decorator argument, which is
+  evaluated when `main.ts` statically imports `AppModule`, and `forRoot` writes the
+  working-directory `.env` into `process.env` synchronously - both before `bootstrap()` calls
+  `validateApiEnv`. So values placed in `apps/api/.env` **are** seen by startup validation.
+  That is also why the dev-bypass startup refusal fires for a `DEV_BYPASS_AUTH=true` that
+  arrives from `apps/api/.env`, not only for one exported by the host.
+- Web project environment: `NEXT_PUBLIC_API_URL` pointing at the deployed API, plus **both**
+  Clerk keys - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`. The secret key is
+  required there because `clerkMiddleware` asserts it before any handler runs, the same reason
+  it is needed locally (see "Local Setup" above); a web environment without it serves
+  `Missing secretKey` on every route.
+- Keep the API-only secrets - `DATABASE_URL`, `STRIPE_SECRET_KEY`, the Mux credentials and
+  `DIAZ_INTERNAL_API_KEY` - on the API environment only. None of them belong on the web project.
 - While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and
   `NEXT_PUBLIC_VOD_COMING_SOON=true` on production web/API deployments. Leave both unset or
   `false` for local and preview deployments so development routes stay usable.
@@ -333,6 +443,7 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 ## Scripts
 - `pnpm dev` -> API + web
 - `pnpm dev:mobile` -> Expo mobile
+- `pnpm start` -> built API with `NODE_ENV=production` (deployed runs)
 - `pnpm lint`
 - `pnpm typecheck`
 - `pnpm test` (see [Tests](#tests))

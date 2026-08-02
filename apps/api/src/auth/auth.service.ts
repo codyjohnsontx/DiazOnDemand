@@ -5,14 +5,14 @@ import { EntitlementTier as DbEntitlementTier, Role as DbRole } from '@diaz/db';
 import type { AuthUser, RequestWithUser } from '../common/request-with-user.js';
 import { resolveEntitlementTier } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { isDevAuthBypassEnabled } from '../config/env.js';
 
 @Injectable()
 export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
   async authenticateRequest(request: RequestWithUser): Promise<AuthUser> {
-    const devBypass =
-      process.env.NODE_ENV !== 'production' && process.env.DEV_BYPASS_AUTH === 'true';
+    const devBypass = isDevAuthBypassEnabled(process.env);
 
     const authorization = request.headers.authorization;
     const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
