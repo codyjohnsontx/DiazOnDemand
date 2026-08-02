@@ -69,7 +69,8 @@ Stripe:
 - `STRIPE_PRICE_ID_MONTHLY`
 - `WEB_APP_URL`
 - `BILLING_ALERT_WEBHOOK_URL` (optional; Slack/Discord incoming webhook for billing failures. Leave
-  it unset for log-only alerts - an empty value is rejected as an invalid URL, not treated as unset)
+  it unset for log-only alerts - an empty value is rejected as an invalid URL, not treated as unset,
+  which is why it is documented here and deliberately kept out of `.env.example`)
 
 Mux (optional now):
 - `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` (API access token, from Settings > Access Tokens)
