@@ -104,10 +104,11 @@ Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy has
 working auth and the walkthrough below returns `401`. Pick one:
 - **Local bypass (fastest):** set `DEV_BYPASS_AUTH=true` in the root `.env`,
   `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/diaz-ondemand-web/.env`, and
-  `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. This is only valid against
-  the localhost `DATABASE_URL` the examples already ship - the API refuses to start with
-  the bypass enabled against any other database. See "Clerk Setup Notes" below for what
-  the bypass grants.
+  `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. This requires a loopback
+  `DATABASE_URL` - `localhost`, any `127.x.x.x` address such as `127.0.0.1`, or the IPv6
+  loopback written as `[::1]` - which is what the examples already ship. The API refuses
+  to start with the bypass enabled against any other database. See "Clerk Setup Notes"
+  below for what the bypass grants.
 - **Real Clerk auth:** set `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` in the root `.env`,
   and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env` (its example
   ships a placeholder - replace it with a real key).
@@ -151,8 +152,9 @@ After seed:
 ## Clerk Setup Notes (Web + Expo)
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
   seeded admin, so it is local-only. The API refuses to start with it enabled unless
-  `DATABASE_URL` points at localhost, whatever `NODE_ENV` says - `NODE_ENV` alone is not
-  trusted, because nothing in this repo guarantees a host exports it.
+  `DATABASE_URL` points at a loopback host - `localhost`, any `127.x.x.x` address such as
+  `127.0.0.1`, or the IPv6 loopback written as `[::1]` - whatever `NODE_ENV` says.
+  `NODE_ENV` alone is not trusted, because nothing in this repo guarantees a host exports it.
 - Development bypass requires `DEV_BYPASS_AUTH=true` on the API and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` on clients. All three default to `false` in `.env.example`.
 - API reads `x-dev-user-id` header and auto-upserts a user.
 - For real Clerk auth, provide `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`), and client publishable keys; the web/mobile clients will forward bearer tokens to the API.

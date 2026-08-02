@@ -264,12 +264,14 @@ Do not weaken these. Each exists because it failed in production once.
   `ConfigModule.forRoot` reads the cwd `.env` afterward, so startup validation never
   sees that file. Documented in the README pre-deploy checklist; the load ordering itself
   is still unfixed.
-- Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so
-  a deployed API that reaches Postgres through a loopback proxy still satisfies it - a
-  Cloud SQL Auth Proxy or pgbouncer sidecar on `127.0.0.1`, or Prisma's socket form
-  `postgresql://u:p@localhost:5432/db?host=/cloudsql/...`. In that deployment shape the
-  bypass is gated only by `NODE_ENV` again. It still requires someone to deliberately set
-  `DEV_BYPASS_AUTH=true`. This is written down on purpose; do not add detection code for it.
+- Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so a
+  deployment whose database URL is itself loopback satisfies that check - an API reaching
+  Postgres through a Cloud SQL Auth Proxy or pgbouncer sidecar on `127.0.0.1`, or Prisma's
+  socket form `postgresql://u:p@localhost:5432/db?host=/cloudsql/...`. The loopback gate
+  passes in that shape, but the bypass still does not activate unless someone also
+  deliberately sets `DEV_BYPASS_AUTH=true` and the run is not `NODE_ENV=production`. The
+  residual risk is that combination, not the loopback proxy on its own. This is written
+  down on purpose; do not add detection code for it.
 
 ## Maintaining this file
 
