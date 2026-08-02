@@ -46,6 +46,23 @@ export function isDevAuthBypassEnabled(source: NodeJS.ProcessEnv): boolean {
   );
 }
 
+/**
+ * Whether a PAID lesson may fall back to an unsigned playback url when no Mux
+ * signing key is configured - see mapLessonDetail in
+ * apps/api/src/content/lesson-presentation.ts.
+ *
+ * Gated on the same fact, and for the same reason, as the dev auth bypass
+ * above. An unsigned `stream.mux.com/<id>.m3u8` never expires and asks for
+ * nothing, so on a public asset it hands the paid catalogue to anyone who reads
+ * the url. That must not become reachable because a host happened to run
+ * `node dist/main.js` instead of `pnpm start` and so left NODE_ENV unset. The
+ * database a process is pointed at is a fact about the deployment, so that is
+ * what decides whether this is a developer's machine.
+ */
+export function isUnsignedPaidPlaybackAllowed(source: NodeJS.ProcessEnv): boolean {
+  return source.NODE_ENV !== 'production' && isLoopbackDatabaseUrl(source.DATABASE_URL);
+}
+
 const apiEnvSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -163,13 +180,20 @@ const apiEnvSchema = z
       });
     }
 
-    // Signed playback is what gates PAID lessons, so production must be able to
-    // mint tokens rather than falling back to an unsigned url.
-    if (value.NODE_ENV === 'production' && value.MUX_TOKEN_ID && !value.MUX_SIGNING_KEY_ID) {
+    // Signed playback is what gates PAID lessons, so a deployment must be able
+    // to mint tokens rather than falling back to an unsigned url. Refusing on
+    // the database as well as on NODE_ENV is what makes that hold for a server
+    // started without NODE_ENV set - the same reasoning as the bypass above.
+    if (
+      (value.NODE_ENV === 'production' || !isLoopbackDatabaseUrl(value.DATABASE_URL)) &&
+      value.MUX_TOKEN_ID &&
+      !value.MUX_SIGNING_KEY_ID
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['MUX_SIGNING_KEY_ID'],
-        message: 'required in production when Mux is enabled (signs PAID lesson playback)',
+        message:
+          'required when Mux is enabled outside local development - it signs PAID lesson playback, and without it a paid lesson would be served over an unsigned, non-expiring url',
       });
     }
 

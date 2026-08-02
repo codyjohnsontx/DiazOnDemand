@@ -393,6 +393,15 @@ export default function LessonPage() {
                 accentColor="#35e0a1"
                 className="aspect-video w-full"
                 metadata={{ video_id: lesson.id, video_title: lesson.title }}
+                // `playbackId` and `src` are alternatives, and `playbackId`
+                // wins: measured in Chrome against @mux/mux-player 3.11.4, a
+                // player given both requests
+                // `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops
+                // the signed token on `src` altogether. That is safe only
+                // because the API withholds `muxPlaybackId` for PAID lessons
+                // and sends the signed `playbackUrl` instead - see
+                // `publicPlaybackId` in apps/api/src/content/lesson-presentation.ts.
+                // A payload carrying both would silently play unsigned.
                 playbackId={video.muxPlaybackId ?? undefined}
                 preferPlayback="mse"
                 src={video.playbackUrl ?? undefined}

@@ -695,14 +695,37 @@ export class WebhooksService {
       return;
     }
 
-    // A PAID lesson needs the signed playback id: handing it a public one would
-    // make lesson-presentation.ts build an unsigned, ungated stream url.
+    // A PAID lesson needs the signed playback id, and there is no acceptable
+    // second choice: a public playback id makes the asset watchable by anyone
+    // holding it, whatever this API serves.
     const playbackIds = event.data?.playback_ids ?? [];
-    const requiredPolicy = lesson.accessLevel === 'PAID' ? 'signed' : 'public';
+    const signedPlaybackId = playbackIds.find((entry) => entry.policy === 'signed')?.id ?? null;
+
+    if (lesson.accessLevel === 'PAID' && !signedPlaybackId) {
+      // Refused rather than accepted, and noisily rather than quietly. The
+      // asset was uploaded with the wrong playback policy, which is a mistake
+      // only a human can correct in Mux - so this fails the delivery, which
+      // puts it in the Mux dashboard as a failed webhook next to the asset that
+      // caused it. Answering 200 and silently leaving the lesson alone would
+      // hide a paid video that is public from everybody. Mux redelivers, so
+      // adding a signed playback id to the asset is all it takes to recover.
+      const offered = playbackIds.map((entry) => entry.policy ?? 'unknown').join(', ') || 'none';
+
+      this.logger.error(
+        `Refusing to sync Mux asset ${assetId} to PAID lesson ${lesson.id}: the asset has no ` +
+          `signed playback id (policies offered: ${offered}). A public playback id makes a paid ` +
+          `video watchable by anyone. Re-upload the asset with a signed playback policy.`,
+      );
+
+      throw new Error(
+        `Mux asset ${assetId} has no signed playback id, so it cannot back PAID lesson ${lesson.id}`,
+      );
+    }
+
     const playbackId =
-      playbackIds.find((entry) => entry.policy === requiredPolicy)?.id ??
-      playbackIds[0]?.id ??
-      null;
+      lesson.accessLevel === 'PAID'
+        ? signedPlaybackId
+        : (playbackIds.find((entry) => entry.policy === 'public')?.id ?? playbackIds[0]?.id ?? null);
 
     const duration = event.data?.duration;
     const durationSeconds =

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isDevAuthBypassEnabled, isLoopbackDatabaseUrl, validateApiEnv } from '../config/env.js';
+import {
+  isDevAuthBypassEnabled,
+  isLoopbackDatabaseUrl,
+  isUnsignedPaidPlaybackAllowed,
+  validateApiEnv,
+} from '../config/env.js';
 
 const LOCAL_DB = 'postgresql://postgres:postgres@localhost:5432/diaz_ondemand';
 const REMOTE_DB = 'postgresql://app:secret@db.example.com:5432/diaz_ondemand';
@@ -103,6 +108,54 @@ describe('isDevAuthBypassEnabled', () => {
   });
 });
 
+describe('isUnsignedPaidPlaybackAllowed', () => {
+  it('is false against a deployed database whatever NODE_ENV says', () => {
+    for (const NODE_ENV of [undefined, 'development', 'test', 'production']) {
+      expect(isUnsignedPaidPlaybackAllowed({ NODE_ENV, DATABASE_URL: REMOTE_DB })).toBe(false);
+    }
+  });
+
+  it('fails closed when there is no DATABASE_URL to judge by', () => {
+    expect(isUnsignedPaidPlaybackAllowed({})).toBe(false);
+    expect(isUnsignedPaidPlaybackAllowed({ DATABASE_URL: 'not-a-url' })).toBe(false);
+  });
+
+  it('is false in production, even against a local database', () => {
+    expect(isUnsignedPaidPlaybackAllowed({ NODE_ENV: 'production', DATABASE_URL: LOCAL_DB })).toBe(
+      false,
+    );
+  });
+
+  it('is true for local development, so a developer can still watch a paid lesson', () => {
+    expect(isUnsignedPaidPlaybackAllowed({ DATABASE_URL: LOCAL_DB })).toBe(true);
+    expect(isUnsignedPaidPlaybackAllowed({ NODE_ENV: 'development', DATABASE_URL: LOCAL_DB })).toBe(
+      true,
+    );
+  });
+});
+
+describe('Mux signing key startup refusal', () => {
+  it('refuses Mux without a signing key against a deployed database, NODE_ENV unset', () => {
+    expect(() =>
+      validateApiEnv(
+        envWithoutBypass({
+          DATABASE_URL: REMOTE_DB,
+          MUX_TOKEN_ID: 'token',
+          MUX_TOKEN_SECRET: 'secret',
+        }),
+      ),
+    ).toThrow(/MUX_SIGNING_KEY_ID: required when Mux is enabled outside local development/);
+  });
+
+  it('still lets a developer run Mux against a local database without signing keys', () => {
+    expect(() =>
+      validateApiEnv(
+        envWithoutBypass({ MUX_TOKEN_ID: 'token', MUX_TOKEN_SECRET: 'secret' }),
+      ),
+    ).not.toThrow();
+  });
+});
+
 describe('existing startup refusals', () => {
   it('requires DATABASE_URL', () => {
     expect(() => validateApiEnv({ DEV_BYPASS_AUTH: 'true' })).toThrow(/DATABASE_URL/);
@@ -167,7 +220,7 @@ describe('existing startup refusals', () => {
           DIAZ_INTERNAL_API_KEY: 'internal',
         }),
       ),
-    ).toThrow(/MUX_SIGNING_KEY_ID: required in production/);
+    ).toThrow(/MUX_SIGNING_KEY_ID: required when Mux is enabled outside local development/);
   });
 
   it('requires the internal API key in production', () => {

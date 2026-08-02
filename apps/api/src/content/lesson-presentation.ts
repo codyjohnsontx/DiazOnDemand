@@ -7,6 +7,7 @@ import {
   type LessonDetailDto,
   type LessonSummary,
 } from '@diaz/shared';
+import { isUnsignedPaidPlaybackAllowed } from '../config/env.js';
 
 type LessonTagLike = { tag: { name: string } } | { name: string };
 
@@ -82,6 +83,24 @@ export function mapLessonCurriculum(tags: LessonTagLike[] = []) {
   return parseCurriculumTags(tags.map(extractTagName));
 }
 
+/**
+ * The playback id a caller is allowed to see, which for a PAID lesson is none.
+ *
+ * `/programs`, `/programs/:id` and `/courses/:id` need no authentication, so
+ * every id on those payloads is public. A Mux playback id is not a name, it is
+ * the whole address of the video: on an asset uploaded with a `public` playback
+ * policy, `https://stream.mux.com/<id>.m3u8` plays for anyone holding it. An
+ * anonymous visitor is meant to see that a paid lesson exists, not to be handed
+ * the key to it.
+ *
+ * The signed url built in `mapLessonDetail` is the only handle on a paid video,
+ * and it is minted behind the entitlement check in `ContentService.getLesson`.
+ * Admins get the real id back through `mapAdminLessonSummary`.
+ */
+function publicPlaybackId(lesson: LessonLike) {
+  return lesson.accessLevel === 'PAID' ? null : (lesson.muxPlaybackId ?? null);
+}
+
 function resolveVideoProvider(lesson: LessonLike) {
   if (lesson.videoProvider === VideoProvider.YOUTUBE && lesson.youtubeVideoId) {
     return VideoProvider.YOUTUBE;
@@ -106,7 +125,7 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
     isPublished: lesson.isPublished,
     accessLevel: lesson.accessLevel as LessonSummary['accessLevel'],
     videoProvider,
-    muxPlaybackId: lesson.muxPlaybackId ?? null,
+    muxPlaybackId: publicPlaybackId(lesson),
     youtubeVideoId: lesson.youtubeVideoId ?? null,
     durationSeconds: lesson.durationSeconds ?? null,
     curriculum: mapLessonCurriculum(lesson.tags ?? []),
@@ -115,11 +134,15 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
 
 /**
  * Admin projection: same as the public summary plus `muxAssetId`, which admins
- * set so the Mux `video.asset.ready` webhook can find the lesson to sync.
+ * set so the Mux `video.asset.ready` webhook can find the lesson to sync, and
+ * the real `muxPlaybackId` the public summary withholds for PAID lessons -
+ * admins type it into the lesson editor, and this route is behind
+ * `AuthGuard` + `RolesGuard(ADMIN, COACH)`.
  */
 export function mapAdminLessonSummary(lesson: LessonLike): AdminLessonSummary {
   return {
     ...mapLessonSummary(lesson),
+    muxPlaybackId: lesson.muxPlaybackId ?? null,
     muxAssetId: lesson.muxAssetId ?? null,
   };
 }
@@ -139,7 +162,7 @@ export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }):
 
       if (token) {
         playbackUrl = `https://stream.mux.com/${lesson.muxPlaybackId}.m3u8?token=${encodeURIComponent(token)}`;
-      } else if (process.env.NODE_ENV !== 'production') {
+      } else if (isUnsignedPaidPlaybackAllowed(process.env)) {
         playbackUrl = `https://stream.mux.com/${lesson.muxPlaybackId}.m3u8`;
       } else {
         throw new InternalServerErrorException(
@@ -162,7 +185,14 @@ export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }):
     video: {
       provider: videoProvider,
       playbackUrl,
-      muxPlaybackId: lesson.muxPlaybackId ?? null,
+      // Withheld for PAID lessons even here, behind the entitlement check.
+      // Measured against @mux/mux-player 3.11.4 in Chrome: given both a
+      // `playbackId` and a signed `src`, the player requests
+      // `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops the token
+      // entirely - byte-identical to the request it makes with no `src` at all.
+      // So leaving the id on this payload does not merely widen the exposure,
+      // it is what stops signed playback working. `playbackUrl` is the handle.
+      muxPlaybackId: publicPlaybackId(lesson),
       youtubeVideoId: lesson.youtubeVideoId ?? null,
       embedUrl,
     },

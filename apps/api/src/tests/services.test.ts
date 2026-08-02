@@ -16,7 +16,7 @@ import {
   resolveStripeEntitlement,
 } from '../common/entitlement.js';
 import { ContentService } from '../content/content.service.js';
-import { mapLessonDetail } from '../content/lesson-presentation.js';
+import { mapAdminLessonSummary, mapLessonDetail } from '../content/lesson-presentation.js';
 import { FavoritesService } from '../favorites/favorites.service.js';
 import { MeService } from '../me/me.service.js';
 import { ProgressService } from '../progress/progress.service.js';
@@ -28,6 +28,8 @@ type MockPrismaClient = Partial<{
     findFirst: ReturnType<typeof vi.fn>;
     update?: ReturnType<typeof vi.fn>;
   };
+  program: { findMany: ReturnType<typeof vi.fn> };
+  course: { findFirst: ReturnType<typeof vi.fn> };
   user: { findUnique: ReturnType<typeof vi.fn> };
   progress: { upsert: ReturnType<typeof vi.fn> };
   favorite: {
@@ -84,6 +86,79 @@ async function withMuxSecret<T>(secret: string | undefined, run: () => T | Promi
   }
 }
 
+const LOCAL_DB = 'postgresql://postgres:postgres@localhost:5432/diaz_ondemand';
+const DEPLOYED_DB = 'postgresql://app:secret@db.example.com:5432/diaz_ondemand';
+
+/**
+ * Runs `run` with DATABASE_URL set to a given host, because that - not
+ * NODE_ENV - is what decides whether an unsigned PAID playback url is allowed.
+ * See isUnsignedPaidPlaybackAllowed in apps/api/src/config/env.ts.
+ */
+async function withDatabaseUrl<T>(databaseUrl: string | undefined, run: () => T | Promise<T>) {
+  const previous = process.env.DATABASE_URL;
+
+  if (databaseUrl === undefined) {
+    delete process.env.DATABASE_URL;
+  } else {
+    process.env.DATABASE_URL = databaseUrl;
+  }
+
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = previous;
+    }
+  }
+}
+
+async function withNodeEnv<T>(nodeEnv: string | undefined, run: () => T | Promise<T>) {
+  const previous = process.env.NODE_ENV;
+
+  if (nodeEnv === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = nodeEnv;
+  }
+
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previous;
+    }
+  }
+}
+
+const paidCatalogueLesson = {
+  id: 'lesson-paid',
+  courseId: 'course-1',
+  title: 'Paid Lesson',
+  description: null,
+  orderIndex: 1,
+  isPublished: true,
+  accessLevel: 'PAID' as const,
+  videoProvider: 'MUX',
+  muxAssetId: 'asset-paid',
+  muxPlaybackId: 'paid-playback-id',
+  durationSeconds: 120,
+  tags: [],
+};
+
+const freeCatalogueLesson = {
+  ...paidCatalogueLesson,
+  id: 'lesson-free',
+  title: 'Free Lesson',
+  orderIndex: 0,
+  accessLevel: 'FREE' as const,
+  muxAssetId: 'asset-free',
+  muxPlaybackId: 'free-playback-id',
+};
+
 describe('ContentService', () => {
   it('rejects paid lesson playback without premium entitlement', async () => {
     const service = new ContentService(
@@ -132,12 +207,14 @@ describe('ContentService', () => {
       }),
     );
 
-    const lesson = await service.getLesson('lesson-1', {
-      id: 'user-1',
-      clerkUserId: 'clerk-1',
-      role: Role.STUDENT,
-      entitlementTier: EntitlementTier.PREMIUM,
-    });
+    const lesson = await withDatabaseUrl(LOCAL_DB, () =>
+      service.getLesson('lesson-1', {
+        id: 'user-1',
+        clerkUserId: 'clerk-1',
+        role: Role.STUDENT,
+        entitlementTier: EntitlementTier.PREMIUM,
+      }),
+    );
 
     expect(lesson.video.playbackUrl).toBe('https://stream.mux.com/mux-playback-id.m3u8');
   });
@@ -153,6 +230,70 @@ describe('ContentService', () => {
 
     await expect(service.getLesson('missing', null)).rejects.toMatchObject({
       status: HttpStatus.NOT_FOUND,
+    });
+  });
+
+  // /programs, /programs/:id and /courses/:id take no authentication at all, so
+  // anything on those payloads is public. A Mux playback id on a paid lesson is
+  // the address of the video, not a name for it.
+  describe('the unauthenticated catalogue', () => {
+    function catalogueService() {
+      const course = {
+        id: 'course-1',
+        programId: 'program-1',
+        title: 'Course',
+        description: null,
+        orderIndex: 0,
+        isPublished: true,
+        lessons: [freeCatalogueLesson, paidCatalogueLesson],
+      };
+
+      return new ContentService(
+        createPrismaService({
+          program: {
+            findMany: vi.fn().mockResolvedValue([
+              {
+                id: 'program-1',
+                title: 'Program',
+                description: null,
+                orderIndex: 0,
+                discipline: 'BJJ',
+                isFeaturedDemo: false,
+                isPublished: true,
+                courses: [course],
+              },
+            ]),
+          },
+          course: { findFirst: vi.fn().mockResolvedValue(course) },
+        }),
+      );
+    }
+
+    it('withholds the playback id of a paid lesson from /programs', async () => {
+      const [program] = await catalogueService().listPrograms();
+      const lessons = program!.courses[0]!.lessons;
+
+      expect(lessons.find((lesson) => lesson.accessLevel === 'PAID')?.muxPlaybackId).toBeNull();
+    });
+
+    it('withholds the playback id of a paid lesson from /courses/:id', async () => {
+      const course = await catalogueService().getCourse('course-1');
+
+      expect(course.lessons.find((lesson) => lesson.accessLevel === 'PAID')?.muxPlaybackId).toBeNull();
+    });
+
+    it('still lists the paid lesson itself, so it can be advertised', async () => {
+      const course = await catalogueService().getCourse('course-1');
+      const paid = course.lessons.find((lesson) => lesson.accessLevel === 'PAID');
+
+      expect(paid).toMatchObject({ id: 'lesson-paid', title: 'Paid Lesson', durationSeconds: 120 });
+    });
+
+    it('keeps serving the playback id of a free lesson', async () => {
+      const course = await catalogueService().getCourse('course-1');
+      const free = course.lessons.find((lesson) => lesson.accessLevel === 'FREE');
+
+      expect(free?.muxPlaybackId).toBe('free-playback-id');
     });
   });
 });
@@ -811,6 +952,75 @@ describe('Mux signed playback tokens', () => {
 
     expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
   });
+
+  // Measured against @mux/mux-player 3.11.4 in Chrome: a player handed both a
+  // playbackId and a signed src requests the id form and drops the token, so
+  // leaving the id on a paid payload would silently defeat signed playback.
+  it('leaves a paid lesson with the signed url as its only playback handle', () => {
+    const detail = withSigningKey('signing-key-1', privateKey, () => mapLessonDetail(paidLesson));
+
+    expect(detail.muxPlaybackId).toBeNull();
+    expect(detail.video.muxPlaybackId).toBeNull();
+    expect(detail.video.playbackUrl).toContain('token=');
+  });
+
+  it('still hands a free lesson its playback id', () => {
+    const detail = withSigningKey('signing-key-1', privateKey, () =>
+      mapLessonDetail({ ...paidLesson, accessLevel: 'FREE' as const }),
+    );
+
+    expect(detail.video.muxPlaybackId).toBe('playback-abc');
+  });
+
+  it('gives admins the real playback id back, so the lesson editor can show it', () => {
+    expect(mapAdminLessonSummary({ ...paidLesson, muxAssetId: 'asset-1' })).toMatchObject({
+      muxPlaybackId: 'playback-abc',
+      muxAssetId: 'asset-1',
+    });
+  });
+
+  // The signing keys being absent used to fall back to an unsigned, never
+  // expiring url whenever NODE_ENV was not 'production' - and nothing in this
+  // repository sets NODE_ENV except `pnpm start`.
+  describe('the unsigned fallback when no signing key is configured', () => {
+    it('refuses on a deployed database, whatever NODE_ENV says', async () => {
+      for (const NODE_ENV of [undefined, 'development', 'test', 'production']) {
+        await withNodeEnv(NODE_ENV, () =>
+          withDatabaseUrl(DEPLOYED_DB, () =>
+            withSigningKey(undefined, undefined, () => {
+              expect(() => mapLessonDetail(paidLesson)).toThrow(/Premium playback is not configured/);
+            }),
+          ),
+        );
+      }
+    });
+
+    it('refuses when there is no DATABASE_URL to judge by', async () => {
+      await withDatabaseUrl(undefined, () =>
+        withSigningKey(undefined, undefined, () => {
+          expect(() => mapLessonDetail(paidLesson)).toThrow(/Premium playback is not configured/);
+        }),
+      );
+    });
+
+    it('still works for a developer against a local database', async () => {
+      const detail = await withDatabaseUrl(LOCAL_DB, () =>
+        withSigningKey(undefined, undefined, () => mapLessonDetail(paidLesson)),
+      );
+
+      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
+    });
+
+    it('never applies to a free lesson, which is meant to be unsigned', async () => {
+      const detail = await withDatabaseUrl(DEPLOYED_DB, () =>
+        withSigningKey(undefined, undefined, () =>
+          mapLessonDetail({ ...paidLesson, accessLevel: 'FREE' as const }),
+        ),
+      );
+
+      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
+    });
+  });
 });
 
 describe('WebhooksService Mux asset sync', () => {
@@ -868,6 +1078,82 @@ describe('WebhooksService Mux asset sync', () => {
         data: expect.objectContaining({ muxPlaybackId: 'signed-playback' }),
       }),
     );
+  });
+
+  // A public playback id on a paid lesson makes the video watchable by anyone
+  // holding the id, whatever this API chooses to serve. There is no acceptable
+  // second choice, so the delivery fails instead - visibly, in the Mux
+  // dashboard, next to the asset whose upload policy is wrong.
+  it('refuses a public-only asset for a paid lesson rather than accepting it', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: {
+          id: 'asset-1',
+          duration: 60,
+          playback_ids: [{ id: 'public-playback', policy: 'public' }],
+        },
+      }),
+    ).rejects.toThrow(/asset-1 has no signed playback id.*PAID lesson lesson-1/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a paid asset that carries no playback ids at all', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: { id: 'asset-1', duration: 60 },
+      }),
+    ).rejects.toThrow(/no signed playback id/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to a public id when the paid lesson already has one', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID', muxPlaybackId: 'old' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: {
+          id: 'asset-1',
+          playback_ids: [{ id: 'public-playback' }, { id: 'another-public', policy: 'public' }],
+        },
+      }),
+    ).rejects.toThrow(/no signed playback id/);
+
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('ignores assets that do not belong to any lesson', async () => {

@@ -293,6 +293,33 @@ the reason it exists is stated with it.
   deliberately sets `DEV_BYPASS_AUTH=true` and the run is not `NODE_ENV=production`. The
   residual risk is that combination, not the loopback proxy on its own. This is written
   down on purpose; do not add detection code for it.
+- A PAID lesson's Mux playback id never leaves the API on an unauthenticated payload, and
+  never sits next to a signed url - `publicPlaybackId` in
+  `apps/api/src/content/lesson-presentation.ts` nulls it, and `mapAdminLessonSummary` puts it
+  back for the admin routes only. Two reasons, both load-bearing. `/programs`, `/programs/:id`
+  and `/courses/:id` take no authentication, and a Mux playback id is the whole address of a
+  video, not a name for it. And, measured in Chrome against `@mux/mux-player` 3.11.4, a player
+  handed both a `playbackId` and a signed `src` requests
+  `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops the token entirely -
+  byte-identical to the request it makes with no `src` at all. So restoring the id to a paid
+  payload would not merely widen the exposure, it would silently switch signed playback off.
+- The unsigned-playback fallback for a PAID lesson is gated on a loopback `DATABASE_URL`, not
+  on `NODE_ENV`: `isUnsignedPaidPlaybackAllowed` in `apps/api/src/config/env.ts`, the same
+  predicate and the same reasoning as the auth bypass above. Startup validation refuses
+  `MUX_TOKEN_ID` without `MUX_SIGNING_KEY_ID` on a non-loopback database as well as in
+  production. Verified against the built API with `NODE_ENV` unset throughout: it exits
+  without opening a port when Mux is enabled with no signing key on a deployed database, and
+  a paid lesson answers 500 rather than an unsigned url when only the request-time half
+  applies - both still behave the old way against a localhost database.
+- The Mux `video.asset.ready` webhook refuses an asset that offers no `signed` playback id for
+  a PAID lesson: it logs an error and throws, so the delivery fails in the Mux dashboard next
+  to the asset whose upload policy is wrong, rather than quietly attaching a public id to a
+  paid video. FREE lessons still take a public id. See `syncMuxAsset` in
+  `apps/api/src/webhooks/webhooks.service.ts`.
+- What none of that fixes, and only the owner can: an asset already uploaded to Mux with a
+  `public` playback policy stays public, and no code change can retract an id that has already
+  been served. Confirming every paid asset uses a signed playback policy is a Mux dashboard
+  job. Agents must not touch the Mux account to check.
 
 ## Maintaining this file
 
