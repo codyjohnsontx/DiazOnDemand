@@ -101,10 +101,12 @@ cp apps/mobile/.env.example apps/mobile/.env
 ```
 
 Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy has no
-working auth: the API rejects the walkthrough below with `401`, and the web app - whose
-example still carries the placeholder `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_your_key` -
-mounts Clerk with that invalid key, so `http://localhost:3000/library` fails at the Clerk
-provider rather than rendering. Pick one:
+working auth. The API rejects the walkthrough below with `401`. The web app fails harder:
+`CLERK_SECRET_KEY` ships only in the root `.env.example`, which Next.js does not read, so
+`apps/diaz-ondemand-web/.env` has no secret key and `clerkMiddleware` throws
+`@clerk/nextjs: Missing secretKey` in the Edge runtime before any provider mounts. Every
+route returns HTTP `500`, including the unprotected home page `/` - not just the library
+or the protected pages. Pick one to get past it:
 - **Local bypass (fastest):** set `DEV_BYPASS_AUTH=true` in the root `.env`,
   `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/diaz-ondemand-web/.env`, and
   `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. This requires a loopback
