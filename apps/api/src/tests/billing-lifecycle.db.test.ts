@@ -1369,7 +1369,7 @@ async function backfillMigrationSql() {
 
 describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
   const stripeStub = {
-    checkout: { sessions: { create: vi.fn() } },
+    checkout: { sessions: { create: vi.fn(), expire: vi.fn() } },
     billingPortal: { sessions: { create: vi.fn() } },
   };
 
@@ -1388,6 +1388,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
 
   afterEach(async () => {
     stripeStub.checkout.sessions.create.mockReset();
+    stripeStub.checkout.sessions.expire.mockReset();
     stripeStub.billingPortal.sessions.create.mockReset();
     await prismaClient!.user.deleteMany({ where: { clerkUserId: { startsWith: 'billing-test-' } } });
   });
@@ -1543,6 +1544,75 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       expect(
         await prismaClient!.checkoutReservation.findUnique({ where: { userId: other.id } }),
       ).not.toBeNull();
+      expect(stripeStub.checkout.sessions.expire).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Dropping the lock alone would leave the abandoned session payable until
+     * its own `expires_at`, so a member with checkout still open in a second tab
+     * could pay twice - the outcome the lock exists to prevent.
+     */
+    it('expires the abandoned session at Stripe before dropping the lock', async () => {
+      await createUser('billing-test-reservation-expire-on-cancel');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_expire_on_cancel',
+        url: 'https://stripe.test/session',
+      });
+      stripeStub.checkout.sessions.expire.mockResolvedValue({ id: 'cs_expire_on_cancel' });
+
+      await service.createCheckoutSession('billing-test-reservation-expire-on-cancel');
+      await service.cancelCheckout('billing-test-reservation-expire-on-cancel');
+
+      expect(stripeStub.checkout.sessions.expire).toHaveBeenCalledWith('cs_expire_on_cancel');
+    });
+
+    /**
+     * Freeing the member to pay matters more than closing the session: an expire
+     * throws for ordinary reasons - the checkout just completed, it already
+     * expired, Stripe is unreachable - and none of them may cost them the lock.
+     */
+    it('still releases the lock when the session cannot be expired', async () => {
+      const user = await createUser('billing-test-reservation-expire-fails');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_expire_fails',
+        url: 'https://stripe.test/session',
+      });
+      stripeStub.checkout.sessions.expire.mockRejectedValue(new Error('stripe is down'));
+
+      await service.createCheckoutSession('billing-test-reservation-expire-fails');
+
+      await expect(
+        service.cancelCheckout('billing-test-reservation-expire-fails'),
+      ).resolves.toEqual({ released: true });
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
+      ).toBeNull();
+
+      await expect(
+        service.createCheckoutSession('billing-test-reservation-expire-fails'),
+      ).resolves.toEqual({ url: 'https://stripe.test/session' });
+    });
+
+    /**
+     * The lock is taken before the Stripe call returns, so a member who cancels
+     * in that window holds a reservation naming no session yet.
+     */
+    it('releases a reservation that has no session id without calling Stripe', async () => {
+      const user = await createUser('billing-test-reservation-no-session');
+      await prismaClient!.checkoutReservation.create({
+        data: { userId: user.id, expiresAt: new Date(Date.now() + 60_000) },
+      });
+
+      await expect(
+        createService().cancelCheckout('billing-test-reservation-no-session'),
+      ).resolves.toEqual({ released: true });
+
+      expect(stripeStub.checkout.sessions.expire).not.toHaveBeenCalled();
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
+      ).toBeNull();
     });
 
     /**

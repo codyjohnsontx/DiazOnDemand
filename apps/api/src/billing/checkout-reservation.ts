@@ -82,6 +82,16 @@ export async function reserveCheckout(
   }
 }
 
+/**
+ * The lock a member currently holds, if any.
+ *
+ * The caller needs the row rather than a yes/no because `stripeSessionId` is
+ * how an abandoned checkout gets closed at Stripe before the lock is dropped.
+ */
+export async function findCheckoutReservation(prisma: PrismaService, userId: string) {
+  return prisma.client.checkoutReservation.findUnique({ where: { userId } });
+}
+
 /** Records which Stripe session the held lock belongs to. */
 export async function attachSessionToReservation(
   prisma: PrismaService,

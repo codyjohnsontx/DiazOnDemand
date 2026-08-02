@@ -140,9 +140,9 @@ Billing endpoints (both Clerk-authenticated):
   `subscription_exists` (the member already has an active subscription) and `checkout_in_flight`
   (a checkout for them is already open). The codes live in `packages/shared/src/schemas.ts`.
   Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
-- `POST /billing/cancel-checkout` - releases the calling member's checkout lock, called by the
-  cancel return page. Takes no body: the member comes from the auth guard, never the request, so
-  nobody can clear somebody else's lock.
+- `POST /billing/cancel-checkout` - expires the abandoned Stripe session and releases the calling
+  member's checkout lock, called by the cancel return page. Takes no body: the member comes from
+  the auth guard, never the request, so nobody can clear somebody else's lock.
 - `POST /billing/create-portal-session` - opens Stripe's hosted billing portal, which is where a
   member cancels, changes their card, and downloads invoices. Returns **404** when the member has
   no Stripe customer yet.
@@ -205,7 +205,10 @@ One checkout at a time (`CheckoutReservation`):
 - The lock has three release paths, because no one of them covers everyone:
   - the member returning to `/subscribe/cancel` calls `POST /billing/cancel-checkout`, which frees
     it at once. This is the member who clicks back or Stripe's cancel button, and Stripe emits
-    nothing at all for them.
+    nothing at all for them. That path **expires the session at Stripe first**, because dropping
+    the lock alone would leave the abandoned session payable until its own `expires_at` - a member
+    with checkout still open in a second tab could then pay twice. A failed expire is logged and
+    the lock is released anyway: no member stays locked out because Stripe was unreachable.
   - Stripe saying the checkout resolved - `checkout.session.completed`, `.expired`, or
     `.async_payment_failed` - rather than being inferred from subscription rows, because a checkout
     that expired or failed never produces one. **Subscribe to those three events on the Stripe

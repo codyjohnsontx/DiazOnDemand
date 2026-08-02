@@ -2,11 +2,26 @@
 
 import { useState } from 'react';
 import type { CheckoutSessionDto } from '@diaz/shared';
-import { CHECKOUT_CONFLICT_CODES } from '@diaz/shared';
+import { CHECKOUT_CONFLICT_CODES, checkoutConflictSchema } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { PageHeader } from '@/components/page-header';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
+
+/**
+ * Reads the shared 409 contract rather than trusting whatever `code` the body
+ * happens to carry, so an unrecognised value falls through to the safer message
+ * instead of being compared as a bare string.
+ */
+function checkoutConflictCode(detail: string) {
+  try {
+    const conflict = checkoutConflictSchema.safeParse(JSON.parse(detail));
+
+    return conflict.success ? conflict.data.code : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Checkout refuses with 409 for two different reasons, and they need different
@@ -18,13 +33,7 @@ function checkoutErrorMessage(error: unknown) {
     return 'We could not start checkout. Please try again.';
   }
 
-  let code: string | undefined;
-
-  try {
-    code = (JSON.parse(error.detail) as { code?: string }).code;
-  } catch {
-    code = undefined;
-  }
+  const code = checkoutConflictCode(error.detail);
 
   if (code === CHECKOUT_CONFLICT_CODES.checkoutInFlight) {
     return 'A checkout is already in progress for this account. Finish it in the Stripe tab, or try again in a moment.';

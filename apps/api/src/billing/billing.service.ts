@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import {
   attachSessionToReservation,
   checkoutSessionExpiresAt,
+  findCheckoutReservation,
   isUniqueViolation,
   releaseCheckout,
   reserveCheckout,
@@ -122,20 +123,31 @@ export class BillingService {
   }
 
   /**
-   * Drops the calling member's own checkout lock, so returning from Stripe's
-   * cancel button frees it at once instead of at the TTL.
+   * Closes the abandoned checkout and drops the calling member's own lock, so
+   * returning from Stripe's cancel button frees it at once instead of at the
+   * TTL.
    *
    * Scoped to the authenticated member on purpose: it takes no user id and no
    * session id from the client, because either would let one member clear
-   * another's lock. Releasing a lock the member no longer needs is idempotent
-   * and harmless - the worst case is that a checkout they left open in another
-   * tab stops blocking a new one, which is what they asked for by cancelling.
+   * another's lock.
+   *
+   * The session is expired at Stripe first. Dropping the lock alone would leave
+   * the abandoned session payable until its own `expires_at`, so a member with
+   * checkout still open in a second tab could hold two payable sessions at once
+   * and end up with two subscriptions - which is the exact outcome the lock
+   * exists to prevent.
    */
   async cancelCheckout(clerkUserId: string) {
     const user = await this.prisma.client.user.findUnique({ where: { clerkUserId } });
 
     if (!user) {
       return { released: false };
+    }
+
+    const reservation = await findCheckoutReservation(this.prisma, user.id);
+
+    if (reservation?.stripeSessionId) {
+      await this.expireAbandonedSession(reservation.stripeSessionId);
     }
 
     const released = await releaseCheckout(this.prisma, { userId: user.id });
@@ -147,6 +159,31 @@ export class BillingService {
     );
 
     return { released: released > 0 };
+  }
+
+  /**
+   * Best-effort: a session that cannot be expired must never cost the member
+   * their lock.
+   *
+   * It throws for ordinary reasons - the checkout completed a moment ago, it
+   * already expired, Stripe is unreachable - and in every one of them freeing
+   * the member to pay matters more than closing a session that Stripe will
+   * expire on its own `expires_at` anyway.
+   */
+  private async expireAbandonedSession(stripeSessionId: string) {
+    if (!this.stripe) {
+      return;
+    }
+
+    try {
+      await this.stripe.checkout.sessions.expire(stripeSessionId);
+      this.logger.log('Expired the abandoned Stripe checkout session [redacted]');
+    } catch (error) {
+      this.logger.warn(
+        'Could not expire the abandoned Stripe checkout session [redacted], releasing the lock ' +
+          `anyway: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**
