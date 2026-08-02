@@ -100,23 +100,35 @@ cp apps/diaz-ondemand-web/.env.example apps/diaz-ondemand-web/.env
 cp apps/mobile/.env.example apps/mobile/.env
 ```
 
-Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy has no
-working auth. The API rejects the walkthrough below with `401`. The web app fails harder:
-`CLERK_SECRET_KEY` ships only in the root `.env.example`, which Next.js does not read, so
-`apps/diaz-ondemand-web/.env` has no secret key and `clerkMiddleware` throws
-`@clerk/nextjs: Missing secretKey` in the Edge runtime before any provider mounts. Every
-route returns HTTP `500`, including the unprotected home page `/` - not just the library
-or the protected pages. Pick one to get past it:
-- **Local bypass (fastest):** set `DEV_BYPASS_AUTH=true` in the root `.env`,
+Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy leaves the API
+with no working auth: it rejects the walkthrough below with `401` until you enable the bypass
+or configure real Clerk credentials.
+
+The web app has a separate and larger problem, and it is pre-existing rather than something
+these examples introduce: with a fresh copy, `pnpm dev` serves HTTP `500` on **every** route,
+including the unprotected home page `/`. `CLERK_SECRET_KEY` ships in the root and
+`apps/api/.env.example`, but not in `apps/diaz-ondemand-web/.env.example` - and that is the
+file Next.js reads - so `clerkMiddleware` throws `@clerk/nextjs: Missing secretKey` in the
+Edge runtime before any provider mounts. The bypass flags being `false` is not the trigger:
+the same example previously shipped `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same
+placeholder publishable key and no secret key, and `500`s identically.
+
+What actually works, each verified by running it:
+- **API only, via the local bypass:** set `DEV_BYPASS_AUTH=true` in the root `.env`,
   `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/diaz-ondemand-web/.env`, and
-  `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. This requires a loopback
-  `DATABASE_URL` - `localhost`, any `127.x.x.x` address such as `127.0.0.1`, or the IPv6
-  loopback written as `[::1]` - which is what the examples already ship. The API refuses
-  to start with the bypass enabled against any other database. See "Clerk Setup Notes"
-  below for what the bypass grants.
-- **Real Clerk auth:** set `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` in the root `.env`,
-  and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env` (its example
-  ships a placeholder - replace it with a real key).
+  `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env`. The API then authenticates every
+  request as the seeded admin. This requires a loopback `DATABASE_URL` - `localhost`, any
+  `127.x.x.x` address such as `127.0.0.1`, or the IPv6 loopback written as `[::1]` - which is
+  what the examples already ship; the API refuses to start with the bypass enabled against any
+  other database. See "Clerk Setup Notes" below for what the bypass grants. **This does not fix
+  the web app:** `/`, `/library` and `/admin/programs` still `500` with the same
+  `Missing secretKey`, because `clerkMiddleware` wraps every route regardless of the flag.
+- **A working web app:** put real Clerk credentials - **both** `CLERK_SECRET_KEY` and
+  `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` - in `apps/diaz-ondemand-web/.env`. Nothing less does it:
+  the secret key alone clears `Missing secretKey` but then fails `Publishable key not valid`,
+  because `pk_test_your_key` is a placeholder, and putting `CLERK_SECRET_KEY` in the root
+  `.env` has no effect at all, since Next.js does not read that file. The API separately needs
+  `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` in the root `.env`.
 
 3. Generate Prisma client and run migration:
 ```bash
@@ -162,7 +174,7 @@ After seed:
   `NODE_ENV` alone is not trusted, because nothing in this repo guarantees a host exports it.
 - Development bypass requires `DEV_BYPASS_AUTH=true` on the API and `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` on clients. All three default to `false` in `.env.example`.
 - API reads `x-dev-user-id` header and auto-upserts a user.
-- For real Clerk auth, provide `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`), and client publishable keys; the web/mobile clients will forward bearer tokens to the API.
+- For real Clerk auth, each app needs its own keys in its own `.env`: the API needs `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`) in the root `.env`; the web app needs **both** `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env`; Expo needs `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/mobile/.env`. The web/mobile clients then forward bearer tokens to the API.
 
 ## Stripe + Webhooks
 Billing endpoints (both Clerk-authenticated):
