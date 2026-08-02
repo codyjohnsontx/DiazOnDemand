@@ -165,6 +165,17 @@ When preparing a PR:
 
 Never rely on auto-generated PR text.
 
+CodeRabbit reviews a pull request once, when it is opened.
+Automatic re-review on later pushes is deliberately off
+(`reviews.auto_review.auto_incremental_review: false` in `.coderabbit.yaml`), to conserve a
+shared usage limit.
+
+So if a pull request gained commits after it was opened:
+- comment `@coderabbitai review`
+- wait for that review before merging
+
+Skip that step and those later commits merge unreviewed. That is the whole reason the step exists.
+
 Debugging Rules
 When fixing bugs:
 - reproduce the issue
