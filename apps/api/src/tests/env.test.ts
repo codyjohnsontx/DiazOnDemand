@@ -170,9 +170,7 @@ describe('Mux signing key startup refusal', () => {
 
   it('still lets a developer run Mux against a local database without signing keys', () => {
     expect(() =>
-      validateApiEnv(
-        envWithoutBypass({ MUX_TOKEN_ID: 'token', MUX_TOKEN_SECRET: 'secret' }),
-      ),
+      validateApiEnv(envWithoutBypass({ MUX_TOKEN_ID: 'token', MUX_TOKEN_SECRET: 'secret' })),
     ).not.toThrow();
   });
 });

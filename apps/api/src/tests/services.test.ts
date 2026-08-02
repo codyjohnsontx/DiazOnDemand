@@ -279,7 +279,9 @@ describe('ContentService', () => {
     it('withholds the playback id of a paid lesson from /courses/:id', async () => {
       const course = await catalogueService().getCourse('course-1');
 
-      expect(course.lessons.find((lesson) => lesson.accessLevel === 'PAID')?.muxPlaybackId).toBeNull();
+      expect(
+        course.lessons.find((lesson) => lesson.accessLevel === 'PAID')?.muxPlaybackId,
+      ).toBeNull();
     });
 
     it('still lists the paid lesson itself, so it can be advertised', async () => {
@@ -988,7 +990,9 @@ describe('Mux signed playback tokens', () => {
         await withNodeEnv(NODE_ENV, () =>
           withDatabaseUrl(DEPLOYED_DB, () =>
             withSigningKey(undefined, undefined, () => {
-              expect(() => mapLessonDetail(paidLesson)).toThrow(/Premium playback is not configured/);
+              expect(() => mapLessonDetail(paidLesson)).toThrow(
+                /Premium playback is not configured/,
+              );
             }),
           ),
         );

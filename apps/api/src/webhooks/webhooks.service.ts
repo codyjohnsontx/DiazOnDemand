@@ -735,7 +735,9 @@ export class WebhooksService {
     const playbackId =
       lesson.accessLevel === 'PAID'
         ? signedPlaybackId
-        : (playbackIds.find((entry) => entry.policy === 'public')?.id ?? playbackIds[0]?.id ?? null);
+        : (playbackIds.find((entry) => entry.policy === 'public')?.id ??
+          playbackIds[0]?.id ??
+          null);
 
     const duration = event.data?.duration;
     const durationSeconds =
