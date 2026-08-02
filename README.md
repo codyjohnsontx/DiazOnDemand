@@ -136,6 +136,11 @@ What actually works, each verified by running it:
   `http://localhost:3000` works end to end against that API: `/`, `/library` and
   `/admin/programs` all render seeded content, and the header shows **ACCOUNT** rather than
   Sign In. The web client sends no token, so the API resolves its calls as the seeded admin.
+  Note that `/admin/programs` is one of the protected routes listed in
+  `apps/diaz-ondemand-web/middleware.ts`, so reading that file alone would suggest it cannot
+  render here. The behaviour above is what the running app does, measured rather than derived;
+  the mechanism is not fully understood, so re-test it after a Clerk upgrade instead of
+  assuming this still holds.
 - **Real Clerk auth:** put real Clerk credentials - **both** `CLERK_SECRET_KEY` and
   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` - in `apps/diaz-ondemand-web/.env`. Nothing less does it:
   the secret key alone clears `Missing secretKey` but then fails `Publishable key not valid`,
@@ -187,9 +192,11 @@ After seed:
   `NODE_ENV` alone is not trusted, because nothing in this repo guarantees a host exports it.
 - `DEV_BYPASS_AUTH=true` on the API is what enables the bypass. The client flags
   `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` are separate: they
-  make a client skip Clerk and send `x-dev-user-id`, so it acts as that specific seeded user
-  instead of the seeded admin. A client without its flag simply sends no credentials, which
-  the bypassed API already accepts as the admin. All three default to `false` in `.env.example`.
+  make a client skip Clerk and send `x-dev-user-id`, so it acts as whichever seeded user
+  `NEXT_PUBLIC_DEV_USER_ID` / `EXPO_PUBLIC_DEV_USER_ID` names. That defaults to `dev_clerk_user`,
+  the same seeded admin the API already resolves an uncredentialed request to, so the two
+  identities diverge only if you point one of those at a different id. A client without its flag
+  simply sends no credentials. All three default to `false` in `.env.example`.
 - API reads `x-dev-user-id` header and auto-upserts a user.
 - For real Clerk auth, each app needs its own keys in its own `.env`: the API needs `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`) in the root `.env`; the web app needs **both** `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env`; Expo needs `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/mobile/.env`. The web/mobile clients then forward bearer tokens to the API.
 
