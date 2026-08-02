@@ -92,12 +92,19 @@ pnpm install
 
 2. Configure env. Each app reads its own `.env`, and turbo forwards nothing between them:
 the API loads the monorepo-root `.env` (see `apps/api/src/main.ts`), Next.js loads
-`apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy all three:
+`apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy the root and mobile
+ones:
 
 ```bash
 cp .env.example .env
-cp apps/diaz-ondemand-web/.env.example apps/diaz-ondemand-web/.env
 cp apps/mobile/.env.example apps/mobile/.env
+```
+
+Copy the web one **only** when you have real Clerk credentials to put in it - see the next
+paragraph for why an example-only copy is worse than no file:
+
+```bash
+cp apps/diaz-ondemand-web/.env.example apps/diaz-ondemand-web/.env
 ```
 
 Every `.env.example` ships the auth bypass flags as `false`, so a fresh copy leaves the API
@@ -112,9 +119,9 @@ provider mounts. `CLERK_SECRET_KEY` ships in the root and `apps/api/.env.example
 `apps/diaz-ondemand-web/.env.example`, and that is the file Next.js reads. The bypass flags
 being `false` is not the trigger: the same example previously shipped
 `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable key and no secret key,
-and `500`s identically. The middleware behaviour is not new, but step 2 above is what puts a
-web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, the web app starts and
-serves pages normally, with no Clerk error.
+and `500`s identically. The middleware behaviour is not new, but copying that example is what
+puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, the web app starts
+and serves pages normally, with no Clerk error.
 
 What actually works, each verified by running it:
 - **API only, via the local bypass:** set `DEV_BYPASS_AUTH=true` in the root `.env`,
@@ -380,13 +387,22 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   - `MUX_WEBHOOK_SECRET` and the signing key pair `MUX_SIGNING_KEY_ID` +
     `MUX_SIGNING_KEY_PRIVATE` - required when Mux is enabled (`MUX_TOKEN_ID` set).
 
-  This refusal is deliberate. Each of those paths already fails closed at request time -
-  `verifyStripeSignature`/`verifyMuxSignature` throw when the secret is absent,
-  `GET /users/:clerkUserId/entitlements` rejects every caller when
-  `DIAZ_INTERNAL_API_KEY` is unset, and paid lesson detail returns a 500 rather than an
-  unsigned playback URL. So booting without them is not an exposure; it is a service that
-  cannot do its job, silently, until someone notices. Refusing at startup makes that
-  visible immediately. Set the values, then deploy.
+  This refusal is deliberate. The webhook and internal-API paths already fail closed at
+  request time - `verifyStripeSignature`/`verifyMuxSignature` throw when the secret is
+  absent, and `GET /users/:clerkUserId/entitlements` rejects every caller when
+  `DIAZ_INTERNAL_API_KEY` is unset. For those, booting without the value is not an
+  exposure; it is a service that cannot do its job, silently, until someone notices.
+  Refusing at startup makes that visible immediately.
+
+  The Mux signing keys are not like that. Paid lesson detail returns a 500 instead of an
+  unsigned playback URL only when `NODE_ENV=production` - see
+  `apps/api/src/content/lesson-presentation.ts`. That is the same guard the auth bypass
+  deliberately does not rely on, because only `pnpm start` sets it. So a run started some
+  other way (`node dist/main.js`, a Dockerfile `CMD`, a Procfile) that does not export
+  `NODE_ENV` itself skips both the startup check and the 500: with `MUX_TOKEN_ID` set and
+  the signing keys absent, an entitled viewer of a **paid** lesson gets an unsigned,
+  non-expiring `stream.mux.com` playback URL. That is an exposure, and it is why the
+  signing keys matter. Start the API with `pnpm start`, set the values, then deploy.
 - Put those production values in real host environment variables, or in the monorepo-root
   `.env` - **not** in `apps/api/.env`. `validateApiEnv` runs in `apps/api/src/main.ts`
   before `NestFactory.create`, while `ConfigModule.forRoot` loads `apps/api/.env` from the
