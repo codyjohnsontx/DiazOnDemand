@@ -113,8 +113,8 @@ provider mounts. `CLERK_SECRET_KEY` ships in the root and `apps/api/.env.example
 being `false` is not the trigger: the same example previously shipped
 `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable key and no secret key,
 and `500`s identically. The middleware behaviour is not new, but step 2 above is what puts a
-web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, `/`, `/library` and
-`/admin/programs` all serve `200`.
+web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, the web app starts and
+serves pages normally, with no Clerk error.
 
 What actually works, each verified by running it:
 - **API only, via the local bypass:** set `DEV_BYPASS_AUTH=true` in the root `.env`,
