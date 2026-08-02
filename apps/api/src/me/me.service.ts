@@ -5,7 +5,11 @@ import {
   type EntitlementsResponse,
 } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier, Role as DbRole } from '@diaz/db';
-import { isEntitlementActive, resolveEntitlementTier } from '../common/entitlement.js';
+import {
+  isEntitlementActive,
+  isLiveStripeSubscription,
+  resolveEntitlementTier,
+} from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -15,12 +19,26 @@ export class MeService {
   async getMeByClerkId(clerkUserId: string) {
     const user = await this.prisma.client.user.findUnique({
       where: { clerkUserId },
-      include: { entitlement: true, subscription: true },
+      include: {
+        entitlement: true,
+        // A member can hold several subscription rows over time; the account
+        // page is about the current one.
+        subscriptions: { orderBy: { updatedAt: 'desc' } },
+      },
     });
 
     if (!user) {
       return null;
     }
+
+    const subscription =
+      user.subscriptions.find(isLiveStripeSubscription) ?? user.subscriptions[0];
+
+    // A revoked row still carries the Stripe status and period end it had when
+    // the refund or chargeback landed, and reporting those next to a FREE
+    // entitlement reads to the member as a contradiction. Report no
+    // subscription instead. The revoke reason stays admin-only.
+    const revoked = subscription != null && subscription.revokedAt !== null;
 
     const entitlementTier = resolveEntitlementTier(user.entitlement);
     const role =
@@ -35,8 +53,11 @@ export class MeService {
       clerkUserId: user.clerkUserId,
       role,
       entitlementTier,
-      subscriptionStatus: user.subscription?.status ?? null,
-      currentPeriodEnd: user.subscription?.currentPeriodEnd?.toISOString() ?? null,
+      subscriptionStatus: revoked ? null : (subscription?.status ?? null),
+      currentPeriodEnd: revoked ? null : (subscription?.currentPeriodEnd?.toISOString() ?? null),
+      // A revoked member still has a Stripe customer, so the billing portal
+      // remains reachable for them.
+      canManageBilling: Boolean(subscription),
     };
   }
 

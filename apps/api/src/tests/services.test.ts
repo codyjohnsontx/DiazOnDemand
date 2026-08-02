@@ -3,7 +3,18 @@ import { HttpStatus } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { EntitlementTier, Role } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier } from '@diaz/db';
-import { isEntitlementActive, resolveEntitlementTier } from '../common/entitlement.js';
+import {
+  REVOKE_REASON_CHARGEBACK,
+  REVOKE_REASON_REFUND,
+  planRevocation,
+  releasesRevocation,
+} from '../billing/subscription-revocation.js';
+import {
+  isEntitlementActive,
+  isLiveStripeSubscription,
+  resolveEntitlementTier,
+  resolveStripeEntitlement,
+} from '../common/entitlement.js';
 import { ContentService } from '../content/content.service.js';
 import { mapLessonDetail } from '../content/lesson-presentation.js';
 import { FavoritesService } from '../favorites/favorites.service.js';
@@ -23,8 +34,21 @@ type MockPrismaClient = Partial<{
     upsert?: ReturnType<typeof vi.fn>;
     deleteMany?: ReturnType<typeof vi.fn>;
   };
-  subscription: { upsert: ReturnType<typeof vi.fn> };
-  entitlement: { upsert: ReturnType<typeof vi.fn> };
+  subscription: {
+    upsert: ReturnType<typeof vi.fn>;
+    findUnique?: ReturnType<typeof vi.fn>;
+    findMany?: ReturnType<typeof vi.fn>;
+    updateMany?: ReturnType<typeof vi.fn>;
+  };
+  entitlement: {
+    upsert: ReturnType<typeof vi.fn>;
+    findUnique?: ReturnType<typeof vi.fn>;
+  };
+  stripeWebhookEvent: {
+    findUnique: ReturnType<typeof vi.fn>;
+    findFirst?: ReturnType<typeof vi.fn>;
+    upsert: ReturnType<typeof vi.fn>;
+  };
 }>;
 
 function createPrismaService(client: MockPrismaClient): PrismaService {
@@ -194,85 +218,124 @@ describe('FavoritesService', () => {
 });
 
 describe('WebhooksService', () => {
-  it('syncs premium entitlements for active Stripe subscriptions', async () => {
+  /**
+   * These use mocked Prisma and only cover the shape of the writes. The
+   * lifecycle itself - resubscribe, double subscription, refunds, out-of-order
+   * events - is covered against a real database in billing-lifecycle.db.test.ts,
+   * because every one of those defects was a constraint violation a mock cannot
+   * raise.
+   */
+  type StoredSubscription = {
+    status: string;
+    currentPeriodEnd: Date | null;
+    revokedAt: Date | null;
+  };
+
+  function createWebhooksService(
+    options: {
+      storedSubscriptions?: StoredSubscription[];
+      alreadyProcessed?: boolean;
+      existingEntitlement?: { tier: string; validUntil: Date | null; source: string } | null;
+    } = {},
+  ) {
     const subscriptionUpsert = vi.fn().mockResolvedValue({});
     const entitlementUpsert = vi.fn().mockResolvedValue({});
     const service = new WebhooksService(
       createPrismaService({
-        subscription: { upsert: subscriptionUpsert },
-        entitlement: { upsert: entitlementUpsert },
+        stripeWebhookEvent: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue(options.alreadyProcessed ? { status: 'PROCESSED' } : null),
+          findFirst: vi.fn().mockResolvedValue(null),
+          upsert: vi.fn().mockResolvedValue({}),
+        },
+        subscription: {
+          upsert: subscriptionUpsert,
+          findUnique: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue(options.storedSubscriptions ?? []),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        entitlement: {
+          upsert: entitlementUpsert,
+          // No existing entitlement: nothing manual to protect.
+          findUnique: vi.fn().mockResolvedValue(options.existingEntitlement ?? null),
+        },
       }),
     );
-    const currentPeriodEnd = 1_900_000_000;
 
-    await service.handleStripeSubscriptionEvent({
-      type: 'customer.subscription.updated',
-      data: {
-        object: {
-          id: 'sub_123',
-          customer: 'cus_123',
-          status: 'active',
-          current_period_end: currentPeriodEnd,
-          metadata: { userId: 'user-1' },
-          items: { data: [{ price: { id: 'price_monthly' } }] },
-        },
-      },
-    } as unknown as Parameters<WebhooksService['handleStripeSubscriptionEvent']>[0]);
+    return { service, subscriptionUpsert, entitlementUpsert };
+  }
+
+  function subscriptionEvent(type: string, object: Record<string, unknown>) {
+    return {
+      id: `evt_${type}`,
+      type,
+      created: 1_800_000_000,
+      data: { object },
+    } as unknown as Parameters<WebhooksService['handleStripeEvent']>[0];
+  }
+
+  it('records the subscription and syncs premium entitlements for active Stripe subscriptions', async () => {
+    const currentPeriodEnd = 1_900_000_000;
+    const { service, subscriptionUpsert, entitlementUpsert } = createWebhooksService({
+      storedSubscriptions: [
+        { status: 'active', currentPeriodEnd: new Date(currentPeriodEnd * 1000), revokedAt: null },
+      ],
+    });
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.updated', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'active',
+        current_period_end: currentPeriodEnd,
+        metadata: { userId: 'user-1' },
+        items: { data: [{ price: { id: 'price_monthly' } }] },
+      }),
+    );
 
     expect(subscriptionUpsert).toHaveBeenCalledWith({
       where: { stripeSubscriptionId: 'sub_123' },
-      update: {
+      update: expect.objectContaining({
         userId: 'user-1',
         stripeCustomerId: 'cus_123',
         status: 'active',
         currentPeriodEnd: new Date(currentPeriodEnd * 1000),
         planId: 'price_monthly',
-      },
-      create: {
-        userId: 'user-1',
-        stripeCustomerId: 'cus_123',
+        lastEventAt: new Date(1_800_000_000 * 1000),
+      }),
+      create: expect.objectContaining({
         stripeSubscriptionId: 'sub_123',
-        status: 'active',
-        currentPeriodEnd: new Date(currentPeriodEnd * 1000),
-        planId: 'price_monthly',
-      },
+        userId: 'user-1',
+      }),
     });
     expect(entitlementUpsert).toHaveBeenCalledWith({
       where: { userId: 'user-1' },
-      update: {
-        tier: 'PREMIUM',
-        validUntil: new Date(currentPeriodEnd * 1000),
-      },
+      update: { tier: 'PREMIUM', validUntil: new Date(currentPeriodEnd * 1000), source: 'STRIPE' },
       create: {
         userId: 'user-1',
         tier: 'PREMIUM',
         validUntil: new Date(currentPeriodEnd * 1000),
+        source: 'STRIPE',
       },
     });
   });
 
   it('downgrades entitlements for inactive Stripe subscriptions', async () => {
-    const entitlementUpsert = vi.fn().mockResolvedValue({});
-    const service = new WebhooksService(
-      createPrismaService({
-        subscription: { upsert: vi.fn().mockResolvedValue({}) },
-        entitlement: { upsert: entitlementUpsert },
+    const { service, entitlementUpsert } = createWebhooksService({
+      storedSubscriptions: [{ status: 'canceled', currentPeriodEnd: null, revokedAt: null }],
+    });
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.deleted', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'canceled',
+        current_period_end: null,
+        metadata: { userId: 'user-1' },
+        items: { data: [] },
       }),
     );
-
-    await service.handleStripeSubscriptionEvent({
-      type: 'customer.subscription.deleted',
-      data: {
-        object: {
-          id: 'sub_123',
-          customer: 'cus_123',
-          status: 'canceled',
-          current_period_end: null,
-          metadata: { userId: 'user-1' },
-          items: { data: [] },
-        },
-      },
-    } as unknown as Parameters<WebhooksService['handleStripeSubscriptionEvent']>[0]);
 
     expect(entitlementUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -283,31 +346,79 @@ describe('WebhooksService', () => {
   });
 
   it('ignores subscription events without user metadata', async () => {
-    const subscriptionUpsert = vi.fn().mockResolvedValue({});
-    const entitlementUpsert = vi.fn().mockResolvedValue({});
-    const service = new WebhooksService(
-      createPrismaService({
-        subscription: { upsert: subscriptionUpsert },
-        entitlement: { upsert: entitlementUpsert },
+    const { service, subscriptionUpsert, entitlementUpsert } = createWebhooksService();
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.updated', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'active',
+        current_period_end: null,
+        metadata: {},
+        items: { data: [] },
       }),
     );
 
-    await service.handleStripeSubscriptionEvent({
-      type: 'customer.subscription.updated',
-      data: {
-        object: {
-          id: 'sub_123',
-          customer: 'cus_123',
-          status: 'active',
-          current_period_end: null,
-          metadata: {},
-          items: { data: [] },
-        },
-      },
-    } as unknown as Parameters<WebhooksService['handleStripeSubscriptionEvent']>[0]);
-
     expect(subscriptionUpsert).not.toHaveBeenCalled();
     expect(entitlementUpsert).not.toHaveBeenCalled();
+  });
+
+  it('does not write over a live manual grant', async () => {
+    const { service, entitlementUpsert } = createWebhooksService({
+      storedSubscriptions: [{ status: 'canceled', currentPeriodEnd: null, revokedAt: null }],
+      existingEntitlement: { tier: 'PREMIUM', validUntil: null, source: 'MANUAL' },
+    });
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.deleted', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'canceled',
+        current_period_end: null,
+        metadata: { userId: 'user-1' },
+        items: { data: [] },
+      }),
+    );
+
+    expect(entitlementUpsert).not.toHaveBeenCalled();
+  });
+
+  it('normalises an expanded customer object rather than stringifying it', async () => {
+    const { service, subscriptionUpsert } = createWebhooksService();
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.updated', {
+        id: 'sub_123',
+        customer: { id: 'cus_expanded', object: 'customer' },
+        status: 'active',
+        current_period_end: null,
+        metadata: { userId: 'user-1' },
+        items: { data: [] },
+      }),
+    );
+
+    expect(subscriptionUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ stripeCustomerId: 'cus_expanded' }),
+      }),
+    );
+  });
+
+  it('skips a Stripe event it has already processed', async () => {
+    const { service, subscriptionUpsert } = createWebhooksService({ alreadyProcessed: true });
+
+    await service.handleStripeEvent(
+      subscriptionEvent('customer.subscription.created', {
+        id: 'sub_123',
+        customer: 'cus_123',
+        status: 'active',
+        current_period_end: null,
+        metadata: { userId: 'user-1' },
+        items: { data: [] },
+      }),
+    );
+
+    expect(subscriptionUpsert).not.toHaveBeenCalled();
   });
 });
 
@@ -353,10 +464,135 @@ describe('entitlement resolution', () => {
       EntitlementTier.FREE,
     );
   });
+
+  describe('isLiveStripeSubscription', () => {
+    it('grants access only for an unrevoked subscription in a paying status', () => {
+      expect(isLiveStripeSubscription({ status: 'active', revokedAt: null })).toBe(true);
+      expect(isLiveStripeSubscription({ status: 'trialing', revokedAt: null })).toBe(true);
+      expect(isLiveStripeSubscription({ status: 'past_due', revokedAt: null })).toBe(true);
+      expect(isLiveStripeSubscription({ status: 'canceled', revokedAt: null })).toBe(false);
+      expect(isLiveStripeSubscription({ status: 'active', revokedAt: past })).toBe(false);
+    });
+  });
+
+  describe('resolveStripeEntitlement', () => {
+    it('takes the furthest period end across every granting subscription', () => {
+      expect(
+        resolveStripeEntitlement([
+          { status: 'active', currentPeriodEnd: past, revokedAt: null },
+          { status: 'active', currentPeriodEnd: future, revokedAt: null },
+        ]),
+      ).toEqual({ tier: DbEntitlementTier.PREMIUM, validUntil: future });
+    });
+
+    it('does not let a subscription with no period end override a sibling that has one', () => {
+      // A missing current_period_end means UNKNOWN, never "forever". Reading it
+      // as no-expiry would hand out a free lifetime membership.
+      expect(
+        resolveStripeEntitlement([
+          { status: 'active', currentPeriodEnd: future, revokedAt: null },
+          { status: 'active', currentPeriodEnd: null, revokedAt: null },
+        ]),
+      ).toEqual({ tier: DbEntitlementTier.PREMIUM, validUntil: future });
+    });
+
+    it('leaves validUntil open only while every granting subscription lacks an end date', () => {
+      expect(
+        resolveStripeEntitlement([{ status: 'active', currentPeriodEnd: null, revokedAt: null }]),
+      ).toEqual({ tier: DbEntitlementTier.PREMIUM, validUntil: null });
+    });
+
+    it('drops to FREE once the dateless subscription stops being live', () => {
+      expect(
+        resolveStripeEntitlement([{ status: 'canceled', currentPeriodEnd: null, revokedAt: null }]),
+      ).toEqual({ tier: DbEntitlementTier.FREE, validUntil: null });
+      expect(
+        resolveStripeEntitlement([{ status: 'active', currentPeriodEnd: null, revokedAt: past }]),
+      ).toEqual({ tier: DbEntitlementTier.FREE, validUntil: null });
+    });
+  });
+
+  describe('subscription revocation', () => {
+    it('records a reason and a date together so a revocation can always be explained', () => {
+      const now = new Date('2026-07-29T12:00:00.000Z');
+
+      expect(
+        planRevocation({ revokedAt: null, revokedReason: null }, REVOKE_REASON_REFUND, now),
+      ).toEqual({ revokedAt: now, revokedReason: REVOKE_REASON_REFUND });
+    });
+
+    it('upgrades a refund revocation to a chargeback but never the other way', () => {
+      const now = new Date('2026-07-29T12:00:00.000Z');
+      const refunded = { revokedAt: past, revokedReason: REVOKE_REASON_REFUND };
+      const chargedBack = { revokedAt: past, revokedReason: REVOKE_REASON_CHARGEBACK };
+
+      expect(planRevocation(refunded, REVOKE_REASON_CHARGEBACK, now)).toEqual({
+        revokedAt: now,
+        revokedReason: REVOKE_REASON_CHARGEBACK,
+      });
+      expect(planRevocation(chargedBack, REVOKE_REASON_REFUND, now)).toBeNull();
+      expect(planRevocation(refunded, REVOKE_REASON_REFUND, now)).toBeNull();
+    });
+
+    describe('releasesRevocation', () => {
+      const revokedAt = new Date('2026-07-01T00:00:00.000Z');
+      const refunded = {
+        revokedAt,
+        revokedReason: REVOKE_REASON_REFUND,
+        currentPeriodEnd: future,
+      };
+      const renewal = {
+        status: 'active',
+        currentPeriodEnd: new Date('2026-09-29T00:00:00.000Z'),
+        stripeCreatedAt: now,
+      };
+
+      it('releases a refund revocation when the paid period moves forward', () => {
+        expect(releasesRevocation(refunded, renewal)).toBe(true);
+      });
+
+      it('holds when the period did not move, whatever the status says', () => {
+        // cancel_at_period_end, a card update and a plan change all look like this.
+        expect(releasesRevocation(refunded, { ...renewal, currentPeriodEnd: future })).toBe(false);
+        expect(releasesRevocation(refunded, { ...renewal, currentPeriodEnd: past })).toBe(false);
+        expect(releasesRevocation(refunded, { ...renewal, currentPeriodEnd: null })).toBe(false);
+      });
+
+      it('holds for a chargeback however genuine the renewal looks', () => {
+        expect(
+          releasesRevocation(
+            { ...refunded, revokedReason: REVOKE_REASON_CHARGEBACK },
+            renewal,
+          ),
+        ).toBe(false);
+      });
+
+      it('holds for an event Stripe generated before the revocation', () => {
+        expect(releasesRevocation(refunded, { ...renewal, stripeCreatedAt: past })).toBe(false);
+      });
+
+      it('holds when the subscription is not live', () => {
+        expect(releasesRevocation(refunded, { ...renewal, status: 'canceled' })).toBe(false);
+      });
+
+      it('holds when the row was never revoked', () => {
+        expect(
+          releasesRevocation({ ...refunded, revokedAt: null, revokedReason: null }, renewal),
+        ).toBe(false);
+      });
+    });
+  });
 });
 
 describe('MeService', () => {
-  function createMeService(entitlement: { tier: string; validUntil: Date | null } | null) {
+  function createMeService(
+    entitlement: { tier: string; validUntil: Date | null } | null,
+    subscriptions: Array<{
+      status: string;
+      currentPeriodEnd: Date | null;
+      revokedAt: Date | null;
+    }> = [],
+  ) {
     return new MeService(
       createPrismaService({
         user: {
@@ -365,7 +601,7 @@ describe('MeService', () => {
             clerkUserId: 'clerk-1',
             role: 'STUDENT',
             entitlement,
-            subscription: null,
+            subscriptions,
           }),
         },
       }),
@@ -388,6 +624,39 @@ describe('MeService', () => {
 
     await expect(service.getMeByClerkId('clerk-1')).resolves.toMatchObject({
       entitlementTier: EntitlementTier.PREMIUM,
+    });
+  });
+
+  it('reports no active subscription and no period end for a revoked member', async () => {
+    // A chargeback leaves the Stripe row reading "active" with a future period
+    // end. Showing that next to a FREE entitlement reads as a contradiction.
+    const service = createMeService({ tier: 'FREE', validUntil: null }, [
+      {
+        status: 'active',
+        currentPeriodEnd: new Date('2026-08-31T00:00:00.000Z'),
+        revokedAt: new Date('2026-08-01T00:00:00.000Z'),
+      },
+    ]);
+
+    await expect(service.getMeByClerkId('clerk-1')).resolves.toMatchObject({
+      entitlementTier: EntitlementTier.FREE,
+      subscriptionStatus: null,
+      currentPeriodEnd: null,
+    });
+  });
+
+  it('still reports an unrevoked subscription', async () => {
+    const service = createMeService({ tier: 'PREMIUM', validUntil: null }, [
+      {
+        status: 'active',
+        currentPeriodEnd: new Date('2026-08-31T00:00:00.000Z'),
+        revokedAt: null,
+      },
+    ]);
+
+    await expect(service.getMeByClerkId('clerk-1')).resolves.toMatchObject({
+      subscriptionStatus: 'active',
+      currentPeriodEnd: '2026-08-31T00:00:00.000Z',
     });
   });
 });

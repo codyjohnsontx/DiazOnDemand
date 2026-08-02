@@ -1,6 +1,7 @@
 import { BadRequestException, Controller, Headers, Post, Req } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import type { Request } from 'express';
+import type Stripe from 'stripe';
 import { WebhooksService } from './webhooks.service.js';
 
 @ApiExcludeController()
@@ -14,13 +15,20 @@ export class WebhooksController {
       throw new BadRequestException('Missing stripe signature or raw body');
     }
 
+    let event: Stripe.Event;
+
     try {
-      const event = this.webhooksService.verifyStripeSignature(req.rawBody, signature);
-      await this.webhooksService.handleStripeSubscriptionEvent(event);
-      return { received: true };
+      event = this.webhooksService.verifyStripeSignature(req.rawBody, signature);
     } catch (error) {
       throw new BadRequestException(`Webhook error: ${(error as Error).message}`);
     }
+
+    // Deliberately outside the try: a verified event that fails to persist is a
+    // server-side problem, so it must surface as a 5xx for Stripe to retry. A
+    // 400 tells Stripe the event was malformed and the delivery is dropped -
+    // which is how a paying customer used to end up with no access at all.
+    await this.webhooksService.handleStripeEvent(event);
+    return { received: true };
   }
 
   @Post('mux')

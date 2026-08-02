@@ -225,3 +225,24 @@ Understand first.
 Make minimal changes.
 Validate results.
 Communicate clearly.
+
+## Billing and tests
+
+Most of the API suite mocks Prisma. The Stripe billing lifecycle deliberately does not:
+`apps/api/src/tests/billing-lifecycle.db.test.ts` needs `TEST_DATABASE_URL` pointing at a
+migrated Postgres, and skips without it (but fails the run on CI). See the Tests section of
+README.md for the exact commands.
+
+Two billing invariants that are easy to break by accident:
+- A member has *many* `Subscription` rows over time, never one. Cancel-then-resubscribe issues a
+  new Stripe subscription id.
+- The `Entitlement` is always derived from the stored subscription rows, never written straight
+  from the Stripe event being handled. See `resolveStripeEntitlement` in
+  `apps/api/src/common/entitlement.ts`.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

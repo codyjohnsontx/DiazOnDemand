@@ -20,6 +20,9 @@ const apiEnvSchema = z
     MUX_SIGNING_KEY_ID: z.string().optional(),
     MUX_SIGNING_KEY_PRIVATE: z.string().optional(),
     DIAZ_INTERNAL_API_KEY: z.string().optional(),
+    // Optional Slack/Discord-style incoming webhook. When unset, billing alerts
+    // are logged only - see apps/api/src/billing/billing-alerter.ts.
+    BILLING_ALERT_WEBHOOK_URL: z.string().url().optional(),
     VOD_COMING_SOON: z.enum(['true', 'false']).default('false'),
   })
   .superRefine((value, context) => {
