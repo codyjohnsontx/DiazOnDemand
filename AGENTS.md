@@ -248,7 +248,11 @@ Do not weaken these. Each exists because it failed in production once.
   `pnpm start` script (next bullet), so a `NODE_ENV === 'production'` check alone is
   inert on any run that does not go through it and does not export it either. See
   `isDevAuthBypassEnabled` in `apps/api/src/config/env.ts` and the tests in
-  `apps/api/src/tests/env.test.ts`.
+  `apps/api/src/tests/env.test.ts`. Verified end to end against the built API with `NODE_ENV`
+  unset throughout: it exits without opening a port whenever `DEV_BYPASS_AUTH=true` meets a
+  non-loopback `DATABASE_URL` - whether the flag comes from the host environment or from an
+  app-directory `.env` - and still boots and authenticates an uncredentialed request as the
+  seeded admin on a loopback database.
 - Deployed API runs start via `pnpm start`, which sets `NODE_ENV=production` itself.
   That makes the production-only startup checks live, so a deploy needs these set or the
   API exits instead of starting: `DIAZ_INTERNAL_API_KEY` (always), `STRIPE_WEBHOOK_SECRET`
@@ -259,11 +263,13 @@ Do not weaken these. Each exists because it failed in production once.
   `apps/mobile` - ships its bypass flag as `false`. Keep all four copy-safe; the
   `apps/api` one sits inside the deployed service and is the likeliest to be copied
   onto a server.
-- Production API values belong in host env vars or the monorepo-root `.env`, not in
-  `apps/api/.env`: `validateApiEnv` runs in `main.ts` before `NestFactory.create`, while
-  `ConfigModule.forRoot` reads the cwd `.env` afterward, so startup validation never
-  sees that file. Documented in the README pre-deploy checklist; the load ordering itself
-  is still unfixed.
+- Prefer host env vars or the monorepo-root `.env` for production API values - ordinary good
+  practice, not a workaround. `apps/api/.env` is still covered by startup validation:
+  `ConfigModule.forRoot` sits in the `@Module` decorator argument in `app.module.ts`, evaluated
+  when `main.ts` statically imports `AppModule`, and it writes the cwd `.env` into `process.env`
+  synchronously - both before `bootstrap()` calls `validateApiEnv`. This entry previously
+  claimed the opposite and called the load ordering unfixed; there is no defect and nothing
+  to fix. It is also why the bypass refusal fires for a flag set in `apps/api/.env`.
 - Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so a
   deployment whose database URL is itself loopback satisfies that check - an API reaching
   Postgres through a Cloud SQL Auth Proxy or pgbouncer sidecar on `127.0.0.1`, or Prisma's

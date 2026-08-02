@@ -190,6 +190,10 @@ After seed:
   `DATABASE_URL` points at a loopback host - `localhost`, any `127.x.x.x` address such as
   `127.0.0.1`, or the IPv6 loopback written as `[::1]` - whatever `NODE_ENV` says.
   `NODE_ENV` alone is not trusted, because nothing in this repo guarantees a host exports it.
+  Verified end to end against the built API with `NODE_ENV` unset throughout: it exits without
+  opening a port whenever `DEV_BYPASS_AUTH=true` meets a non-loopback `DATABASE_URL` - whether
+  the flag arrives from the host environment or from an app-directory `.env` - and still boots
+  and authenticates an uncredentialed request as the seeded admin on a loopback database.
 - `DEV_BYPASS_AUTH=true` on the API is what enables the bypass. The client flags
   `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` / `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` are separate: they
   make a client skip Clerk and send `x-dev-user-id`, so it acts as whichever seeded user
@@ -416,13 +420,18 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   the signing keys absent, an entitled viewer of a **paid** lesson gets an unsigned,
   non-expiring `stream.mux.com` playback URL. That is an exposure, and it is why the
   signing keys matter. Start the API with `pnpm start`, set the values, then deploy.
-- Put those production values in real host environment variables, or in the monorepo-root
-  `.env` - **not** in `apps/api/.env`. `validateApiEnv` runs in `apps/api/src/main.ts`
-  before `NestFactory.create`, while `ConfigModule.forRoot` loads `apps/api/.env` from the
-  working directory later, inside `NestFactory.create`. The symptom if you get this wrong:
-  the API exits reporting `DIAZ_INTERNAL_API_KEY: required in production` while that
-  variable is plainly set in `apps/api/.env`. The check is not broken - it never saw the
-  file. Correcting that load ordering is tracked as its own task.
+- Prefer real host environment variables for those production values, with the monorepo-root
+  `.env` as the local fallback. That is ordinary good practice for a deployed service, not a
+  workaround for a load-ordering bug. `apps/api/.env` is **not** a blind spot: `app.module.ts`
+  calls `ConfigModule.forRoot` inside its `@Module({ ... })` decorator argument, which is
+  evaluated when `main.ts` statically imports `AppModule`, and `forRoot` writes the
+  working-directory `.env` into `process.env` synchronously - both before `bootstrap()` calls
+  `validateApiEnv`. So values placed in `apps/api/.env` **are** seen by startup validation.
+  That is a better posture than an earlier version of this checklist described: it claimed the
+  API would exit reporting `DIAZ_INTERNAL_API_KEY: required in production` while the variable
+  was plainly set in `apps/api/.env`. It does not. It is also why the dev-bypass startup
+  refusal fires for a `DEV_BYPASS_AUTH=true` that arrives from `apps/api/.env`, not only for
+  one exported by the host.
 - Web project environment: `NEXT_PUBLIC_API_URL` pointing at the deployed API, plus **both**
   Clerk keys - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`. The secret key is
   required there because `clerkMiddleware` asserts it before any handler runs, the same reason
