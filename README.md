@@ -427,11 +427,8 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   evaluated when `main.ts` statically imports `AppModule`, and `forRoot` writes the
   working-directory `.env` into `process.env` synchronously - both before `bootstrap()` calls
   `validateApiEnv`. So values placed in `apps/api/.env` **are** seen by startup validation.
-  That is a better posture than an earlier version of this checklist described: it claimed the
-  API would exit reporting `DIAZ_INTERNAL_API_KEY: required in production` while the variable
-  was plainly set in `apps/api/.env`. It does not. It is also why the dev-bypass startup
-  refusal fires for a `DEV_BYPASS_AUTH=true` that arrives from `apps/api/.env`, not only for
-  one exported by the host.
+  That is also why the dev-bypass startup refusal fires for a `DEV_BYPASS_AUTH=true` that
+  arrives from `apps/api/.env`, not only for one exported by the host.
 - Web project environment: `NEXT_PUBLIC_API_URL` pointing at the deployed API, plus **both**
   Clerk keys - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY`. The secret key is
   required there because `clerkMiddleware` asserts it before any handler runs, the same reason

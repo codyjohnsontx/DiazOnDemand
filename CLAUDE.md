@@ -242,7 +242,8 @@ Two billing invariants that are easy to break by accident:
 
 ## Security Invariants
 
-Do not weaken these. Each exists because it failed in production once.
+Do not weaken these. Each one is load-bearing for a security property of this repo, and
+the reason it exists is stated with it.
 - The dev auth bypass (`DEV_BYPASS_AUTH`) is gated on `DATABASE_URL` pointing at
   loopback, not on `NODE_ENV`. The only thing in this repo that sets `NODE_ENV` is the
   `pnpm start` script (next bullet), so a `NODE_ENV === 'production'` check alone is
@@ -252,7 +253,9 @@ Do not weaken these. Each exists because it failed in production once.
   unset throughout: it exits without opening a port whenever `DEV_BYPASS_AUTH=true` meets a
   non-loopback `DATABASE_URL` - whether the flag comes from the host environment or from an
   app-directory `.env` - and still boots and authenticates an uncredentialed request as the
-  seeded admin on a loopback database.
+  seeded admin on a loopback database. On 2026-08-02 the project owner confirmed the
+  deployed API running with `NODE_ENV=development` and `DEV_BYPASS_AUTH=true`, and set the
+  flag to `false` that day as an immediate mitigation.
 - Deployed API runs start via `pnpm start`, which sets `NODE_ENV=production` itself.
   That makes the production-only startup checks live, so a deploy needs these set or the
   API exits instead of starting: `DIAZ_INTERNAL_API_KEY` (always), `STRIPE_WEBHOOK_SECRET`
