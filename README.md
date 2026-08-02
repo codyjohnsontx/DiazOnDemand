@@ -141,8 +141,9 @@ Billing endpoints (both Clerk-authenticated):
   (a checkout for them is already open). The codes live in `packages/shared/src/schemas.ts`.
   Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
 - `POST /billing/cancel-checkout` - expires the abandoned Stripe session and releases the calling
-  member's checkout lock, called by the cancel return page. Takes no body: the member comes from
-  the auth guard, never the request, so nobody can clear somebody else's lock.
+  member's checkout lock, called by the cancel return page. Holds the lock instead when Stripe
+  reports the session already **complete**. Takes no body: the member comes from the auth guard,
+  never the request, so nobody can clear somebody else's lock.
 - `POST /billing/create-portal-session` - opens Stripe's hosted billing portal, which is where a
   member cancels, changes their card, and downloads invoices. Returns **404** when the member has
   no Stripe customer yet.
@@ -205,10 +206,19 @@ One checkout at a time (`CheckoutReservation`):
 - The lock has three release paths, because no one of them covers everyone:
   - the member returning to `/subscribe/cancel` calls `POST /billing/cancel-checkout`, which frees
     it at once. This is the member who clicks back or Stripe's cancel button, and Stripe emits
-    nothing at all for them. That path **expires the session at Stripe first**, because dropping
-    the lock alone would leave the abandoned session payable until its own `expires_at` - a member
-    with checkout still open in a second tab could then pay twice. A failed expire is logged and
-    the lock is released anyway: no member stays locked out because Stripe was unreachable.
+    nothing at all for them. That path **reads the session's status at Stripe first**, and then:
+    - an **open** session is expired before the lock goes, because dropping the lock alone would
+      leave it payable until its own `expires_at` - a member with checkout still open in a second
+      tab could then pay twice.
+    - a session Stripe reports **complete** *keeps* the lock. The member has already paid, and
+      releasing here is the last remaining way two payable sessions can exist: they could press
+      Subscribe again before `customer.subscription.created` lands, while the live-subscription
+      check still has no row to refuse them on. Nothing real waits on it -
+      `checkout.session.completed` frees the same lock moments later.
+    - **everything else releases**, including a failed status read or a failed expire. Failures
+      release, a confirmed completion holds: no member stays locked out because Stripe was
+      unreachable. The status has to be read rather than inferred from a failed expire, which
+      reports a non-open session generically and cannot tell *complete* from *expired*.
   - Stripe saying the checkout resolved - `checkout.session.completed`, `.expired`, or
     `.async_payment_failed` - rather than being inferred from subscription rows, because a checkout
     that expired or failed never produces one. **Subscribe to those three events on the Stripe

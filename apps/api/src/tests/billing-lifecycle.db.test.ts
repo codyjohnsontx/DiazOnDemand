@@ -23,7 +23,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { PrismaClient } from '@diaz/db';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Stripe from 'stripe';
 import { BillingService } from '../billing/billing.service.js';
 import { CHECKOUT_RESERVATION_TTL_MS } from '../billing/checkout-reservation.js';
@@ -1369,7 +1369,7 @@ async function backfillMigrationSql() {
 
 describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
   const stripeStub = {
-    checkout: { sessions: { create: vi.fn(), expire: vi.fn() } },
+    checkout: { sessions: { create: vi.fn(), expire: vi.fn(), retrieve: vi.fn() } },
     billingPortal: { sessions: { create: vi.fn() } },
   };
 
@@ -1386,9 +1386,16 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
     process.env.WEB_APP_URL = 'http://localhost:3000';
   });
 
+  beforeEach(() => {
+    // What a member who walked away from checkout leaves behind; the cases that
+    // care about a paid or unreadable session override this.
+    stripeStub.checkout.sessions.retrieve.mockResolvedValue({ status: 'open' });
+  });
+
   afterEach(async () => {
     stripeStub.checkout.sessions.create.mockReset();
     stripeStub.checkout.sessions.expire.mockReset();
+    stripeStub.checkout.sessions.retrieve.mockReset();
     stripeStub.billingPortal.sessions.create.mockReset();
     await prismaClient!.user.deleteMany({ where: { clerkUserId: { startsWith: 'billing-test-' } } });
   });
@@ -1569,8 +1576,8 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
 
     /**
      * Freeing the member to pay matters more than closing the session: an expire
-     * throws for ordinary reasons - the checkout just completed, it already
-     * expired, Stripe is unreachable - and none of them may cost them the lock.
+     * throws for ordinary reasons - the session already expired, Stripe is
+     * unreachable - and none of them may cost them the lock.
      */
     it('still releases the lock when the session cannot be expired', async () => {
       const user = await createUser('billing-test-reservation-expire-fails');
@@ -1609,10 +1616,78 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
         createService().cancelCheckout('billing-test-reservation-no-session'),
       ).resolves.toEqual({ released: true });
 
+      expect(stripeStub.checkout.sessions.retrieve).not.toHaveBeenCalled();
       expect(stripeStub.checkout.sessions.expire).not.toHaveBeenCalled();
       expect(
         await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
       ).toBeNull();
+    });
+
+    /**
+     * The one case where cancelling does NOT free the lock. A member who pays
+     * and then lands on a stale cancel page - back button, history - would
+     * otherwise drop the lock inside the window before
+     * `customer.subscription.created` arrives, and the live-subscription check
+     * has no row to refuse the next Subscribe on yet. That is the last path to
+     * two payable sessions. `checkout.session.completed` frees the same lock
+     * moments later, so nothing real is waiting.
+     */
+    it('keeps the lock when Stripe reports the session as already paid', async () => {
+      const user = await createUser('billing-test-reservation-already-paid');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_already_paid',
+        url: 'https://stripe.test/session',
+      });
+      stripeStub.checkout.sessions.retrieve.mockResolvedValue({
+        id: 'cs_already_paid',
+        status: 'complete',
+      });
+
+      await service.createCheckoutSession('billing-test-reservation-already-paid');
+
+      await expect(
+        service.cancelCheckout('billing-test-reservation-already-paid'),
+      ).resolves.toEqual({ released: false });
+
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
+      ).not.toBeNull();
+      expect(stripeStub.checkout.sessions.expire).not.toHaveBeenCalled();
+
+      // And the lock is still doing its job: no second payable session.
+      await expect(
+        service.createCheckoutSession('billing-test-reservation-already-paid'),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(stripeStub.checkout.sessions.create.mock.calls.length).toBe(1);
+    });
+
+    /**
+     * Only a confirmed completion holds the lock. An unreadable status - Stripe
+     * unreachable, a transient 5xx - must fall through to the release, or being
+     * unable to reach Stripe would stop the member paying.
+     */
+    it('releases the lock when the session status cannot be read', async () => {
+      const user = await createUser('billing-test-reservation-status-unreadable');
+      const service = createService();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_unreadable',
+        url: 'https://stripe.test/session',
+      });
+      stripeStub.checkout.sessions.retrieve.mockRejectedValue(new Error('stripe is down'));
+
+      await service.createCheckoutSession('billing-test-reservation-status-unreadable');
+
+      await expect(
+        service.cancelCheckout('billing-test-reservation-status-unreadable'),
+      ).resolves.toEqual({ released: true });
+      expect(
+        await prismaClient!.checkoutReservation.findUnique({ where: { userId: user.id } }),
+      ).toBeNull();
+
+      await expect(
+        service.createCheckoutSession('billing-test-reservation-status-unreadable'),
+      ).resolves.toEqual({ url: 'https://stripe.test/session' });
     });
 
     /**

@@ -131,11 +131,31 @@ export class BillingService {
    * session id from the client, because either would let one member clear
    * another's lock.
    *
-   * The session is expired at Stripe first. Dropping the lock alone would leave
-   * the abandoned session payable until its own `expires_at`, so a member with
-   * checkout still open in a second tab could hold two payable sessions at once
-   * and end up with two subscriptions - which is the exact outcome the lock
-   * exists to prevent.
+   * An open session is expired at Stripe first. Dropping the lock alone would
+   * leave the abandoned session payable until its own `expires_at`, so a member
+   * with checkout still open in a second tab could hold two payable sessions at
+   * once and end up with two subscriptions - the exact outcome the lock exists
+   * to prevent.
+   *
+   * FAILURES RELEASE, A CONFIRMED COMPLETION HOLDS. The exception is exactly
+   * one case wide and it is deliberate - do not widen it, and do not simplify
+   * it back into an unconditional release:
+   *
+   * - Stripe affirmatively reports the session `complete` -> the lock STAYS.
+   *   The member has already paid. Releasing here is the last remaining path to
+   *   two payable sessions: they could press Subscribe again inside the window
+   *   before `customer.subscription.created` is delivered, and the
+   *   live-subscription check would still see no row to refuse them on. Nobody
+   *   waits on anything real, because `checkout.session.completed` releases
+   *   this same lock moments later.
+   * - Everything else RELEASES - `open`, `expired`, and any failure of the read
+   *   itself, Stripe being unreachable included. A member must never be left
+   *   holding a lock because Stripe was down.
+   *
+   * The status is read rather than inferred from a failed expire because
+   * expiring a non-open session fails with a generic message and no
+   * distinguishing code, which makes a completed session and an already-expired
+   * one indistinguishable from the error alone.
    */
   async cancelCheckout(clerkUserId: string) {
     const user = await this.prisma.client.user.findUnique({ where: { clerkUserId } });
@@ -147,7 +167,21 @@ export class BillingService {
     const reservation = await findCheckoutReservation(this.prisma, user.id);
 
     if (reservation?.stripeSessionId) {
-      await this.expireAbandonedSession(reservation.stripeSessionId);
+      const status = await this.readCheckoutSessionStatus(reservation.stripeSessionId);
+
+      if (status === 'complete') {
+        this.logger.log(
+          'Kept the checkout reservation on cancel: Stripe reports the session as already paid',
+        );
+
+        return { released: false };
+      }
+
+      // `open` is the only status Stripe will expire, and a null status means
+      // the read failed, so the attempt is still worth making.
+      if (status === 'open' || status === null) {
+        await this.expireAbandonedSession(reservation.stripeSessionId);
+      }
     }
 
     const released = await releaseCheckout(this.prisma, { userId: user.id });
@@ -162,13 +196,41 @@ export class BillingService {
   }
 
   /**
+   * The session's status at Stripe, or null when it cannot be established.
+   *
+   * Null is the safe answer rather than a thrown error: only a confirmed
+   * `complete` holds the member's lock, so an unreadable status has to fall
+   * through to the release.
+   */
+  private async readCheckoutSessionStatus(
+    stripeSessionId: string,
+  ): Promise<Stripe.Checkout.Session['status']> {
+    if (!this.stripe) {
+      return null;
+    }
+
+    try {
+      const session = await this.stripe.checkout.sessions.retrieve(stripeSessionId);
+
+      return session.status ?? null;
+    } catch (error) {
+      this.logger.warn(
+        'Could not read the Stripe checkout session [redacted] on cancel, releasing the lock ' +
+          `anyway: ${error instanceof Error ? error.message : String(error)}`,
+      );
+
+      return null;
+    }
+  }
+
+  /**
    * Best-effort: a session that cannot be expired must never cost the member
    * their lock.
    *
-   * It throws for ordinary reasons - the checkout completed a moment ago, it
-   * already expired, Stripe is unreachable - and in every one of them freeing
-   * the member to pay matters more than closing a session that Stripe will
-   * expire on its own `expires_at` anyway.
+   * It throws for ordinary reasons - it already expired, Stripe is unreachable,
+   * the status could not be read first - and in every one of them freeing the
+   * member to pay matters more than closing a session that Stripe will expire
+   * on its own `expires_at` anyway.
    */
   private async expireAbandonedSession(stripeSessionId: string) {
     if (!this.stripe) {
