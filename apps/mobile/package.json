@@ -12,6 +12,7 @@
     "test": "echo \"no mobile tests yet\""
   },
   "dependencies": {
+    "@babel/runtime": "7.28.6",
     "@clerk/clerk-expo": "^2.14.7",
     "@diaz/shared": "workspace:*",
     "@react-navigation/bottom-tabs": "^7.2.0",

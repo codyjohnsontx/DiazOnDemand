@@ -35,7 +35,6 @@ const DEV_BYPASS_AUTH =
   process.env.NODE_ENV !== 'production' && process.env.EXPO_PUBLIC_DEV_BYPASS_AUTH === 'true';
 const rawDevUserId = process.env.EXPO_PUBLIC_DEV_USER_ID?.trim();
 const DEV_USER_ID = DEV_BYPASS_AUTH ? rawDevUserId || null : null;
-const SUBSCRIBE_URL = process.env.EXPO_PUBLIC_SUBSCRIBE_URL ?? 'http://localhost:3000/subscribe';
 
 type RootStackParamList = {
   Programs: undefined;
@@ -81,7 +80,11 @@ async function requestApi<T>(
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : devUserId ? { 'x-dev-user-id': devUserId } : {}),
+      ...(token
+        ? { Authorization: `Bearer ${token}` }
+        : devUserId
+          ? { 'x-dev-user-id': devUserId }
+          : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -289,8 +292,10 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
     return (
       <SafeAreaView style={{ flex: 1, padding: 16 }}>
         <Text style={{ fontSize: 20, fontWeight: '700' }}>Premium lesson</Text>
-        <Text style={{ marginTop: 8 }}>Upgrade to premium to watch this lesson.</Text>
-        <Button onPress={() => Linking.openURL(SUBSCRIBE_URL)} title="Subscribe" />
+        <Text style={{ marginTop: 8 }}>
+          This lesson is not included in your current Diaz On Demand access. Your access updates
+          automatically when your membership changes.
+        </Text>
       </SafeAreaView>
     );
   }
@@ -305,11 +310,13 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
 
   const source =
     lesson.video.provider === VideoProvider.MUX
-      ? lesson.video.playbackUrl ??
-        (lesson.video.muxPlaybackId ? `https://stream.mux.com/${lesson.video.muxPlaybackId}.m3u8` : null)
+      ? (lesson.video.playbackUrl ??
+        (lesson.video.muxPlaybackId
+          ? `https://stream.mux.com/${lesson.video.muxPlaybackId}.m3u8`
+          : null))
       : null;
   const youtubeEmbedUrl =
-    lesson.video.provider === VideoProvider.YOUTUBE ? lesson.video.embedUrl ?? null : null;
+    lesson.video.provider === VideoProvider.YOUTUBE ? (lesson.video.embedUrl ?? null) : null;
   const queue = course ? buildLessonQueue(course, progress, lesson.id) : [];
 
   return (
@@ -334,10 +341,7 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
           }}
         />
       ) : youtubeEmbedUrl ? (
-        <Button
-          onPress={() => Linking.openURL(youtubeEmbedUrl)}
-          title="Open demo video"
-        />
+        <Button onPress={() => Linking.openURL(youtubeEmbedUrl)} title="Open demo video" />
       ) : lesson.video.provider === VideoProvider.YOUTUBE ? (
         <Text>Demo video link is unavailable for this lesson.</Text>
       ) : (
@@ -358,8 +362,16 @@ function LibraryStack() {
   return (
     <StackNavigator>
       <Stack.Screen name="Programs" component={ProgramsScreen} />
-      <Stack.Screen name="ProgramDetail" component={ProgramDetailScreen} options={{ title: 'Program' }} />
-      <Stack.Screen name="CourseDetail" component={CourseDetailScreen} options={{ title: 'Course' }} />
+      <Stack.Screen
+        name="ProgramDetail"
+        component={ProgramDetailScreen}
+        options={{ title: 'Program' }}
+      />
+      <Stack.Screen
+        name="CourseDetail"
+        component={CourseDetailScreen}
+        options={{ title: 'Course' }}
+      />
       <Stack.Screen name="Lesson" component={LessonScreen} options={{ title: 'Lesson' }} />
     </StackNavigator>
   );
@@ -377,7 +389,10 @@ function FavoritesScreen() {
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
       <Text style={{ fontSize: 24, fontWeight: '700', marginBottom: 12 }}>Favorites</Text>
       {favorites.map((favorite) => (
-        <View key={favorite.id} style={{ padding: 12, borderWidth: 1, borderRadius: 8, marginBottom: 8 }}>
+        <View
+          key={favorite.id}
+          style={{ padding: 12, borderWidth: 1, borderRadius: 8, marginBottom: 8 }}
+        >
           <Text>{favorite.lesson?.title ?? 'Lesson'}</Text>
         </View>
       ))}
@@ -388,6 +403,7 @@ function FavoritesScreen() {
 
 function AccountScreen() {
   const api = useApiClient();
+  const { isDevelopmentBypass, signOut } = useAuthToken();
   const [me, setMe] = useState<MeDto | null>(null);
 
   useEffect(() => {
@@ -400,29 +416,14 @@ function AccountScreen() {
       <Text>Role: {me?.role ?? 'Loading...'}</Text>
       <Text>Entitlement: {me?.entitlementTier ?? 'Loading...'}</Text>
       <Text>Subscription: {me?.subscriptionStatus ?? 'Not started'}</Text>
-      <View style={{ marginTop: 16 }}>
-        <Button title="Manage Subscription" onPress={() => Linking.openURL(SUBSCRIBE_URL)} />
-      </View>
-    </SafeAreaView>
-  );
-}
-
-function SignInScreen() {
-  const { devUserId, resetDevUserId } = useDevUser();
-
-  return (
-    <SafeAreaView style={{ flex: 1, padding: 16 }}>
-      <Text style={{ fontSize: 24, fontWeight: '700', marginBottom: 12 }}>Sign In</Text>
-      <Text>Clerk can be enabled via EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY.</Text>
-      <Text style={{ marginTop: 8 }}>Development bypass header:</Text>
-      <Text>Current dev user header:</Text>
-      <Text style={{ marginTop: 8, fontWeight: '600' }}>{devUserId ?? 'Disabled'}</Text>
-      <View style={{ marginTop: 16 }}>
-        <Button
-          title="Reset to default"
-          onPress={resetDevUserId}
-        />
-      </View>
+      <Text style={{ marginTop: 16 }}>
+        Membership purchases and changes are not available in this app.
+      </Text>
+      {!isDevelopmentBypass ? (
+        <View style={{ marginTop: 16 }}>
+          <Button title="Sign out" onPress={() => void signOut()} />
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -440,7 +441,6 @@ export function MobileApp() {
           <Tabs.Screen name="Library" component={LibraryStack} options={{ headerShown: false }} />
           <Tabs.Screen name="Favorites" component={FavoritesScreen} />
           <Tabs.Screen name="Account" component={AccountScreen} />
-          <Tabs.Screen name="SignIn" component={SignInScreen} options={{ title: 'Sign In' }} />
         </TabsNavigator>
       </NavigationRoot>
     </DevUserContext.Provider>
