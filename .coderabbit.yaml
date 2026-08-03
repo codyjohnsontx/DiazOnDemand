@@ -37,7 +37,17 @@ reviews:
   # the highest-risk change in this repo (see the Database Safety rules in
   # CLAUDE.md) and is exactly what a reviewer should be reading.
   path_filters:
-    # pnpm-lock.yaml is DELIBERATELY NOT filtered - do not add it back.
+    # These two entries have no `!`, which makes them force-INCLUDES rather than
+    # excludes. They are load-bearing, not decoration. CodeRabbit ships a default
+    # ignore list that already skips lock files, binaries, generated code and
+    # media assets, so merely leaving these two out of the exclusions below is
+    # NOT enough to get them reviewed - the built-in defaults would still skip
+    # them. An explicit include is the documented way to override that default.
+    # Mixing includes and excludes does not narrow the review to only these
+    # paths; everything else still follows the exclusions below.
+    - 'pnpm-lock.yaml'
+    - '**/*.svg'
+    # pnpm-lock.yaml is DELIBERATELY REVIEWED - do not turn it into a `!` exclude.
     # This is a pnpm workspace (packageManager pnpm@9.12.3, pnpm-workspace.yaml),
     # so pnpm-lock.yaml is the only lockfile that can appear here, and it is
     # where a transitive dependency first appears, where an integrity hash
@@ -71,12 +81,13 @@ reviews:
     # Raster images. None are tracked yet, kept because a web and mobile
     # product will grow them and there is nothing to review in a binary
     # image diff.
-    # SVG is deliberately absent from this group: it is text, it diffs
-    # readably, and when inlined into the web app rather than served through an
-    # <img> it can carry executable content (inline <script>, on* handlers,
-    # javascript: hrefs). A filtered SVG is an unreviewed script that looks
-    # like a picture. Zero are tracked today, which is exactly why it is cheap
-    # to get right now instead of after the first one lands.
+    # SVG is deliberately absent from this group, and is force-included at the
+    # top of this list: it is text, it diffs readably, and when inlined into the
+    # web app rather than served through an <img> it can carry executable
+    # content (inline <script>, on* handlers, javascript: hrefs). A filtered SVG
+    # is an unreviewed script that looks like a picture. Zero are tracked today,
+    # which is exactly why it is cheap to get right now instead of after the
+    # first one lands.
     - '!**/*.png'
     - '!**/*.jpg'
     - '!**/*.jpeg'
