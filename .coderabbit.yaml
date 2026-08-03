@@ -42,7 +42,7 @@ reviews:
   #
   # And the harder rule, which cost this repository a day of unreviewed merges:
   # THERE IS NO SAFE WAY TO ADD AN INCLUDE HERE. Every entry below starts with
-  # `!`, and the next one has to as well. See the block above the list.
+  # `!`, and the next one has to as well. See the note at the top of the list.
   path_filters:
     # DO NOT ADD AN ENTRY WITHOUT A LEADING `!`. Read this before you try.
     #
