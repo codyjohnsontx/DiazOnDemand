@@ -159,6 +159,25 @@ const freeCatalogueLesson = {
   muxPlaybackId: 'free-playback-id',
 };
 
+const paidYoutubeCatalogueLesson = {
+  ...paidCatalogueLesson,
+  id: 'lesson-paid-youtube',
+  title: 'Paid YouTube Lesson',
+  videoProvider: 'YOUTUBE',
+  muxAssetId: null,
+  muxPlaybackId: null,
+  youtubeVideoId: 'paid-youtube-id',
+};
+
+const freeYoutubeCatalogueLesson = {
+  ...paidYoutubeCatalogueLesson,
+  id: 'lesson-free-youtube',
+  title: 'Free YouTube Lesson',
+  orderIndex: 0,
+  accessLevel: 'FREE' as const,
+  youtubeVideoId: 'free-youtube-id',
+};
+
 describe('ContentService', () => {
   it('rejects paid lesson playback without premium entitlement', async () => {
     const service = new ContentService(
@@ -234,10 +253,10 @@ describe('ContentService', () => {
   });
 
   // /programs, /programs/:id and /courses/:id take no authentication at all, so
-  // anything on those payloads is public. A Mux playback id on a paid lesson is
-  // the address of the video, not a name for it.
+  // anything on those payloads is public. A provider identifier on a paid lesson
+  // is the address of the video, not a name for it.
   describe('the unauthenticated catalogue', () => {
-    function catalogueService() {
+    function catalogueService(lessons: object[] = [freeCatalogueLesson, paidCatalogueLesson]) {
       const course = {
         id: 'course-1',
         programId: 'program-1',
@@ -245,7 +264,7 @@ describe('ContentService', () => {
         description: null,
         orderIndex: 0,
         isPublished: true,
-        lessons: [freeCatalogueLesson, paidCatalogueLesson],
+        lessons,
       };
 
       return new ContentService(
@@ -296,6 +315,39 @@ describe('ContentService', () => {
       const free = course.lessons.find((lesson) => lesson.accessLevel === 'FREE');
 
       expect(free?.muxPlaybackId).toBe('free-playback-id');
+    });
+
+    // PAID + YOUTUBE is saveable today: createLesson and updateLesson in
+    // apps/api/src/admin/admin.service.ts constrain accessLevel and
+    // videoProvider independently. So a YouTube video id has to be withheld by
+    // the same rule as the Mux playback id, not by the seed data happening to
+    // make every YouTube lesson free.
+    const youtubeCatalogue = () =>
+      catalogueService([freeYoutubeCatalogueLesson, paidYoutubeCatalogueLesson]);
+
+    it('withholds the video id of a paid YouTube lesson from /programs', async () => {
+      const [program] = await youtubeCatalogue().listPrograms();
+      const lessons = program!.courses[0]!.lessons;
+
+      expect(
+        lessons.find((lesson) => lesson.id === 'lesson-paid-youtube')?.youtubeVideoId,
+      ).toBeNull();
+    });
+
+    it('withholds the video id of a paid YouTube lesson from /courses/:id', async () => {
+      const course = await youtubeCatalogue().getCourse('course-1');
+
+      expect(
+        course.lessons.find((lesson) => lesson.id === 'lesson-paid-youtube')?.youtubeVideoId,
+      ).toBeNull();
+    });
+
+    it('keeps serving the video id of a free YouTube lesson', async () => {
+      const course = await youtubeCatalogue().getCourse('course-1');
+
+      expect(
+        course.lessons.find((lesson) => lesson.id === 'lesson-free-youtube')?.youtubeVideoId,
+      ).toBe('free-youtube-id');
     });
   });
 });
@@ -1023,6 +1075,49 @@ describe('Mux signed playback tokens', () => {
       );
 
       expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
+    });
+  });
+});
+
+// A YouTube video id is the whole address of the video too: it plays at
+// youtube.com for anyone holding it unless that video is Private. Nothing ties
+// accessLevel to a provider, so PAID + YOUTUBE is saveable and the id is
+// withheld by the same rule as the Mux playback id.
+describe('paid YouTube lessons', () => {
+  const paidYoutubeLesson = {
+    id: 'lesson-1',
+    courseId: 'course-1',
+    title: 'Paid YouTube Lesson',
+    description: null,
+    orderIndex: 0,
+    isPublished: true,
+    accessLevel: 'PAID' as const,
+    videoProvider: 'YOUTUBE',
+    youtubeVideoId: 'youtube-abc',
+    durationSeconds: 120,
+    tags: [],
+  };
+
+  it('leaves the embed url as the only handle on the video', () => {
+    const detail = mapLessonDetail(paidYoutubeLesson);
+
+    expect(detail.youtubeVideoId).toBeNull();
+    expect(detail.video.youtubeVideoId).toBeNull();
+    expect(detail.video.embedUrl).toBe(
+      'https://www.youtube-nocookie.com/embed/youtube-abc?rel=0&modestbranding=1',
+    );
+  });
+
+  it('still hands a free lesson its video id', () => {
+    const detail = mapLessonDetail({ ...paidYoutubeLesson, accessLevel: 'FREE' as const });
+
+    expect(detail.youtubeVideoId).toBe('youtube-abc');
+    expect(detail.video.youtubeVideoId).toBe('youtube-abc');
+  });
+
+  it('gives admins the real video id back, so the lesson editor can show it', () => {
+    expect(mapAdminLessonSummary(paidYoutubeLesson)).toMatchObject({
+      youtubeVideoId: 'youtube-abc',
     });
   });
 });

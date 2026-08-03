@@ -84,21 +84,30 @@ export function mapLessonCurriculum(tags: LessonTagLike[] = []) {
 }
 
 /**
- * The playback id a caller is allowed to see, which for a PAID lesson is none.
+ * The provider identifiers a caller is allowed to see, which for a PAID lesson
+ * is none of them. One rule for every provider, so a new one cannot be added
+ * past it.
  *
  * `/programs`, `/programs/:id` and `/courses/:id` need no authentication, so
- * every id on those payloads is public. A Mux playback id is not a name, it is
- * the whole address of the video: on an asset uploaded with a `public` playback
- * policy, `https://stream.mux.com/<id>.m3u8` plays for anyone holding it. An
- * anonymous visitor is meant to see that a paid lesson exists, not to be handed
- * the key to it.
+ * every id on those payloads is public. These ids are not names, they are the
+ * whole address of the video: on a Mux asset uploaded with a `public` playback
+ * policy, `https://stream.mux.com/<id>.m3u8` plays for anyone holding it, and a
+ * YouTube video id plays at youtube.com for anyone holding it unless that video
+ * is Private. An anonymous visitor is meant to see that a paid lesson exists,
+ * not to be handed the key to it.
  *
- * The signed url built in `mapLessonDetail` is the only handle on a paid video,
- * and it is minted behind the entitlement check in `ContentService.getLesson`.
- * Admins get the real id back through `mapAdminLessonSummary`.
+ * The urls built in `mapLessonDetail` - the signed `playbackUrl` for Mux, the
+ * `embedUrl` for YouTube - are the only handles on a paid video, and they are
+ * minted behind the entitlement check in `ContentService.getLesson`. Admins get
+ * the real ids back through `mapAdminLessonSummary`.
  */
-function publicPlaybackId(lesson: LessonLike) {
-  return lesson.accessLevel === 'PAID' ? null : (lesson.muxPlaybackId ?? null);
+function publicVideoIdentifiers(lesson: LessonLike) {
+  const withheld = lesson.accessLevel === 'PAID';
+
+  return {
+    muxPlaybackId: withheld ? null : (lesson.muxPlaybackId ?? null),
+    youtubeVideoId: withheld ? null : (lesson.youtubeVideoId ?? null),
+  };
 }
 
 function resolveVideoProvider(lesson: LessonLike) {
@@ -125,8 +134,7 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
     isPublished: lesson.isPublished,
     accessLevel: lesson.accessLevel as LessonSummary['accessLevel'],
     videoProvider,
-    muxPlaybackId: publicPlaybackId(lesson),
-    youtubeVideoId: lesson.youtubeVideoId ?? null,
+    ...publicVideoIdentifiers(lesson),
     durationSeconds: lesson.durationSeconds ?? null,
     curriculum: mapLessonCurriculum(lesson.tags ?? []),
   };
@@ -135,14 +143,15 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
 /**
  * Admin projection: same as the public summary plus `muxAssetId`, which admins
  * set so the Mux `video.asset.ready` webhook can find the lesson to sync, and
- * the real `muxPlaybackId` the public summary withholds for PAID lessons -
- * admins type it into the lesson editor, and this route is behind
+ * the real provider identifiers the public summary withholds for PAID lessons -
+ * admins type them into the lesson editor, and this route is behind
  * `AuthGuard` + `RolesGuard(ADMIN, COACH)`.
  */
 export function mapAdminLessonSummary(lesson: LessonLike): AdminLessonSummary {
   return {
     ...mapLessonSummary(lesson),
     muxPlaybackId: lesson.muxPlaybackId ?? null,
+    youtubeVideoId: lesson.youtubeVideoId ?? null,
     muxAssetId: lesson.muxAssetId ?? null,
   };
 }
@@ -191,9 +200,9 @@ export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }):
       // `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops the token
       // entirely - byte-identical to the request it makes with no `src` at all.
       // So leaving the id on this payload does not merely widen the exposure,
-      // it is what stops signed playback working. `playbackUrl` is the handle.
-      muxPlaybackId: publicPlaybackId(lesson),
-      youtubeVideoId: lesson.youtubeVideoId ?? null,
+      // it is what stops signed playback working. `playbackUrl` and `embedUrl`
+      // are the handles.
+      ...publicVideoIdentifiers(lesson),
       embedUrl,
     },
   };

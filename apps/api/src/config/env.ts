@@ -37,13 +37,13 @@ export function isLoopbackDatabaseUrl(databaseUrl: string | undefined): boolean 
  * The single predicate for whether the dev auth bypass may be used. Startup
  * validation refuses the same combination outright, so a server should never
  * reach this - it is the request-time half of the same fail-closed rule.
+ *
+ * "Not a deployment" is asked of `isDeployment` below rather than spelled out
+ * again here, so all three consumers share one definition of where they are
+ * running.
  */
 export function isDevAuthBypassEnabled(source: NodeJS.ProcessEnv): boolean {
-  return (
-    source.NODE_ENV !== 'production' &&
-    source.DEV_BYPASS_AUTH === 'true' &&
-    isLoopbackDatabaseUrl(source.DATABASE_URL)
-  );
+  return !isDeployment(source.NODE_ENV, source.DATABASE_URL) && source.DEV_BYPASS_AUTH === 'true';
 }
 
 /**
@@ -54,7 +54,8 @@ export function isDevAuthBypassEnabled(source: NodeJS.ProcessEnv): boolean {
  * `isUnsignedPaidPlaybackAllowed` refuses the unsigned fallback on one. Those
  * two must never disagree, so they ask one function rather than two copies of
  * an expression - copies drift, and this is the check standing between a
- * deployed service and serving unsigned paid video.
+ * deployed service and serving unsigned paid video. `isDevAuthBypassEnabled`
+ * asks the same question of the same function, for the same reason.
  *
  * Takes the two values rather than a whole environment so the startup site can
  * pass its parsed fields directly without the coerced numeric `PORT` having to

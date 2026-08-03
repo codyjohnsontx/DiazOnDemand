@@ -136,11 +136,11 @@ describe('isUnsignedPaidPlaybackAllowed', () => {
 });
 
 /**
- * The two places that decide "is this a deployment" must never disagree: one
- * lets a PAID lesson fall back to an unsigned url, the other refuses to boot
- * without the key that signs it. They were written as separate expressions, so
- * this pins the full matrix at both call sites rather than trusting that the
- * two spellings mean the same thing.
+ * The places that decide "is this a deployment" must never disagree: one lets a
+ * PAID lesson fall back to an unsigned url, one refuses to boot without the key
+ * that signs it, and one lets an uncredentialed request through as an admin.
+ * They were written as separate expressions, so this pins the full matrix at
+ * every call site rather than trusting that the spellings mean the same thing.
  *
  * The deployment answer is asserted here as a literal per row, so the table is
  * a fixed expectation of behaviour rather than a restatement of whatever the
@@ -175,7 +175,7 @@ function refusesForDeploymentSigningKey(env: NodeJS.ProcessEnv): boolean {
   }
 }
 
-describe('the deployment predicate, at both call sites', () => {
+describe('the deployment predicate, at every call site', () => {
   it('answers the whole matrix as the shared predicate', () => {
     for (const nodeEnv of NODE_ENVS) {
       for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
@@ -198,6 +198,35 @@ describe('the deployment predicate, at both call sites', () => {
           isUnsignedPaidPlaybackAllowed({ NODE_ENV: nodeEnv, DATABASE_URL: databaseUrl }),
           `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`,
         ).toBe(!deployed);
+      }
+    }
+  });
+
+  it('answers the whole matrix identically at the dev auth bypass call site', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+        const deployed = nodeEnv === 'production' || deployedWhenNotProduction;
+        const label = `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`;
+
+        // The bypass is allowed exactly when this is NOT a deployment and the
+        // flag is on. Nothing else may turn it on.
+        expect(
+          isDevAuthBypassEnabled({
+            NODE_ENV: nodeEnv,
+            DATABASE_URL: databaseUrl,
+            DEV_BYPASS_AUTH: 'true',
+          }),
+          `${label} DEV_BYPASS_AUTH=true`,
+        ).toBe(!deployed);
+
+        expect(
+          isDevAuthBypassEnabled({
+            NODE_ENV: nodeEnv,
+            DATABASE_URL: databaseUrl,
+            DEV_BYPASS_AUTH: 'false',
+          }),
+          `${label} DEV_BYPASS_AUTH=false`,
+        ).toBe(false);
       }
     }
   });

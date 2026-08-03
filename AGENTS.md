@@ -294,13 +294,20 @@ the reason it exists is stated with it.
   deliberately sets `DEV_BYPASS_AUTH=true` and the run is not `NODE_ENV=production`. The
   residual risk is that combination, not the loopback proxy on its own. This is written
   down on purpose; do not add detection code for it.
-- A PAID lesson's Mux playback id never leaves the API on an unauthenticated payload, and
-  never sits next to a signed url - `publicPlaybackId` in
-  `apps/api/src/content/lesson-presentation.ts` nulls it, and `mapAdminLessonSummary` puts it
-  back for the admin routes only. Two reasons, both load-bearing. `/programs`, `/programs/:id`
-  and `/courses/:id` take no authentication, and a Mux playback id is the whole address of a
-  video, not a name for it. And, measured in Chrome against `@mux/mux-player` 3.11.4, a player
-  handed both a `playbackId` and a signed `src` requests
+- A PAID lesson's provider identifiers never leave the API on an unauthenticated payload, and
+  the Mux one never sits next to a signed url - `publicVideoIdentifiers` in
+  `apps/api/src/content/lesson-presentation.ts` nulls `muxPlaybackId` and `youtubeVideoId`
+  together, and `mapAdminLessonSummary` puts them back for the admin routes only. One rule for
+  every provider, so a new one cannot be added past it. `/programs`, `/programs/:id` and
+  `/courses/:id` take no authentication, and neither id is a name for a video, it is the whole
+  address of one: `stream.mux.com/<id>.m3u8` plays a public-policy Mux asset for anyone holding
+  it, and a YouTube video id plays at youtube.com for anyone holding it unless that video is
+  Private. Nothing ties `accessLevel` to `videoProvider` in `admin.service.ts`, so PAID plus
+  YOUTUBE is saveable even though every seeded YouTube lesson is FREE. What an entitled member
+  watches with is built in `mapLessonDetail`, behind the 402 in `ContentService.getLesson` -
+  the signed `playbackUrl` for Mux, the `embedUrl` for YouTube.
+  The Mux id has a second, independent reason. Measured in Chrome against `@mux/mux-player`
+  3.11.4, a player handed both a `playbackId` and a signed `src` requests
   `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops the token entirely -
   byte-identical to the request it makes with no `src` at all. The web player passes the id
   only when `src` carries no token for it to drop, and the mobile player prefers `playbackUrl`
@@ -337,7 +344,11 @@ the reason it exists is stated with it.
   keeps its `muxPlaybackId`, and that id was served to every anonymous `/programs` caller
   while the lesson was free. Rotating the asset in Mux is the only fix; it is separate work,
   and it is deliberately not mitigated in code, because a partial mitigation would only make
-  it look handled.
+  it look handled. YouTube has the same shape and the same two populations: withholding a
+  video id does not make the video unwatchable, so whether a paid lesson's YouTube video is
+  still reachable by anyone already holding its id depends on that video's privacy setting in
+  YouTube Studio. That is an owner check, and like the Mux playback policy it cannot be
+  settled from this repository.
 
 ## Maintaining this file
 
