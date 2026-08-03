@@ -32,21 +32,24 @@ reviews:
   #
   # The rule to carry away from this file, because it has been read wrong here
   # before: absence from an exclusion list is not inclusion. CodeRabbit ships
-  # its own built-in skip list - lock files, binaries, generated code, media
-  # assets - and anything on it needs an explicit include to come back. Ordinary
-  # source and markdown are not on that list; they are reviewed by default and
-  # are simply not excluded here, which is why they need no include (today's
-  # most useful comments were on markdown, and that is worth paying for).
-  # Everything else that must be reviewed is force-included ahead of the
-  # exclusions below: the lockfile, SVG, and the Prisma migrations and schema.
+  # its own built-in skip list, and anything on it needs an explicit include to
+  # come back. Do not guess at what is on it, in either direction - it is
+  # published in full, 137 patterns under "Default ignored paths" at
+  # https://docs.coderabbit.ai/configuration/path-instructions. Ordinary source
+  # and markdown are not on it; they are reviewed by default and are simply not
+  # excluded here, which is why they need no include (today's most useful
+  # comments were on markdown, and that is worth paying for).
   path_filters:
     # The entries in this list with no `!` are force-INCLUDES rather than
-    # excludes. They are load-bearing, not decoration: each one is something
-    # CodeRabbit's built-in skip list would otherwise drop, so merely leaving
-    # them out of the exclusions further down is NOT enough to get them
-    # reviewed. An explicit include is the documented way to override that
+    # excludes. An explicit include is the documented way to override a built-in
     # default. Mixing includes and excludes does not narrow the review to only
     # these paths; everything else still follows the exclusions below.
+    #
+    # The two below appear on the built-in skip list by name
+    # (`!**/pnpm-lock.yaml` under "Lock files", `!**/*.svg` under "Images and
+    # fonts"), so leaving them out of the exclusions further down was NOT enough
+    # to get them reviewed. These two includes are what actually turns them back
+    # on, and removing either one silently turns it back off.
     - 'pnpm-lock.yaml'
     - '**/*.svg'
     # pnpm-lock.yaml is DELIBERATELY REVIEWED - do not turn it into a `!` exclude.
@@ -62,12 +65,20 @@ reviews:
     # are enormous and nobody reads them by hand - that is the argument for
     # letting the bot read them, not for filtering them to reclaim quota.
     #
-    # The Prisma migrations and schema below are force-included for the same
-    # reason: Prisma writes them, so the built-in "generated code" default can
-    # claim them, and trusting their absence from the exclusions is not enough.
-    # A migration is the highest-risk change in this repo (see the Database
-    # Safety rules in CLAUDE.md) and is exactly what a reviewer should be
-    # reading. Migrations are rare, so the review cost is near zero.
+    # The Prisma migrations and schema below are a different case, and the
+    # difference is worth stating so nobody reasons from the lockfile to them.
+    # They are NOT on the built-in skip list. Nothing on it matches `.sql`,
+    # `schema.prisma`, or a `migrations/` directory - its generated-code entries
+    # are directory names (`generated/`, `gen/`, and variants) plus a
+    # `*.generated.*` suffix, and none of those hit these paths. So Prisma
+    # writing them does not get them skipped; they are reviewed by default, and
+    # these entries pin that rather than restore it.
+    #
+    # Kept anyway, because a migration is the highest-risk change in this repo
+    # (see the Database Safety rules in CLAUDE.md) and is exactly what a
+    # reviewer should be reading, and a pinned include cannot be lost to a later
+    # change in CodeRabbit's defaults. Migrations are rare, so the review cost
+    # is near zero either way.
     - 'packages/db/prisma/migrations/**/*.sql'
     - 'packages/db/prisma/schema.prisma'
     # Tracked today: apps/diaz-ondemand-web/tsconfig.tsbuildinfo
