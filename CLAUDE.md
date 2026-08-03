@@ -171,6 +171,7 @@ Automatic re-review on later pushes is deliberately off
 shared usage limit.
 
 So if a pull request gained commits after it was opened:
+
 - comment `@coderabbitai review`
 - wait for that review before merging
 
