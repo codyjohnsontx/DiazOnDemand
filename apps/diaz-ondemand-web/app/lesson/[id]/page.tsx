@@ -448,17 +448,26 @@ export default function LessonPage() {
               </div>
             ) : (
               <div className="flex aspect-video items-end bg-[linear-gradient(135deg,#1f242d_0%,#0f1217_55%,#08090b_100%)] p-6 sm:p-8">
+                {/*
+                  The no-source state is what a member sees on a lesson that
+                  has not been filmed, and it is the state the API now resolves
+                  a lesson to when its stored playback identifier cannot address
+                  a video. So it has to read as "not filmed yet" to a member,
+                  not as a fault: the copy here used to tell them to "add a
+                  valid Mux playback ID in admin", which is an instruction to
+                  staff and reads to everyone else as something broken.
+                */}
                 <div className="space-y-3">
                   <p className="type-kicker text-[var(--text-muted)]">
-                    {video.provider === VideoProvider.YOUTUBE ? 'Playback source invalid' : 'Playback source missing'}
+                    {video.provider === VideoProvider.YOUTUBE ? 'Playback source invalid' : 'Not filmed yet'}
                   </p>
                   <h2 className="font-display text-4xl leading-none text-[var(--text)]">
-                    {video.provider === VideoProvider.YOUTUBE ? 'YouTube embed unavailable' : 'No video source yet'}
+                    {video.provider === VideoProvider.YOUTUBE ? 'YouTube embed unavailable' : 'This lesson has not been filmed'}
                   </h2>
                   <p className="max-w-xl text-sm leading-7 text-[var(--text-muted)]">
                     {video.provider === VideoProvider.YOUTUBE
                       ? 'The configured YouTube embed URL is not trusted. Update the lesson video settings in admin to restore playback.'
-                      : 'Add a valid Mux playback ID in admin and this lesson will render inside the player automatically.'}
+                      : 'It is listed here so you can see what the curriculum covers. It will play as soon as Diaz has recorded it.'}
                   </p>
                 </div>
               </div>

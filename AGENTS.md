@@ -387,6 +387,26 @@ the reason it exists is stated with it.
   No automated test guards either property: `apps/mobile` has no test runner at all (its
   `test` script is an echo), so anything changed on this screen has to be re-checked by hand.
 
+## Catalogue video states
+
+A published lesson may resolve to exactly one of three states, and nothing else: real
+playable video, a labelled demonstration clip, or an explicit not-yet-filmed state. The
+read path is what enforces it. `resolveVideoProvider` in
+`apps/api/src/content/lesson-presentation.ts` returns `NONE` for any identifier that is not
+shaped like one the provider issues - `isValidMuxPlaybackId` / `isValidYouTubeVideoId` in
+`@diaz/shared` - so a member sees the honest empty state instead of a player that loads and
+then fails with "Video does not exist". The rule is shape rather than a list of known
+placeholders, because the next placeholder someone types will be spelled differently. It
+cannot catch a well-formed identifier that points at nothing; only the Mux account can, and
+agents must not ask it.
+
+`mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
+one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would
+hide the playback-id field and blank the identifier on the next save.
+
+Current counts, and the 16 seeded mnemonic ids that caused this, are in the "Catalogue Video
+States" section of README.md.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

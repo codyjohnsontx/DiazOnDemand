@@ -75,8 +75,12 @@ async function seedPrograms() {
         orderIndex: lesson.orderIndex,
         accessLevel: lesson.accessLevel,
         videoProvider: lesson.videoProvider as VideoProvider,
-        muxPlaybackId: lesson.muxPlaybackId,
-        youtubeVideoId: lesson.youtubeVideoId,
+        // `?? null` rather than the raw value: Prisma reads `undefined` as
+        // "leave this column alone", so a lesson that drops its identifier from
+        // the seed would keep the stale one already in the row. Re-running the
+        // seed has to be able to clear a playback id, not only set one.
+        muxPlaybackId: lesson.muxPlaybackId ?? null,
+        youtubeVideoId: lesson.youtubeVideoId ?? null,
         durationSeconds: lesson.durationSeconds,
         isPublished: true,
       },
@@ -88,8 +92,8 @@ async function seedPrograms() {
         orderIndex: lesson.orderIndex,
         accessLevel: lesson.accessLevel,
         videoProvider: lesson.videoProvider as VideoProvider,
-        muxPlaybackId: lesson.muxPlaybackId,
-        youtubeVideoId: lesson.youtubeVideoId,
+        muxPlaybackId: lesson.muxPlaybackId ?? null,
+        youtubeVideoId: lesson.youtubeVideoId ?? null,
         durationSeconds: lesson.durationSeconds,
         isPublished: true,
       },

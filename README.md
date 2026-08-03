@@ -179,11 +179,30 @@ pnpm dev:mobile
 ## Vertical Slice Walkthrough
 After seed:
 1. Open web library at `http://localhost:3000/library`.
-2. Open seeded lesson and play video (placeholder playback IDs).
+2. Open a lesson in the Instructor Showcase program and play it. Those three carry real
+   YouTube demonstration clips and are the only seeded lessons with a video; the other 64
+   show the not-yet-filmed state, which is deliberate - see "Catalogue video states" below.
 3. Progress saves every ~10 seconds and before unload.
 4. Open admin at `http://localhost:3000/admin/programs`.
 5. Create/edit/publish content.
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).
+
+## Catalogue Video States
+Every published lesson resolves to exactly one of three states, and nothing else is allowed:
+
+| State                            | Seeded lessons | What a member sees                                    |
+| -------------------------------- | -------------: | ----------------------------------------------------- |
+| Real playable video              |              0 | The player, with real Diaz instruction                |
+| Labelled demonstration clip      |              3 | A YouTube clip, badged `Demo video` in the showcase    |
+| Not yet filmed                   |             64 | "This lesson has not been filmed", no player, no error |
+
+The catalogue previously seeded 16 lessons with mnemonic Mux playback ids (`seedgrddef101`
+and siblings). Every one of them loaded the player and then failed with "Video does not
+exist". They are cleared, and the API will no longer resolve an identifier that is not
+shaped like one the provider issues - see `isValidMuxPlaybackId` in `packages/shared` and
+`resolveVideoProvider` in `apps/api/src/content/lesson-presentation.ts`. Members get the
+not-yet-filmed state instead of a broken player; staff still see the stored value in the
+lesson editor. Whether unfilmed lessons stay published is an open product decision.
 
 ## Clerk Setup Notes (Web + Expo)
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
