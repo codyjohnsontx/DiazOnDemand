@@ -405,10 +405,35 @@ function AccountScreen() {
   const api = useApiClient();
   const { isDevelopmentBypass, signOut } = useAuthToken();
   const [me, setMe] = useState<MeDto | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
   useEffect(() => {
     api<MeDto>('/me').then(setMe).catch(console.error);
   }, [api]);
+
+  const handleSignOut = useCallback(async () => {
+    if (signingOut) {
+      return;
+    }
+
+    setSigningOut(true);
+    setSignOutError(null);
+
+    try {
+      await signOut();
+    } catch {
+      // Signing out revokes the session at Clerk, so it needs the network. When that
+      // fails the session is still live and the token in SecureStore still works, so
+      // the honest outcome is to stay signed in and say so. Clearing local storage
+      // instead would show a signed-out app while the session stayed usable.
+      setSignOutError(
+        'We could not sign you out, so you are still signed in on this device. Check your connection and try again.',
+      );
+    } finally {
+      setSigningOut(false);
+    }
+  }, [signOut, signingOut]);
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
@@ -421,7 +446,16 @@ function AccountScreen() {
       </Text>
       {!isDevelopmentBypass ? (
         <View style={{ marginTop: 16 }}>
-          <Button title="Sign out" onPress={() => void signOut()} />
+          {signOutError ? (
+            <Text accessibilityLiveRegion="polite" style={{ color: '#b3261e', marginBottom: 8 }}>
+              {signOutError}
+            </Text>
+          ) : null}
+          <Button
+            disabled={signingOut}
+            title={signingOut ? 'Signing out...' : 'Sign out'}
+            onPress={() => void handleSignOut()}
+          />
         </View>
       ) : null}
     </SafeAreaView>

@@ -27,6 +27,25 @@ const colors = {
   danger: '#f28b82',
 };
 
+// Every message the sign-in screen can show is written here, by us. Clerk's own
+// `longMessage`/`message` is never rendered: it distinguishes an unknown identifier
+// from a real member's, which turns this screen into a membership oracle.
+const messages = {
+  invalidEmail: 'Enter a valid email address, for example you@example.com.',
+  unreachable: 'We could not reach the sign-in service. Check your connection and try again.',
+  codeRejected:
+    'We could not verify that code. Check the code and your connection, then try again, or use a different email address.',
+  additionalVerification:
+    'This account needs another verification step that the app cannot complete yet. Contact the gym for help.',
+};
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// The guard throws on a null/undefined argument, so check for an object first.
+function isProviderResponse(error: unknown) {
+  return typeof error === 'object' && error !== null && isClerkAPIResponseError(error);
+}
+
 export function SignInScreen() {
   const { isLoaded, signIn, setActive } = useSignIn();
   const [email, setEmail] = useState('');
@@ -56,7 +75,14 @@ export function SignInScreen() {
   }, [step, stepEntrance]);
 
   async function requestCode() {
-    if (!isLoaded || !email.trim()) {
+    if (!isLoaded || submitting || !email.trim()) {
+      return;
+    }
+
+    const identifier = email.trim().toLowerCase();
+
+    if (!emailPattern.test(identifier)) {
+      setError(messages.invalidEmail);
       return;
     }
 
@@ -64,29 +90,35 @@ export function SignInScreen() {
     setError(null);
 
     try {
-      const attempt = await signIn.create({ identifier: email.trim().toLowerCase() });
+      const attempt = await signIn.create({ identifier });
       const emailFactor = attempt.supportedFirstFactors?.find(
         (factor) => factor.strategy === 'email_code',
       );
 
-      if (!emailFactor || !('emailAddressId' in emailFactor)) {
-        throw new Error('Email verification is not available for this account.');
+      if (emailFactor && 'emailAddressId' in emailFactor) {
+        await attempt.prepareFirstFactor({
+          strategy: 'email_code',
+          emailAddressId: emailFactor.emailAddressId,
+        });
       }
-
-      await attempt.prepareFirstFactor({
-        strategy: 'email_code',
-        emailAddressId: emailFactor.emailAddressId,
-      });
-      setStep('code');
     } catch (requestError) {
-      setError(readAuthError(requestError));
-    } finally {
-      setSubmitting(false);
+      // Anything Clerk answered - an unknown identifier included - has to land on the
+      // same screen as a real member, or the screen answers "is this person a member?".
+      // Only a failure Clerk never answered at all is reported, and that one cannot
+      // depend on the identifier, so it leaks nothing.
+      if (!isProviderResponse(requestError)) {
+        setError(messages.unreachable);
+        setSubmitting(false);
+        return;
+      }
     }
+
+    setStep('code');
+    setSubmitting(false);
   }
 
   async function verifyCode() {
-    if (!isLoaded || !code.trim()) {
+    if (!isLoaded || submitting || !code.trim()) {
       return;
     }
 
@@ -100,12 +132,17 @@ export function SignInScreen() {
       });
 
       if (attempt.status !== 'complete' || !attempt.createdSessionId) {
-        throw new Error('Additional verification is required for this account.');
+        // Only reachable with a code that was accepted, so it tells a stranger nothing.
+        setError(messages.additionalVerification);
+        return;
       }
 
       await setActive({ session: attempt.createdSessionId });
-    } catch (verifyError) {
-      setError(readAuthError(verifyError));
+    } catch {
+      // One message for every failure here. A wrong code for a real member and a code
+      // typed against an address that has no account both fail, and they must read the
+      // same. It covers the offline case too, which is why it names the connection.
+      setError(messages.codeRejected);
     } finally {
       setSubmitting(false);
     }
@@ -178,7 +215,7 @@ export function SignInScreen() {
                 <Text style={styles.description}>
                   {isEmailStep
                     ? 'Use the email attached to your adult Diaz account.'
-                    : `Enter the one-time code sent to ${email.trim()}.`}
+                    : `If ${email.trim()} belongs to a Diaz member, we just sent a one-time code. It can take a minute to arrive. Check your spam folder, or use a different email address.`}
                 </Text>
 
                 <Animated.View style={[styles.form, formAnimation]}>
@@ -258,14 +295,6 @@ export function SignInScreen() {
       </ImageBackground>
     </SafeAreaView>
   );
-}
-
-function readAuthError(error: unknown) {
-  if (isClerkAPIResponseError(error)) {
-    return error.errors[0]?.longMessage ?? error.errors[0]?.message ?? 'Unable to sign in.';
-  }
-
-  return error instanceof Error ? error.message : 'Unable to sign in.';
 }
 
 const styles = StyleSheet.create({
