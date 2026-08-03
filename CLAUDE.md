@@ -335,20 +335,29 @@ the reason it exists is stated with it.
   dashboard next to the asset whose upload policy is wrong, rather than quietly attaching a
   watchable id to a paid video. FREE lessons still take a public id. See `syncMuxAsset` in
   `apps/api/src/webhooks/webhooks.service.ts`.
-- What none of that fixes, and only the owner can: an asset already uploaded to Mux with a
-  `public` playback policy stays public, and no code change can retract an id that has already
-  been served. Confirming every paid asset uses a signed playback policy is a Mux dashboard
-  job. Agents must not touch the Mux account to check. The audit covers two populations, not
-  one: lessons that are PAID today, and lessons that were FREE and later flipped to PAID.
-  `updateLesson` in `apps/api/src/admin/admin.service.ts` changes `accessLevel` while the row
-  keeps its `muxPlaybackId`, and that id was served to every anonymous `/programs` caller
-  while the lesson was free. Rotating the asset in Mux is the only fix; it is separate work,
-  and it is deliberately not mitigated in code, because a partial mitigation would only make
-  it look handled. YouTube has the same shape and the same two populations: withholding a
-  video id does not make the video unwatchable, so whether a paid lesson's YouTube video is
-  still reachable by anyone already holding its id depends on that video's privacy setting in
-  YouTube Studio. That is an owner check, and like the Mux playback policy it cannot be
-  settled from this repository.
+- What the code guarantees here is narrow, and the boundary is the point of this entry.
+  Every check in this repository is repo-side. Together they prove one thing: the API stops
+  emitting a PAID lesson's provider identifiers from this commit forward. They cannot retract
+  an identifier already handed to an anonymous caller, cannot tell whether a given Mux asset
+  was uploaded with a `public` playback policy, and cannot tell whether a paid lesson's
+  YouTube video is still Public. Shipping this change did not make an already-served
+  identifier safe. An asset uploaded to Mux with a `public` playback policy stays public, and
+  rotating it is the only fix.
+  The audit covers two populations, not one. First, lessons that are PAID today. Second, and
+  this is the one that gets missed, lessons that were FREE and were later flipped to PAID:
+  `updateLesson` in `apps/api/src/admin/admin.service.ts` applies a partial update, so setting
+  `accessLevel` leaves the row holding the provider identifier it already had, and that
+  identifier was served to every anonymous `/programs` caller for as long as the lesson was
+  free. This was reproduced end to end against the built API on a seeded database. It is what
+  happens, not what might happen.
+  Two checks only the project owner can settle, neither of them from this repository: every
+  paid Mux asset must use a signed playback policy, which is a Mux dashboard job, and every
+  paid YouTube-hosted lesson must not be publicly listed, which is a YouTube Studio job.
+  Unlisted is not the same as retracted, because a YouTube video plays for anyone holding its
+  id unless that video is Private, so an identifier already served is closed only by rotating
+  the Mux asset or restricting the YouTube video. Agents must not touch the Mux account to
+  check. This is deliberately not mitigated in code; a partial mitigation would only make it
+  look handled.
 
 ## Maintaining this file
 
