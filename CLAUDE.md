@@ -443,6 +443,33 @@ Current counts, and the 16 seeded mnemonic ids that caused this, are in the "Cat
 States" section of README.md. The public payload follows the same resolution: an identifier
 the read path refuses never leaves `publicVideoIdentifiers`, at any access level.
 
+## React types across the workspace
+
+Two copies of `@types/react` are correct and must both stay: `apps/mobile` runs react 18.3.1
+and pins `^18`, while `apps/diaz-ondemand-web` and `packages/ui` run react 19 and pin `^19`.
+
+`next@15.1.7` declares `react` as a peer but not `@types/react`, even though its shipped
+`.d.ts` files import React types. pnpm therefore links no `@types/react` beside next, and
+TypeScript falls through to pnpm's hoisted fallback store,
+`node_modules/.pnpm/node_modules/@types/react`, which holds whichever single copy pnpm
+happened to hoist. When that was the 18 copy, Next's types built `React.ReactNode` from
+React 18 while the app built `ReactNode` from React 19 and `next build` failed at
+`app/layout.tsx:29`. The hoist choice varies between installs, so it looked intermittent.
+
+The `pnpm.packageExtensions` block in the root `package.json` declares the peer next omits,
+so next resolves `@types/react` from its consumer and never consults the hoisted store. Do
+not replace it with a workspace-wide `pnpm.overrides` pin of `@types/react`. That is green
+on build, lint, typecheck and test today, but it types mobile's react 18.3.1 runtime with
+React 19 types, after which mobile's `tsc` accepts `use` and `useActionState`, neither of
+which exists at runtime there. Both approaches were verified end to end before choosing.
+
+Turbo's cache is keyed on the lockfile, not on resolved `node_modules`, and is shared across
+git worktrees. A build that passed in one worktree replays as a cache hit in another where
+the same lockfile installed differently, which is how this reached `main` green. Verify any
+dependency-resolution change with `pnpm exec turbo run build --force`. Run `build` and
+`typecheck` in separate turbo invocations as CI does: the web `tsconfig.json` includes
+`.next/types/**`, which `next build` generates, so one combined invocation races.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

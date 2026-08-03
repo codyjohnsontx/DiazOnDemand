@@ -23,5 +23,19 @@
     "prettier": "^3.5.0",
     "turbo": "^2.4.2",
     "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "packageExtensions": {
+      "next": {
+        "peerDependencies": {
+          "@types/react": "*"
+        },
+        "peerDependenciesMeta": {
+          "@types/react": {
+            "optional": true
+          }
+        }
+      }
+    }
   }
 }
