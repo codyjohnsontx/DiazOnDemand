@@ -698,7 +698,11 @@ export class WebhooksService {
     const playbackIds = event.data?.playback_ids ?? [];
     const signedPlaybackId = playbackIds.find((entry) => entry.policy === 'signed')?.id ?? null;
     const publicPlaybackId = playbackIds.find((entry) => entry.policy === 'public')?.id ?? null;
-    const rejection = rejectMuxPlaybackPolicy(lesson.accessLevel, signedPlaybackId, publicPlaybackId);
+    const rejection = rejectMuxPlaybackPolicy(
+      lesson.accessLevel,
+      signedPlaybackId,
+      publicPlaybackId,
+    );
 
     if (rejection) {
       // Refused rather than accepted, and noisily rather than quietly. The

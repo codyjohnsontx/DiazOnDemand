@@ -377,15 +377,19 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 - Lessons store `muxAssetId` and `muxPlaybackId`.
 - API returns `playbackUrl` for clients to treat as an opaque playback source.
 - Free lessons use a public playback URL; paid lessons use a signed playback URL.
-- **A `PAID` lesson's `muxPlaybackId` is withheld from every unauthenticated payload.**
-  `/programs`, `/programs/:id` and `/courses/:id` need no authentication, and a Mux playback
-  id is not a name for a video, it is the whole address of one: on an asset uploaded with a
-  `public` playback policy, `https://stream.mux.com/<id>.m3u8` plays for anyone holding it.
-  So `publicPlaybackId` in `apps/api/src/content/lesson-presentation.ts` nulls it for paid
-  lessons on both the summary and the detail payload, and the entitlement-gated signed
-  `playbackUrl` is the only handle. `mapAdminLessonSummary` puts the real id back for the
-  `ADMIN`/`COACH`-guarded admin routes, which is where admins type it in. Free lessons are
-  unchanged - their playback id is public on purpose.
+- **A `PAID` lesson's provider identifiers are withheld from every unauthenticated payload.**
+  `/programs`, `/programs/:id` and `/courses/:id` need no authentication, and neither
+  identifier is a name for a video, each is the whole address of one: on an asset uploaded
+  with a `public` playback policy, `https://stream.mux.com/<id>.m3u8` plays for anyone
+  holding it, and a YouTube video id plays at youtube.com for anyone holding it unless that
+  video is Private. So `publicVideoIdentifiers` in
+  `apps/api/src/content/lesson-presentation.ts` nulls `muxPlaybackId` and `youtubeVideoId`
+  together for paid lessons, on both the summary and the detail payload - one rule for every
+  provider, so a new one cannot be added past it. The entitlement-gated handles built in
+  `mapLessonDetail` are what an entitled member watches with: the signed `playbackUrl` for
+  Mux, the `embedUrl` for YouTube. `mapAdminLessonSummary` puts the real ids back for the
+  `ADMIN`/`COACH`-guarded admin routes, which is where admins type them in. Free lessons are
+  unchanged - their identifiers are public on purpose.
   Withholding the id on the detail payload is also what keeps signed playback working:
   measured against `@mux/mux-player` 3.11.4 in Chrome, a player handed both a `playbackId`
   and a signed `src` requests `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops
@@ -401,8 +405,11 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   id even when a signed id sits beside it, because nothing stops a caller using the public
   one. The refusal logs an error and throws, so the delivery fails visibly in the Mux
   dashboard next to the asset whose upload policy is wrong rather than quietly attaching a
-  public id to a paid video, and Mux redelivers once a signed-only asset replaces it. `FREE`
-  lessons keep taking a public id.
+  public id to a paid video, and Mux redelivers once a signed-only asset replaces it. A
+  `FREE` lesson takes the asset's `public` id and is refused the same way when the asset
+  carries none: a free lesson is served over a plain `stream.mux.com` url, so an id with any
+  other policy would be stored and then silently fail to play. Either way the stored id
+  comes from the policy the access level requires, never from whichever id arrived first.
 - Signed playback needs a Mux *signing key* (`MUX_SIGNING_KEY_ID` /
   `MUX_SIGNING_KEY_PRIVATE`), which is a different credential from the `MUX_TOKEN_ID` /
   `MUX_TOKEN_SECRET` API access token.
@@ -418,6 +425,10 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
     working, non-expiring `stream.mux.com` URL against a public-policy asset. Closing that
     needs the asset rotated or re-created in Mux; it is filed as separate work and is
     deliberately not mitigated in code, because a half-measure here would only look handled.
+
+  A `PAID` lesson hosted on YouTube needs the same audit in YouTube Studio, for the same
+  reason: its video id was served anonymously too, and the video plays for anyone holding
+  that id unless it is set to **Private**. Unlisted is not retracted.
 
 Test webhooks locally with the Mux CLI - it forwards to localhost and prints a signing
 secret to use as `MUX_WEBHOOK_SECRET`:

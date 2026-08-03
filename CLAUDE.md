@@ -333,7 +333,9 @@ the reason it exists is stated with it.
   `public` playback id even when a signed id sits beside it, because nothing stops a caller
   using the public one. It logs an error and throws, so the delivery fails in the Mux
   dashboard next to the asset whose upload policy is wrong, rather than quietly attaching a
-  watchable id to a paid video. FREE lessons still take a public id. See `syncMuxAsset` in
+  watchable id to a paid video. A FREE lesson takes the asset's public id, and is refused the
+  same way when the asset carries none - it is served over a plain url, so an id with any
+  other policy would be stored and then fail to play. See `syncMuxAsset` in
   `apps/api/src/webhooks/webhooks.service.ts`.
 - What the code guarantees here is narrow, and the boundary is the point of this entry.
   Every check in this repository is repo-side. Together they prove one thing: the API stops

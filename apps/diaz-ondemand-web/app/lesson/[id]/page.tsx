@@ -415,13 +415,17 @@ export default function LessonPage() {
                 // storyboard scrubbing and redundant-stream delivery the
                 // player derives from an id. This is not the both-passed
                 // hazard: a signed source is never one of the two.
-                // `publicPlaybackId` in
+                // `publicVideoIdentifiers` in
                 // apps/api/src/content/lesson-presentation.ts nulls
                 // `muxPlaybackId` exactly when it mints a signed `playbackUrl`,
                 // so a payload holding both is that separately deployed API
                 // having drifted, and the signed source wins. A `playbackUrl`
                 // that will not parse counts as signed for the same reason.
-                playbackId={isSignedPlaybackUrl(video.playbackUrl) ? undefined : (video.muxPlaybackId ?? undefined)}
+                playbackId={
+                  isSignedPlaybackUrl(video.playbackUrl)
+                    ? undefined
+                    : (video.muxPlaybackId ?? undefined)
+                }
                 preferPlayback="mse"
                 src={video.playbackUrl ?? undefined}
                 streamType="on-demand"
