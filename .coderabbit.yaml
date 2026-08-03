@@ -32,73 +32,82 @@ reviews:
   #
   # The rule to carry away from this file, because it has been read wrong here
   # before: absence from an exclusion list is not inclusion. CodeRabbit ships
-  # its own built-in skip list, and anything on it needs an explicit include to
-  # come back. Do not guess at what is on it, in either direction - it is
-  # published in full, 137 patterns under "Default ignored paths" at
+  # its own built-in skip list, and anything on it stays skipped. Do not guess
+  # at what is on it, in either direction - it is published in full, 137
+  # patterns under "Default ignored paths" at
   # https://docs.coderabbit.ai/configuration/path-instructions. Ordinary source
   # and markdown are not on it; they are reviewed by default and are simply not
   # excluded here, which is why they need no include (today's most useful
   # comments were on markdown, and that is worth paying for).
+  #
+  # And the harder rule, which cost this repository a day of unreviewed merges:
+  # THERE IS NO SAFE WAY TO ADD AN INCLUDE HERE. Every entry below starts with
+  # `!`, and the next one has to as well. See the block above the list.
   path_filters:
-    # READ THIS BEFORE ADDING AN ENTRY WITHOUT A LEADING `!`.
+    # DO NOT ADD AN ENTRY WITHOUT A LEADING `!`. Read this before you try.
     #
-    # An entry without `!` is an INCLUDE, and a surviving include NARROWS the
+    # An entry without `!` is an INCLUDE, and a single include NARROWS the whole
     # review to only what it matches. Everything else is then skipped with
     # "excluded by none and included by none" - skipped not because something
     # excludes it but because nothing includes it. An earlier version of this
     # file asserted the opposite ("mixing includes and excludes does not narrow
-    # the review to only these paths"). That assertion was false, and it is the
-    # reason this repository went unreviewed from 2026-08-03 00:50Z until this
-    # change: four includes were in force, and the two that survived narrowed
-    # review to two Prisma paths.
-    # VERIFIED by experiment, not inferred: with those four includes in place, a
-    # throwaway pull request containing one plain `.ts` file, and another
-    # containing one `.svg`, were both skipped with that exact wording.
+    # the review to only these paths") and carried four includes. That assertion
+    # was false, and it is why nothing here except two Prisma paths was reviewed
+    # between 2026-08-03 00:50Z and this change.
     #
-    # The single exception is an include naming a path on CodeRabbit's built-in
-    # skip list. CodeRabbit documents that such an include is applied "by
-    # removing the pattern from both the lists": it cancels the built-in block
-    # and does NOT survive as a narrowing include. The two entries below are
-    # exactly that case, which is why they can restore coverage without
-    # switching off review of everything else.
-    # VERIFIED for this file as it now stands: with only these two entries, a
-    # throwaway pull request containing one plain `.ts` file got a real review.
-    # Anything added here that is NOT on the built-in skip list will narrow, so
-    # do not pin an already-reviewed path "for safety" - that is the defect this
-    # comment exists to stop from recurring.
+    # CodeRabbit's skip message offers what looks like an escape hatch, and it
+    # does not work. It says an include naming a path on the built-in skip list
+    # is applied "by removing the pattern from both the lists", which would make
+    # such an include cancel the block without narrowing anything. That was
+    # tested directly, on this file, and it is not what happens.
     #
-    # Both below appear on the built-in skip list by name (`!**/pnpm-lock.yaml`
-    # under "Lock files", `!**/*.svg` under "Images and fonts"), so leaving them
-    # out of the exclusions further down was NOT enough to get them reviewed.
-    # These two includes are what actually turns them back on, and removing
-    # either one silently turns it back off.
-    # OPTION B EXPERIMENT: both block-override includes removed too.
-    # pnpm-lock.yaml is DELIBERATELY REVIEWED - do not turn it into a `!` exclude.
-    # This is a pnpm workspace (packageManager pnpm@9.12.3, pnpm-workspace.yaml),
-    # so pnpm-lock.yaml is the only lockfile that can appear here, and it is
-    # where a transitive dependency first appears, where an integrity hash
-    # changes, and where a registry URL gets rewritten. Those are the places a
-    # supply-chain problem shows up and nowhere else. The lockfile is also the
-    # input CodeRabbit's dependency-vulnerability scanning reads, so filtering
-    # it does not merely hide a diff, it switches off a whole class of scanning,
-    # and it would quietly override the Dependency Policy in CLAUDE.md that
-    # makes introducing a dependency explicitly review-worthy. Lockfile diffs
-    # are enormous and nobody reads them by hand - that is the argument for
-    # letting the bot read them, not for filtering them to reclaim quota.
+    # VERIFIED by experiment, each one a throwaway pull request holding a single
+    # file, judged in `/pulls/<n>/reviews` and never in the bot's reply:
+    #   - four includes present, one plain `.ts` file: SKIPPED, "included by
+    #     none". One `.svg` file, itself force-included: SKIPPED too.
+    #   - only the two block-override includes `pnpm-lock.yaml` and `**/*.svg`
+    #     present, one plain `.ts` file: STILL SKIPPED (PR #13). So at least one
+    #     block-override include survives as a narrowing include. The documented
+    #     "removed from both lists" behaviour did not hold here.
+    #   - no includes at all, the list as it stands now, one plain `.ts` file:
+    #     REVIEWED (PR #14). That is the state this file is in and the only
+    #     arrangement observed to review ordinary source.
+    # Config is read from the pull request HEAD branch, not the base - verified
+    # on PR #13, where `@coderabbitai configuration` echoed back the head
+    # branch's path_filters while `main` still had the old ones. So a change
+    # here can and should be tested in its own pull request before merging.
     #
-    # The Prisma migrations and schema USED TO BE PINNED HERE the same way, as
+    # KNOWN COST OF THIS ARRANGEMENT, accepted deliberately, not overlooked:
+    # `pnpm-lock.yaml` and `**/*.svg` are on CodeRabbit's built-in skip list and
+    # are therefore NOT reviewed. Both were argued for at length in the version
+    # of this file that introduced the includes, and both arguments still stand:
+    # the lockfile is where a supply-chain problem first shows up (a new
+    # transitive dependency, a changed integrity hash, a rewritten registry URL)
+    # and it is the input CodeRabbit's dependency-vulnerability scanning reads;
+    # an SVG is text that can carry executable content (inline <script>, on*
+    # handlers, `javascript:` hrefs) once it is inlined into the web app rather
+    # than served through an <img>. Neither is worth buying at the price of
+    # every other file in the repository, which is the only price on offer.
+    # Cover them another way - a dependency-review action for the lockfile,
+    # human eyes on the first SVG that lands - not with an include here.
+    # UNTESTED HYPOTHESIS, recorded so nobody has to re-derive it: `**/*.svg`
+    # alone may behave as documented and cancel its block without narrowing,
+    # since the earlier `.svg` experiment showed it being consumed. The likelier
+    # survivor in PR #13 is `pnpm-lock.yaml`, written as a bare path where the
+    # built-in pattern is `**/pnpm-lock.yaml`. Nobody has run that experiment.
+    # If you run it, run it exactly as above and believe only the reviews list.
+    #
+    # Prisma migrations and the schema used to be pinned here as
     # `packages/db/prisma/migrations/**/*.sql` and
     # `packages/db/prisma/schema.prisma`. Do not put them back. They are NOT on
     # the built-in skip list - nothing on it matches `.sql`, `schema.prisma`, or
     # a `migrations/` directory, since its generated-code entries are directory
     # names (`generated/`, `gen/`, and variants) plus a `*.generated.*` suffix,
-    # and none of those hit these paths. So they are reviewed by default, the
-    # includes restored nothing, and because they were not block-overrides they
-    # were the two entries that survived and did the narrowing. Pinning an
-    # already-reviewed path costs the review of every path not pinned.
-    # A migration is still the highest-risk change in this repo (see the
-    # Database Safety rules in CLAUDE.md) and is still reviewed - by default,
-    # which is the only way to have it reviewed without switching off the rest.
+    # and none of those hit these paths. They are reviewed by default, so those
+    # includes restored nothing and cost the review of everything else. A
+    # migration is still the highest-risk change in this repo (see the Database
+    # Safety rules in CLAUDE.md) and is still reviewed - by default, which is
+    # the only way to have it reviewed without switching off the rest.
     # Tracked today: apps/diaz-ondemand-web/tsconfig.tsbuildinfo
     - '!**/*.tsbuildinfo'
     # Prisma writes this; it is not hand-edited.
@@ -121,13 +130,15 @@ reviews:
     # Raster images. None are tracked yet, kept because a web and mobile
     # product will grow them and there is nothing to review in a binary
     # image diff.
-    # SVG is deliberately absent from this group, and is force-included at the
-    # top of this list: it is text, it diffs readably, and when inlined into the
+    # SVG is absent from this group because there is no point excluding what is
+    # already blocked: `**/*.svg` is on CodeRabbit's built-in skip list, so SVG
+    # is unreviewed today whatever this group says. That is a real gap, not a
+    # preference - an SVG is text, it diffs readably, and when inlined into the
     # web app rather than served through an <img> it can carry executable
-    # content (inline <script>, on* handlers, javascript: hrefs). A filtered SVG
-    # is an unreviewed script that looks like a picture. Zero are tracked today,
-    # which is exactly why it is cheap to get right now instead of after the
-    # first one lands.
+    # content (inline <script>, on* handlers, javascript: hrefs), so an
+    # unreviewed SVG is a script that looks like a picture. Zero are tracked
+    # today. The include that used to cover it had to go; see the note at the
+    # top of this list for why and for what to do instead.
     - '!**/*.png'
     - '!**/*.jpg'
     - '!**/*.jpeg'
