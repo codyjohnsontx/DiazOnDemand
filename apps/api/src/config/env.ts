@@ -86,6 +86,40 @@ export function isUnsignedPaidPlaybackAllowed(source: NodeJS.ProcessEnv): boolea
   return !isDeployment(source.NODE_ENV, source.DATABASE_URL);
 }
 
+/**
+ * Whether a member may file a free-text request. Always false today, and there
+ * is deliberately no environment variable that changes it.
+ *
+ * Diaz Martial Arts runs youth programs, so the member base includes children,
+ * and a free-text box is personal information collection under COPPA for anyone
+ * under 13. The amended FTC COPPA Rule published 2025-04-22 additionally treats
+ * using children's data for AI training as outside "providing the service" -
+ * needing its own verifiable parental consent - and forbids retaining it
+ * indefinitely. Deciding what to film from what members ask for is exactly that
+ * kind of use. The project owner ruled on it: under-13 members get no question
+ * box, excluded at the *account* level.
+ *
+ * That ruling is not implementable in this repository, which is why this is a
+ * constant rather than a check. There is no account-level fact here that
+ * separates a child from an adult:
+ *   - `User` is `id`, `clerkUserId`, `role`, `createdAt`, unchanged since the
+ *     initial migration, with no age, birth date, guardian or consent column.
+ *   - `Role` is ADMIN | COACH | STUDENT, a permission level. STUDENT is the
+ *     default and is what every member holds, ten-year-old and adult alike.
+ *   - The API never reads a Clerk profile. The only Clerk call in the repo is
+ *     `verifyToken` in auth.service.ts, and it uses just the token's `sub`, so
+ *     no birthday reaches this process even if Clerk holds one.
+ *   - No content or program record marks a youth track either.
+ *
+ * Opening this therefore requires modelling eligibility first, not flipping a
+ * flag. An env var here would be a trap: setting it would collect children's
+ * free text, the precise thing that was ruled out. Whoever adds the eligibility
+ * field replaces this function with a real check, in a diff that gets reviewed.
+ */
+export function isMemberRequestCaptureOpen(): boolean {
+  return false;
+}
+
 const apiEnvSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

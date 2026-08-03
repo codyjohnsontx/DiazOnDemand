@@ -361,6 +361,30 @@ the reason it exists is stated with it.
   check. This is deliberately not mitigated in code; a partial mitigation would only make it
   look handled.
 
+## Member requests are collected from nobody, on purpose
+
+`POST /member-requests` refuses every caller, including an ADMIN, and no environment
+variable re-opens it - `isMemberRequestCaptureOpen` in `apps/api/src/config/env.ts` is a
+constant `false`. This is not an unfinished feature.
+
+Diaz Martial Arts runs youth programs, so members include children, and a free-text box is
+personal information collection under COPPA for anyone under 13. The project owner ruled
+that under-13 members get no question box, excluded at the **account** level. That ruling is
+not implementable here: nothing in this repo distinguishes a child's account from an
+adult's. `User` is `id`/`clerkUserId`/`role`/`createdAt`, unchanged since the initial
+migration; `Role` is a permission level whose `STUDENT` value every member holds; and the
+API never reads a Clerk profile - the only Clerk call anywhere is `verifyToken` in
+`auth.service.ts`, which uses just the token's `sub`.
+
+So the gate is a code constant rather than config, deliberately: a flag would be a trap,
+because setting it would collect children's free text - the exact thing that was ruled out.
+Opening this means modelling account-level eligibility first and replacing that function
+with a real check. Do not approximate it from `Role`, sign-up date, or entitlement tier.
+
+The `MemberRequest` table and the ADMIN/COACH-gated `GET /admin/member-requests` reading
+page ship alongside it and work; the table simply stays empty. The admin empty state says
+why, so an empty inbox is not misread as "members are not asking for anything".
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

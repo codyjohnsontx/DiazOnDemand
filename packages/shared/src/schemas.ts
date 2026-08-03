@@ -138,6 +138,40 @@ export const favoriteSchema = z.object({
   lesson: lessonSummarySchema.optional(),
 });
 
+/**
+ * How long a member's request may be. Lives here so that the server rule and
+ * whatever counter a future form shows a member come from one number rather
+ * than two that drift. It also has to match the `body` column width in
+ * packages/db/prisma/schema.prisma.
+ */
+export const MEMBER_REQUEST_MAX_LENGTH = 1000;
+
+/**
+ * What a member sends. There is deliberately no `userId` here: the API takes
+ * the author from the authenticated session, so a client cannot file a request
+ * as somebody else. Nothing submits this today - `POST /member-requests`
+ * refuses every caller; see isMemberRequestCaptureOpen in the API.
+ */
+export const memberRequestCreateSchema = z.object({
+  body: z.string().trim().min(1).max(MEMBER_REQUEST_MAX_LENGTH),
+});
+
+/** What the member's own submit call gets back - a receipt, not a feed. */
+export const memberRequestSchema = z.object({
+  id: z.string().uuid(),
+  body: z.string(),
+  createdAt: z.string().datetime().or(z.date()),
+});
+
+/**
+ * The admin reading view. `clerkUserId` identifies who asked and only ever
+ * leaves the API on the ADMIN/COACH-guarded route.
+ */
+export const adminMemberRequestSchema = memberRequestSchema.extend({
+  userId: z.string().uuid(),
+  clerkUserId: z.string(),
+});
+
 const adminBaseProgramSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional().nullable(),
@@ -238,6 +272,9 @@ export type ProgressUpsertPayload = z.infer<typeof progressUpsertSchema>;
 export type ProgressDto = z.infer<typeof progressSchema>;
 export type FavoriteTogglePayload = z.infer<typeof favoriteToggleSchema>;
 export type FavoriteDto = z.infer<typeof favoriteSchema>;
+export type MemberRequestCreatePayload = z.infer<typeof memberRequestCreateSchema>;
+export type MemberRequestDto = z.infer<typeof memberRequestSchema>;
+export type AdminMemberRequestDto = z.infer<typeof adminMemberRequestSchema>;
 export type AdminCreateProgramDto = z.infer<typeof adminCreateProgramSchema>;
 export type AdminUpdateProgramDto = z.infer<typeof adminUpdateProgramSchema>;
 export type AdminCreateCourseDto = z.infer<typeof adminCreateCourseSchema>;

@@ -29,6 +29,8 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Stripe webhook handler syncing `Subscription` history + `Entitlement`, including refunds and
   chargebacks
 - Mux webhook with signature verification, syncing playback ID + duration on `video.asset.ready`
+- Admin reading page for member requests. Submitting is **closed to everyone** pending an
+  account-level age model - see "Member Requests (collection closed)" below
 
 ## Repository Layout
 - `/apps/api`
@@ -436,6 +438,27 @@ secret to use as `MUX_WEBHOOK_SECRET`:
 mux webhooks listen --forward-to http://localhost:4000/webhooks/mux
 mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhooks/mux
 ```
+
+## Member Requests (collection closed)
+
+Two endpoints, one of which refuses everyone:
+- `POST /member-requests` - Clerk-authenticated, and **refuses every caller with 403**,
+  including an ADMIN. `isMemberRequestCaptureOpen` in `apps/api/src/config/env.ts` is a
+  constant `false` and no environment variable changes it.
+- `GET /admin/member-requests` - lists requests newest first for the reading page at
+  `/admin/requests`. Gated by `AdminController`'s own class-level `AuthGuard, RolesGuard`
+  and `@Roles(ADMIN, COACH)`, which is why it lives on that controller rather than beside
+  the member-facing POST.
+
+Why the write path is closed: the gym runs youth programs, so members include children, and
+a free-text box is COPPA-covered personal information collection for anyone under 13. The
+owner ruled that under-13 members are excluded at the **account** level - and this repo
+records no age, birth date, or account type that identifies one, so the rule cannot be
+implemented yet. See the "Member requests are collected from nobody" section of `CLAUDE.md`
+for the full reasoning and what has to exist before it opens.
+
+The `MemberRequest` table exists and the admin page works; the table just stays empty, and
+the page's empty state says why rather than implying nobody has asked for anything.
 
 ## Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.

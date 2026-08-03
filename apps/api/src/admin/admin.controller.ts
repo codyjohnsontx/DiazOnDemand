@@ -12,6 +12,7 @@ import {
 import { AuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
+import { MemberRequestsService } from '../member-requests/member-requests.service.js';
 import { AdminService } from './admin.service.js';
 
 @ApiTags('admin')
@@ -20,11 +21,25 @@ import { AdminService } from './admin.service.js';
 @Roles(Role.ADMIN, Role.COACH)
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly memberRequestsService: MemberRequestsService,
+  ) {}
 
   @Get('programs')
   listPrograms() {
     return this.adminService.listPrograms();
+  }
+
+  /**
+   * Lives here rather than beside the member-facing POST so it inherits this
+   * controller's class-level `AuthGuard, RolesGuard` and `@Roles(ADMIN, COACH)`.
+   * Reusing the existing gate is the point: there is no second copy of the
+   * admin check to weaken by accident.
+   */
+  @Get('member-requests')
+  listMemberRequests() {
+    return this.memberRequestsService.listForAdmin();
   }
 
   @Post('programs')

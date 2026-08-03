@@ -56,6 +56,7 @@ model User {
   progress            Progress[]
   favorites           Favorite[]
   subscriptions       Subscription[]
+  memberRequests      MemberRequest[]
   entitlement         Entitlement?
   checkoutReservation CheckoutReservation?
 }
@@ -151,6 +152,29 @@ model Favorite {
 
   @@unique([userId, lessonId])
   @@index([lessonId])
+}
+
+/// One thing a member asked to see, in their own words - capture only, with no
+/// status, reply or grouping, because every question the catalogue cannot answer
+/// is a filming instruction and nothing more is needed to act on it.
+///
+/// Empty by design today: `POST /member-requests` refuses every caller while
+/// under-13 members cannot be identified at the account level. See
+/// `isMemberRequestCaptureOpen` in apps/api/src/config/env.ts. Rows appear only
+/// once that opens.
+model MemberRequest {
+  id     String @id @default(uuid())
+  userId String
+  /// Untrusted free text. The column length mirrors MEMBER_REQUEST_MAX_LENGTH in
+  /// packages/shared/src/schemas.ts, the zod rule that refuses an oversized
+  /// submission with a 400 before it reaches Postgres; change the two together
+  /// or that 400 becomes a 500. Render it as text, never as markup.
+  body      String   @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([userId])
 }
 
 /// A member's subscription history, not a single current-state row. A customer

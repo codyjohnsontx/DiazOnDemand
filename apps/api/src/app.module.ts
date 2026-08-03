@@ -11,6 +11,8 @@ import { FavoritesController } from './favorites/favorites.controller.js';
 import { FavoritesService } from './favorites/favorites.service.js';
 import { MeController } from './me/me.controller.js';
 import { MeService } from './me/me.service.js';
+import { MemberRequestsController } from './member-requests/member-requests.controller.js';
+import { MemberRequestsService } from './member-requests/member-requests.service.js';
 import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
 import { BillingController } from './billing/billing.controller.js';
@@ -27,6 +29,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     ProgressController,
     FavoritesController,
     MeController,
+    MemberRequestsController,
     AdminController,
     BillingController,
     WebhooksController,
@@ -36,6 +39,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     ProgressService,
     FavoritesService,
     MeService,
+    MemberRequestsService,
     AdminService,
     BillingService,
     WebhooksService,
