@@ -1054,6 +1054,97 @@ describe('WebhooksService Mux asset sync', () => {
     });
   });
 
+  // The FREE half of the same rule the PAID path already follows: the id comes
+  // from the policy the access level requires, or the delivery is refused. It
+  // used to fall through to playbackIds[0], which stores an identifier that
+  // cannot play over the plain url a free lesson is served with.
+  it('refuses a free lesson asset whose only playback id is signed', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: { id: 'asset-1', duration: 60, playback_ids: [{ id: 'signed-only', policy: 'signed' }] },
+      }),
+    ).rejects.toThrow(/asset-1 has no public playback id.*FREE lesson lesson-1/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a free lesson asset whose playback id carries no policy at all', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: { id: 'asset-1', playback_ids: [{ id: 'unlabelled' }] },
+      }),
+    ).rejects.toThrow(/has no public playback id/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a free lesson asset that carries no playback ids at all', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({ type: 'video.asset.ready', data: { id: 'asset-1', duration: 60 } }),
+    ).rejects.toThrow(/has no public playback id/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('still takes the public id for a free lesson when the asset also carries a signed one', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          update,
+        },
+      }),
+    );
+
+    await service.handleMuxWebhook({
+      type: 'video.asset.ready',
+      data: {
+        id: 'asset-1',
+        playback_ids: [
+          { id: 'signed-one', policy: 'signed' },
+          { id: 'public-one', policy: 'public' },
+        ],
+      },
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ muxPlaybackId: 'public-one' }) }),
+    );
+  });
+
   it('picks the signed playback id for a paid lesson', async () => {
     const update = vi.fn().mockResolvedValue({});
     const service = new WebhooksService(

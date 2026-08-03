@@ -47,6 +47,28 @@ export function isDevAuthBypassEnabled(source: NodeJS.ProcessEnv): boolean {
 }
 
 /**
+ * Whether this process is a deployment rather than a developer's machine.
+ *
+ * The single answer used by both halves of the unsigned-playback rule: startup
+ * validation refuses to boot a deployment without the signing key pair, and
+ * `isUnsignedPaidPlaybackAllowed` refuses the unsigned fallback on one. Those
+ * two must never disagree, so they ask one function rather than two copies of
+ * an expression - copies drift, and this is the check standing between a
+ * deployed service and serving unsigned paid video.
+ *
+ * Takes the two values rather than a whole environment so the startup site can
+ * pass its parsed fields directly without the coerced numeric `PORT` having to
+ * fit `NodeJS.ProcessEnv`. Anything unparseable or non-loopback counts as a
+ * deployment, so it fails closed.
+ */
+export function isDeployment(
+  nodeEnv: string | undefined,
+  databaseUrl: string | undefined,
+): boolean {
+  return nodeEnv === 'production' || !isLoopbackDatabaseUrl(databaseUrl);
+}
+
+/**
  * Whether a PAID lesson may fall back to an unsigned playback url when no Mux
  * signing key is configured - see mapLessonDetail in
  * apps/api/src/content/lesson-presentation.ts.
@@ -60,7 +82,7 @@ export function isDevAuthBypassEnabled(source: NodeJS.ProcessEnv): boolean {
  * what decides whether this is a developer's machine.
  */
 export function isUnsignedPaidPlaybackAllowed(source: NodeJS.ProcessEnv): boolean {
-  return source.NODE_ENV !== 'production' && isLoopbackDatabaseUrl(source.DATABASE_URL);
+  return !isDeployment(source.NODE_ENV, source.DATABASE_URL);
 }
 
 const apiEnvSchema = z
@@ -197,7 +219,7 @@ const apiEnvSchema = z
     // the requirement is wrong - the same unconditional shape as the
     // DIAZ_INTERNAL_API_KEY production requirement below.
     if (
-      (value.NODE_ENV === 'production' || !isLoopbackDatabaseUrl(value.DATABASE_URL)) &&
+      isDeployment(value.NODE_ENV, value.DATABASE_URL) &&
       (!value.MUX_SIGNING_KEY_ID || !value.MUX_SIGNING_KEY_PRIVATE)
     ) {
       context.addIssue({

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isDeployment,
   isDevAuthBypassEnabled,
   isLoopbackDatabaseUrl,
   isUnsignedPaidPlaybackAllowed,
@@ -131,6 +132,127 @@ describe('isUnsignedPaidPlaybackAllowed', () => {
     expect(isUnsignedPaidPlaybackAllowed({ NODE_ENV: 'development', DATABASE_URL: LOCAL_DB })).toBe(
       true,
     );
+  });
+});
+
+/**
+ * The two places that decide "is this a deployment" must never disagree: one
+ * lets a PAID lesson fall back to an unsigned url, the other refuses to boot
+ * without the key that signs it. They were written as separate expressions, so
+ * this pins the full matrix at both call sites rather than trusting that the
+ * two spellings mean the same thing.
+ *
+ * The deployment answer is asserted here as a literal per row, so the table is
+ * a fixed expectation of behaviour rather than a restatement of whatever the
+ * predicate currently returns.
+ */
+const DEPLOYMENT_MATRIX: { databaseUrl: string | undefined; deployedWhenNotProduction: boolean }[] =
+  [
+    { databaseUrl: LOCAL_DB, deployedWhenNotProduction: false },
+    { databaseUrl: 'postgresql://u:p@127.0.0.1:5432/db', deployedWhenNotProduction: false },
+    { databaseUrl: 'postgresql://u:p@127.9.9.9:5432/db', deployedWhenNotProduction: false },
+    { databaseUrl: 'postgres://u:p@[::1]:5432/db?schema=public', deployedWhenNotProduction: false },
+    { databaseUrl: 'postgresql://u:p@LOCALHOST:5432/db', deployedWhenNotProduction: false },
+    { databaseUrl: REMOTE_DB, deployedWhenNotProduction: true },
+    { databaseUrl: 'postgresql://u:p@10.0.0.4:5432/db', deployedWhenNotProduction: true },
+    { databaseUrl: 'postgresql://u:p@localhost.example.com:5432/db', deployedWhenNotProduction: true },
+    { databaseUrl: 'not-a-url', deployedWhenNotProduction: true },
+    { databaseUrl: '', deployedWhenNotProduction: true },
+    { databaseUrl: undefined, deployedWhenNotProduction: true },
+  ];
+
+const NODE_ENVS = [undefined, 'development', 'test', 'production'] as const;
+
+/** True when validateApiEnv refuses specifically for the deployment signing-key rule. */
+function refusesForDeploymentSigningKey(env: NodeJS.ProcessEnv): boolean {
+  try {
+    validateApiEnv(env);
+    return false;
+  } catch (error) {
+    return (error as Error).message.includes(
+      'required on a deployment together with MUX_SIGNING_KEY_PRIVATE',
+    );
+  }
+}
+
+describe('the deployment predicate, at both call sites', () => {
+  it('answers the whole matrix as the shared predicate', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+        expect(
+          isDeployment(nodeEnv, databaseUrl),
+          `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`,
+        ).toBe(nodeEnv === 'production' || deployedWhenNotProduction);
+      }
+    }
+  });
+
+  it('answers the whole matrix identically at the request-time call site', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+        const deployed = nodeEnv === 'production' || deployedWhenNotProduction;
+
+        // The request-time site allows the unsigned fallback exactly when this
+        // is NOT a deployment.
+        expect(
+          isUnsignedPaidPlaybackAllowed({ NODE_ENV: nodeEnv, DATABASE_URL: databaseUrl }),
+          `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`,
+        ).toBe(!deployed);
+      }
+    }
+  });
+
+  it('answers the whole matrix identically at the startup call site', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+        const deployed = nodeEnv === 'production' || deployedWhenNotProduction;
+        const label = `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`;
+        const env = envWithoutBypass({
+          NODE_ENV: nodeEnv,
+          DATABASE_URL: databaseUrl,
+          DIAZ_INTERNAL_API_KEY: 'internal',
+        });
+
+        // An absent DATABASE_URL fails the field rule fatally, so superRefine
+        // never runs and the startup site is unreachable - which is why the
+        // request-time site has to fail closed on its own rather than lean on
+        // this one. An *empty* DATABASE_URL is not the same case: min(1) is a
+        // non-fatal issue, so superRefine still runs and still refuses. Both
+        // are pinned here because the difference is not obvious from the schema.
+        if (databaseUrl === undefined) {
+          expect(refusesForDeploymentSigningKey(env), label).toBe(false);
+          expect(() => validateApiEnv(env), label).toThrow(/DATABASE_URL/);
+          continue;
+        }
+
+        expect(refusesForDeploymentSigningKey(env), label).toBe(deployed);
+      }
+    }
+  });
+
+  it('leaves the two sites exact complements wherever both are reachable', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl } of DEPLOYMENT_MATRIX) {
+        if (databaseUrl === undefined) {
+          continue;
+        }
+
+        const label = `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl || '<empty>'}`;
+        const startupRefuses = refusesForDeploymentSigningKey(
+          envWithoutBypass({
+            NODE_ENV: nodeEnv,
+            DATABASE_URL: databaseUrl,
+            DIAZ_INTERNAL_API_KEY: 'internal',
+          }),
+        );
+        const requestTimeAllows = isUnsignedPaidPlaybackAllowed({
+          NODE_ENV: nodeEnv,
+          DATABASE_URL: databaseUrl,
+        });
+
+        expect(requestTimeAllows, label).toBe(!startupRefuses);
+      }
+    }
   });
 });
 
