@@ -397,12 +397,18 @@ export default function LessonPage() {
                 // wins: measured in Chrome against @mux/mux-player 3.11.4, a
                 // player given both requests
                 // `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops
-                // the signed token on `src` altogether. That is safe only
-                // because the API withholds `muxPlaybackId` for PAID lessons
-                // and sends the signed `playbackUrl` instead - see
-                // `publicPlaybackId` in apps/api/src/content/lesson-presentation.ts.
-                // A payload carrying both would silently play unsigned.
-                playbackId={video.muxPlaybackId ?? undefined}
+                // the signed token on `src` altogether. The API does keep the
+                // two mutually exclusive - `publicPlaybackId` in
+                // apps/api/src/content/lesson-presentation.ts nulls
+                // `muxPlaybackId` exactly when it mints a signed `playbackUrl`
+                // - but that invariant is enforced in a separately deployed
+                // service, and one deploy of drift would play a paid lesson
+                // unsigned, perfectly and with no error to notice. So prefer
+                // the signed source here too, the way
+                // apps/mobile/src/mobile-app.tsx already does. Accepted cost:
+                // FREE lessons always carry a `playbackUrl`, so they now
+                // resolve through `src` and lose Mux redundant-stream delivery.
+                playbackId={video.playbackUrl ? undefined : (video.muxPlaybackId ?? undefined)}
                 preferPlayback="mse"
                 src={video.playbackUrl ?? undefined}
                 streamType="on-demand"

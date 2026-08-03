@@ -386,10 +386,12 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   `playbackUrl` is the only handle. `mapAdminLessonSummary` puts the real id back for the
   `ADMIN`/`COACH`-guarded admin routes, which is where admins type it in. Free lessons are
   unchanged - their playback id is public on purpose.
-  Withholding the id on the detail payload is also what makes signed playback work at all:
+  Withholding the id on the detail payload is also what keeps signed playback working:
   measured against `@mux/mux-player` 3.11.4 in Chrome, a player handed both a `playbackId`
   and a signed `src` requests `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops
-  the token entirely.
+  the token entirely. The web and mobile players prefer `playbackUrl` over the id for that
+  reason, but they deploy separately from the API, so neither substitutes for withholding
+  the id.
 - `POST /webhooks/mux` verifies the `mux-signature` HMAC (rejecting timestamps older than
   300s) and, on `video.asset.ready`, writes `muxPlaybackId` and `durationSeconds` onto the
   lesson whose `muxAssetId` matches. Set `muxAssetId` in the admin lesson editor to opt a
