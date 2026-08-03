@@ -695,14 +695,40 @@ export class WebhooksService {
       return;
     }
 
-    // A PAID lesson needs the signed playback id: handing it a public one would
-    // make lesson-presentation.ts build an unsigned, ungated stream url.
     const playbackIds = event.data?.playback_ids ?? [];
-    const requiredPolicy = lesson.accessLevel === 'PAID' ? 'signed' : 'public';
-    const playbackId =
-      playbackIds.find((entry) => entry.policy === requiredPolicy)?.id ??
-      playbackIds[0]?.id ??
-      null;
+    const signedPlaybackId = playbackIds.find((entry) => entry.policy === 'signed')?.id ?? null;
+    const publicPlaybackId = playbackIds.find((entry) => entry.policy === 'public')?.id ?? null;
+    const rejection = rejectMuxPlaybackPolicy(
+      lesson.accessLevel,
+      signedPlaybackId,
+      publicPlaybackId,
+    );
+
+    if (rejection) {
+      // Refused rather than accepted, and noisily rather than quietly. The
+      // asset was uploaded with the wrong playback policy, which is a mistake
+      // only a human can correct in Mux - so this fails the delivery, which
+      // puts it in the Mux dashboard as a failed webhook next to the asset that
+      // caused it. Answering 200 and silently leaving the lesson alone would
+      // hide the problem from everybody. Mux redelivers, so a correctly
+      // configured asset in place of this one is all it takes to recover.
+      const offered = playbackIds.map((entry) => entry.policy ?? 'unknown').join(', ') || 'none';
+
+      this.logger.error(
+        `Refusing to sync Mux asset ${assetId} to ${lesson.accessLevel} lesson ${lesson.id}: the ` +
+          `asset ${rejection.problem} (playback policies on the asset: ${offered}). ` +
+          `${rejection.reason} ${rejection.remedy}, then redeliver this webhook.`,
+      );
+
+      throw new Error(
+        `Mux asset ${assetId} ${rejection.problem}, so it cannot back ${lesson.accessLevel} ` +
+          `lesson ${lesson.id} - ${uncapitalise(rejection.remedy)}`,
+      );
+    }
+
+    // Taken from the policy the access level requires, never from whatever
+    // happened to arrive first.
+    const playbackId = lesson.accessLevel === 'PAID' ? signedPlaybackId : publicPlaybackId;
 
     const duration = event.data?.duration;
     const durationSeconds =
@@ -718,6 +744,65 @@ export class WebhooksService {
 
     this.logger.log(`Synced Mux asset ${assetId} to lesson ${lesson.id}`);
   }
+}
+
+/** Lowercases only the first letter, so a remedy can start a clause without flattening `Mux`. */
+function uncapitalise(sentence: string): string {
+  return sentence.charAt(0).toLowerCase() + sentence.slice(1);
+}
+
+/**
+ * One rule for both access levels: the playback id has to come from the policy
+ * the lesson requires, and nothing stands in for it. Returns what is wrong with
+ * the asset, or null when it is acceptable.
+ *
+ * The PAID half stopped trusting that whatever identifier arrived was the right
+ * kind; this is the FREE half of the same rule. Taking `playbackIds[0]` blindly
+ * used to hand a FREE lesson a signed identifier, which
+ * `mapLessonDetail` turns into a plain `stream.mux.com` url that cannot play -
+ * and left a lesson's stored id free to disagree with the asset's actual policy.
+ */
+function rejectMuxPlaybackPolicy(
+  accessLevel: string,
+  signedPlaybackId: string | null,
+  publicPlaybackId: string | null,
+): { problem: string; reason: string; remedy: string } | null {
+  if (accessLevel === 'PAID') {
+    // A public playback id makes the asset watchable by anyone holding it,
+    // whatever this API serves, and a signed sibling does not take that away -
+    // nothing stops a caller using the public one. So it has to be signed-only.
+    if (publicPlaybackId) {
+      return {
+        problem: 'has a public playback id',
+        reason:
+          'A public playback policy was found on paid content. Anyone holding that id can watch ' +
+          'the video, and a signed playback id alongside it does not take that away.',
+        remedy: 'Re-create the asset in Mux with a signed-only playback policy',
+      };
+    }
+
+    if (!signedPlaybackId) {
+      return {
+        problem: 'has no signed playback id',
+        reason: 'A paid video has no acceptable second choice.',
+        remedy: 'Re-create the asset in Mux with a signed-only playback policy',
+      };
+    }
+
+    return null;
+  }
+
+  if (!publicPlaybackId) {
+    return {
+      problem: 'has no public playback id',
+      reason:
+        'A free lesson is served over a plain, unsigned stream.mux.com url, so an id carrying any ' +
+        'other playback policy would be stored and then silently fail to play.',
+      remedy: 'Give the asset a public playback policy in Mux',
+    };
+  }
+
+  return null;
 }
 
 /** Stripe sends a linked object either expanded or as a bare id. */

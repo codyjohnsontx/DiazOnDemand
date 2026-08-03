@@ -91,6 +91,18 @@ function isTrustedYouTubeEmbed(url: string) {
   }
 }
 
+function isSignedPlaybackUrl(playbackUrl: string | null | undefined) {
+  if (!playbackUrl) {
+    return false;
+  }
+
+  try {
+    return new URL(playbackUrl).searchParams.has('token');
+  } catch {
+    return true;
+  }
+}
+
 export default function LessonPage() {
   const params = useParams<{ id: string }>();
   const lessonId = params.id;
@@ -393,7 +405,27 @@ export default function LessonPage() {
                 accentColor="#35e0a1"
                 className="aspect-video w-full"
                 metadata={{ video_id: lesson.id, video_title: lesson.title }}
-                playbackId={video.muxPlaybackId ?? undefined}
+                // `playbackId` and `src` are alternatives, and `playbackId`
+                // wins: measured in Chrome against @mux/mux-player 3.11.4, a
+                // player given both requests
+                // `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops
+                // the signed token on `src` altogether. So the id goes only to
+                // a player whose `src` carries no token for it to drop, which
+                // is every FREE lesson, and they keep the poster frame,
+                // storyboard scrubbing and redundant-stream delivery the
+                // player derives from an id. This is not the both-passed
+                // hazard: a signed source is never one of the two.
+                // `publicVideoIdentifiers` in
+                // apps/api/src/content/lesson-presentation.ts nulls
+                // `muxPlaybackId` exactly when it mints a signed `playbackUrl`,
+                // so a payload holding both is that separately deployed API
+                // having drifted, and the signed source wins. A `playbackUrl`
+                // that will not parse counts as signed for the same reason.
+                playbackId={
+                  isSignedPlaybackUrl(video.playbackUrl)
+                    ? undefined
+                    : (video.muxPlaybackId ?? undefined)
+                }
                 preferPlayback="mse"
                 src={video.playbackUrl ?? undefined}
                 streamType="on-demand"

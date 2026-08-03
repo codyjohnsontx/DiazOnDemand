@@ -16,7 +16,7 @@ import {
   resolveStripeEntitlement,
 } from '../common/entitlement.js';
 import { ContentService } from '../content/content.service.js';
-import { mapLessonDetail } from '../content/lesson-presentation.js';
+import { mapAdminLessonSummary, mapLessonDetail } from '../content/lesson-presentation.js';
 import { FavoritesService } from '../favorites/favorites.service.js';
 import { MeService } from '../me/me.service.js';
 import { ProgressService } from '../progress/progress.service.js';
@@ -28,6 +28,8 @@ type MockPrismaClient = Partial<{
     findFirst: ReturnType<typeof vi.fn>;
     update?: ReturnType<typeof vi.fn>;
   };
+  program: { findMany: ReturnType<typeof vi.fn> };
+  course: { findFirst: ReturnType<typeof vi.fn> };
   user: { findUnique: ReturnType<typeof vi.fn> };
   progress: { upsert: ReturnType<typeof vi.fn> };
   favorite: {
@@ -84,6 +86,98 @@ async function withMuxSecret<T>(secret: string | undefined, run: () => T | Promi
   }
 }
 
+const LOCAL_DB = 'postgresql://postgres:postgres@localhost:5432/diaz_ondemand';
+const DEPLOYED_DB = 'postgresql://app:secret@db.example.com:5432/diaz_ondemand';
+
+/**
+ * Runs `run` with DATABASE_URL set to a given host, because that - not
+ * NODE_ENV - is what decides whether an unsigned PAID playback url is allowed.
+ * See isUnsignedPaidPlaybackAllowed in apps/api/src/config/env.ts.
+ */
+async function withDatabaseUrl<T>(databaseUrl: string | undefined, run: () => T | Promise<T>) {
+  const previous = process.env.DATABASE_URL;
+
+  if (databaseUrl === undefined) {
+    delete process.env.DATABASE_URL;
+  } else {
+    process.env.DATABASE_URL = databaseUrl;
+  }
+
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = previous;
+    }
+  }
+}
+
+async function withNodeEnv<T>(nodeEnv: string | undefined, run: () => T | Promise<T>) {
+  const previous = process.env.NODE_ENV;
+
+  if (nodeEnv === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = nodeEnv;
+  }
+
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previous;
+    }
+  }
+}
+
+const paidCatalogueLesson = {
+  id: 'lesson-paid',
+  courseId: 'course-1',
+  title: 'Paid Lesson',
+  description: null,
+  orderIndex: 1,
+  isPublished: true,
+  accessLevel: 'PAID' as const,
+  videoProvider: 'MUX',
+  muxAssetId: 'asset-paid',
+  muxPlaybackId: 'paid-playback-id',
+  durationSeconds: 120,
+  tags: [],
+};
+
+const freeCatalogueLesson = {
+  ...paidCatalogueLesson,
+  id: 'lesson-free',
+  title: 'Free Lesson',
+  orderIndex: 0,
+  accessLevel: 'FREE' as const,
+  muxAssetId: 'asset-free',
+  muxPlaybackId: 'free-playback-id',
+};
+
+const paidYoutubeCatalogueLesson = {
+  ...paidCatalogueLesson,
+  id: 'lesson-paid-youtube',
+  title: 'Paid YouTube Lesson',
+  videoProvider: 'YOUTUBE',
+  muxAssetId: null,
+  muxPlaybackId: null,
+  youtubeVideoId: 'paid-youtube-id',
+};
+
+const freeYoutubeCatalogueLesson = {
+  ...paidYoutubeCatalogueLesson,
+  id: 'lesson-free-youtube',
+  title: 'Free YouTube Lesson',
+  orderIndex: 0,
+  accessLevel: 'FREE' as const,
+  youtubeVideoId: 'free-youtube-id',
+};
+
 describe('ContentService', () => {
   it('rejects paid lesson playback without premium entitlement', async () => {
     const service = new ContentService(
@@ -132,12 +226,14 @@ describe('ContentService', () => {
       }),
     );
 
-    const lesson = await service.getLesson('lesson-1', {
-      id: 'user-1',
-      clerkUserId: 'clerk-1',
-      role: Role.STUDENT,
-      entitlementTier: EntitlementTier.PREMIUM,
-    });
+    const lesson = await withDatabaseUrl(LOCAL_DB, () =>
+      service.getLesson('lesson-1', {
+        id: 'user-1',
+        clerkUserId: 'clerk-1',
+        role: Role.STUDENT,
+        entitlementTier: EntitlementTier.PREMIUM,
+      }),
+    );
 
     expect(lesson.video.playbackUrl).toBe('https://stream.mux.com/mux-playback-id.m3u8');
   });
@@ -153,6 +249,105 @@ describe('ContentService', () => {
 
     await expect(service.getLesson('missing', null)).rejects.toMatchObject({
       status: HttpStatus.NOT_FOUND,
+    });
+  });
+
+  // /programs, /programs/:id and /courses/:id take no authentication at all, so
+  // anything on those payloads is public. A provider identifier on a paid lesson
+  // is the address of the video, not a name for it.
+  describe('the unauthenticated catalogue', () => {
+    function catalogueService(lessons: object[] = [freeCatalogueLesson, paidCatalogueLesson]) {
+      const course = {
+        id: 'course-1',
+        programId: 'program-1',
+        title: 'Course',
+        description: null,
+        orderIndex: 0,
+        isPublished: true,
+        lessons,
+      };
+
+      return new ContentService(
+        createPrismaService({
+          program: {
+            findMany: vi.fn().mockResolvedValue([
+              {
+                id: 'program-1',
+                title: 'Program',
+                description: null,
+                orderIndex: 0,
+                discipline: 'BJJ',
+                isFeaturedDemo: false,
+                isPublished: true,
+                courses: [course],
+              },
+            ]),
+          },
+          course: { findFirst: vi.fn().mockResolvedValue(course) },
+        }),
+      );
+    }
+
+    it('withholds the playback id of a paid lesson from /programs', async () => {
+      const [program] = await catalogueService().listPrograms();
+      const lessons = program!.courses[0]!.lessons;
+
+      expect(lessons.find((lesson) => lesson.accessLevel === 'PAID')?.muxPlaybackId).toBeNull();
+    });
+
+    it('withholds the playback id of a paid lesson from /courses/:id', async () => {
+      const course = await catalogueService().getCourse('course-1');
+
+      expect(
+        course.lessons.find((lesson) => lesson.accessLevel === 'PAID')?.muxPlaybackId,
+      ).toBeNull();
+    });
+
+    it('still lists the paid lesson itself, so it can be advertised', async () => {
+      const course = await catalogueService().getCourse('course-1');
+      const paid = course.lessons.find((lesson) => lesson.accessLevel === 'PAID');
+
+      expect(paid).toMatchObject({ id: 'lesson-paid', title: 'Paid Lesson', durationSeconds: 120 });
+    });
+
+    it('keeps serving the playback id of a free lesson', async () => {
+      const course = await catalogueService().getCourse('course-1');
+      const free = course.lessons.find((lesson) => lesson.accessLevel === 'FREE');
+
+      expect(free?.muxPlaybackId).toBe('free-playback-id');
+    });
+
+    // PAID + YOUTUBE is saveable today: createLesson and updateLesson in
+    // apps/api/src/admin/admin.service.ts constrain accessLevel and
+    // videoProvider independently. So a YouTube video id has to be withheld by
+    // the same rule as the Mux playback id, not by the seed data happening to
+    // make every YouTube lesson free.
+    const youtubeCatalogue = () =>
+      catalogueService([freeYoutubeCatalogueLesson, paidYoutubeCatalogueLesson]);
+
+    it('withholds the video id of a paid YouTube lesson from /programs', async () => {
+      const [program] = await youtubeCatalogue().listPrograms();
+      const lessons = program!.courses[0]!.lessons;
+
+      expect(
+        lessons.find((lesson) => lesson.id === 'lesson-paid-youtube')?.youtubeVideoId,
+      ).toBeNull();
+    });
+
+    it('withholds the video id of a paid YouTube lesson from /courses/:id', async () => {
+      const course = await youtubeCatalogue().getCourse('course-1');
+
+      expect(
+        course.lessons.find((lesson) => lesson.id === 'lesson-paid-youtube')?.youtubeVideoId,
+      ).toBeNull();
+    });
+
+    it('keeps serving the video id of a free YouTube lesson', async () => {
+      const course = await youtubeCatalogue().getCourse('course-1');
+
+      expect(
+        course.lessons.find((lesson) => lesson.id === 'lesson-free-youtube')?.youtubeVideoId,
+      ).toBe('free-youtube-id');
     });
   });
 });
@@ -811,6 +1006,120 @@ describe('Mux signed playback tokens', () => {
 
     expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
   });
+
+  // Measured against @mux/mux-player 3.11.4 in Chrome: a player handed both a
+  // playbackId and a signed src requests the id form and drops the token, so
+  // leaving the id on a paid payload would silently defeat signed playback.
+  it('leaves a paid lesson with the signed url as its only playback handle', () => {
+    const detail = withSigningKey('signing-key-1', privateKey, () => mapLessonDetail(paidLesson));
+
+    expect(detail.muxPlaybackId).toBeNull();
+    expect(detail.video.muxPlaybackId).toBeNull();
+    expect(detail.video.playbackUrl).toContain('token=');
+  });
+
+  it('still hands a free lesson its playback id', () => {
+    const detail = withSigningKey('signing-key-1', privateKey, () =>
+      mapLessonDetail({ ...paidLesson, accessLevel: 'FREE' as const }),
+    );
+
+    expect(detail.video.muxPlaybackId).toBe('playback-abc');
+  });
+
+  it('gives admins the real playback id back, so the lesson editor can show it', () => {
+    expect(mapAdminLessonSummary({ ...paidLesson, muxAssetId: 'asset-1' })).toMatchObject({
+      muxPlaybackId: 'playback-abc',
+      muxAssetId: 'asset-1',
+    });
+  });
+
+  // The signing keys being absent used to fall back to an unsigned, never
+  // expiring url whenever NODE_ENV was not 'production' - and nothing in this
+  // repository sets NODE_ENV except `pnpm start`.
+  describe('the unsigned fallback when no signing key is configured', () => {
+    it('refuses on a deployed database, whatever NODE_ENV says', async () => {
+      for (const NODE_ENV of [undefined, 'development', 'test', 'production']) {
+        await withNodeEnv(NODE_ENV, () =>
+          withDatabaseUrl(DEPLOYED_DB, () =>
+            withSigningKey(undefined, undefined, () => {
+              expect(() => mapLessonDetail(paidLesson)).toThrow(
+                /Premium playback is not configured/,
+              );
+            }),
+          ),
+        );
+      }
+    });
+
+    it('refuses when there is no DATABASE_URL to judge by', async () => {
+      await withDatabaseUrl(undefined, () =>
+        withSigningKey(undefined, undefined, () => {
+          expect(() => mapLessonDetail(paidLesson)).toThrow(/Premium playback is not configured/);
+        }),
+      );
+    });
+
+    it('still works for a developer against a local database', async () => {
+      const detail = await withDatabaseUrl(LOCAL_DB, () =>
+        withSigningKey(undefined, undefined, () => mapLessonDetail(paidLesson)),
+      );
+
+      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
+    });
+
+    it('never applies to a free lesson, which is meant to be unsigned', async () => {
+      const detail = await withDatabaseUrl(DEPLOYED_DB, () =>
+        withSigningKey(undefined, undefined, () =>
+          mapLessonDetail({ ...paidLesson, accessLevel: 'FREE' as const }),
+        ),
+      );
+
+      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
+    });
+  });
+});
+
+// A YouTube video id is the whole address of the video too: it plays at
+// youtube.com for anyone holding it unless that video is Private. Nothing ties
+// accessLevel to a provider, so PAID + YOUTUBE is saveable and the id is
+// withheld by the same rule as the Mux playback id.
+describe('paid YouTube lessons', () => {
+  const paidYoutubeLesson = {
+    id: 'lesson-1',
+    courseId: 'course-1',
+    title: 'Paid YouTube Lesson',
+    description: null,
+    orderIndex: 0,
+    isPublished: true,
+    accessLevel: 'PAID' as const,
+    videoProvider: 'YOUTUBE',
+    youtubeVideoId: 'youtube-abc',
+    durationSeconds: 120,
+    tags: [],
+  };
+
+  it('leaves the embed url as the only handle on the video', () => {
+    const detail = mapLessonDetail(paidYoutubeLesson);
+
+    expect(detail.youtubeVideoId).toBeNull();
+    expect(detail.video.youtubeVideoId).toBeNull();
+    expect(detail.video.embedUrl).toBe(
+      'https://www.youtube-nocookie.com/embed/youtube-abc?rel=0&modestbranding=1',
+    );
+  });
+
+  it('still hands a free lesson its video id', () => {
+    const detail = mapLessonDetail({ ...paidYoutubeLesson, accessLevel: 'FREE' as const });
+
+    expect(detail.youtubeVideoId).toBe('youtube-abc');
+    expect(detail.video.youtubeVideoId).toBe('youtube-abc');
+  });
+
+  it('gives admins the real video id back, so the lesson editor can show it', () => {
+    expect(mapAdminLessonSummary(paidYoutubeLesson)).toMatchObject({
+      youtubeVideoId: 'youtube-abc',
+    });
+  });
 });
 
 describe('WebhooksService Mux asset sync', () => {
@@ -840,6 +1149,97 @@ describe('WebhooksService Mux asset sync', () => {
     });
   });
 
+  // The FREE half of the same rule the PAID path already follows: the id comes
+  // from the policy the access level requires, or the delivery is refused. It
+  // used to fall through to playbackIds[0], which stores an identifier that
+  // cannot play over the plain url a free lesson is served with.
+  it('refuses a free lesson asset whose only playback id is signed', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: { id: 'asset-1', duration: 60, playback_ids: [{ id: 'signed-only', policy: 'signed' }] },
+      }),
+    ).rejects.toThrow(/asset-1 has no public playback id.*FREE lesson lesson-1/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a free lesson asset whose playback id carries no policy at all', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: { id: 'asset-1', playback_ids: [{ id: 'unlabelled' }] },
+      }),
+    ).rejects.toThrow(/has no public playback id/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a free lesson asset that carries no playback ids at all', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({ type: 'video.asset.ready', data: { id: 'asset-1', duration: 60 } }),
+    ).rejects.toThrow(/has no public playback id/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('still takes the public id for a free lesson when the asset also carries a signed one', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          update,
+        },
+      }),
+    );
+
+    await service.handleMuxWebhook({
+      type: 'video.asset.ready',
+      data: {
+        id: 'asset-1',
+        playback_ids: [
+          { id: 'signed-one', policy: 'signed' },
+          { id: 'public-one', policy: 'public' },
+        ],
+      },
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ muxPlaybackId: 'public-one' }) }),
+    );
+  });
+
   it('picks the signed playback id for a paid lesson', async () => {
     const update = vi.fn().mockResolvedValue({});
     const service = new WebhooksService(
@@ -856,10 +1256,7 @@ describe('WebhooksService Mux asset sync', () => {
       data: {
         id: 'asset-1',
         duration: 60,
-        playback_ids: [
-          { id: 'public-playback', policy: 'public' },
-          { id: 'signed-playback', policy: 'signed' },
-        ],
+        playback_ids: [{ id: 'signed-playback', policy: 'signed' }],
       },
     });
 
@@ -868,6 +1265,117 @@ describe('WebhooksService Mux asset sync', () => {
         data: expect.objectContaining({ muxPlaybackId: 'signed-playback' }),
       }),
     );
+  });
+
+  // A signed playback id next to a public one does not cancel the public one -
+  // nothing stops a caller using it, so the asset is still watchable by anyone
+  // holding that id. This is also the shape the refusal's own recovery path
+  // invites: adding a signed id to the offending asset is cheaper than
+  // re-uploading it, and must not turn the delivery green.
+  it('refuses a mixed-policy asset for a paid lesson, signed sibling and all', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: {
+          id: 'asset-1',
+          duration: 60,
+          playback_ids: [
+            { id: 'public-playback', policy: 'public' },
+            { id: 'signed-playback', policy: 'signed' },
+          ],
+        },
+      }),
+    ).rejects.toThrow(
+      /asset-1 has a public playback id.*PAID lesson lesson-1.*signed-only playback policy/,
+    );
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  // A public playback id on a paid lesson makes the video watchable by anyone
+  // holding the id, whatever this API chooses to serve. There is no acceptable
+  // second choice, so the delivery fails instead - visibly, in the Mux
+  // dashboard, next to the asset whose upload policy is wrong.
+  it('refuses a public-only asset for a paid lesson rather than accepting it', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: {
+          id: 'asset-1',
+          duration: 60,
+          playback_ids: [{ id: 'public-playback', policy: 'public' }],
+        },
+      }),
+    ).rejects.toThrow(/asset-1 has a public playback id.*PAID lesson lesson-1/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a paid asset that carries no playback ids at all', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: { id: 'asset-1', duration: 60 },
+      }),
+    ).rejects.toThrow(/no signed playback id/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to a public id when the paid lesson already has one', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID', muxPlaybackId: 'old' }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: {
+          id: 'asset-1',
+          playback_ids: [{ id: 'public-playback' }, { id: 'another-public', policy: 'public' }],
+        },
+      }),
+    ).rejects.toThrow(/has a public playback id/);
+
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('ignores assets that do not belong to any lesson', async () => {

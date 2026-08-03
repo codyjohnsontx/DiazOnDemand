@@ -37,13 +37,53 @@ export function isLoopbackDatabaseUrl(databaseUrl: string | undefined): boolean 
  * The single predicate for whether the dev auth bypass may be used. Startup
  * validation refuses the same combination outright, so a server should never
  * reach this - it is the request-time half of the same fail-closed rule.
+ *
+ * "Not a deployment" is asked of `isDeployment` below rather than spelled out
+ * again here, so all three consumers share one definition of where they are
+ * running.
  */
 export function isDevAuthBypassEnabled(source: NodeJS.ProcessEnv): boolean {
-  return (
-    source.NODE_ENV !== 'production' &&
-    source.DEV_BYPASS_AUTH === 'true' &&
-    isLoopbackDatabaseUrl(source.DATABASE_URL)
-  );
+  return !isDeployment(source.NODE_ENV, source.DATABASE_URL) && source.DEV_BYPASS_AUTH === 'true';
+}
+
+/**
+ * Whether this process is a deployment rather than a developer's machine.
+ *
+ * The single answer used by both halves of the unsigned-playback rule: startup
+ * validation refuses to boot a deployment without the signing key pair, and
+ * `isUnsignedPaidPlaybackAllowed` refuses the unsigned fallback on one. Those
+ * two must never disagree, so they ask one function rather than two copies of
+ * an expression - copies drift, and this is the check standing between a
+ * deployed service and serving unsigned paid video. `isDevAuthBypassEnabled`
+ * asks the same question of the same function, for the same reason.
+ *
+ * Takes the two values rather than a whole environment so the startup site can
+ * pass its parsed fields directly without the coerced numeric `PORT` having to
+ * fit `NodeJS.ProcessEnv`. Anything unparseable or non-loopback counts as a
+ * deployment, so it fails closed.
+ */
+export function isDeployment(
+  nodeEnv: string | undefined,
+  databaseUrl: string | undefined,
+): boolean {
+  return nodeEnv === 'production' || !isLoopbackDatabaseUrl(databaseUrl);
+}
+
+/**
+ * Whether a PAID lesson may fall back to an unsigned playback url when no Mux
+ * signing key is configured - see mapLessonDetail in
+ * apps/api/src/content/lesson-presentation.ts.
+ *
+ * Gated on the same fact, and for the same reason, as the dev auth bypass
+ * above. An unsigned `stream.mux.com/<id>.m3u8` never expires and asks for
+ * nothing, so on a public asset it hands the paid catalogue to anyone who reads
+ * the url. That must not become reachable because a host happened to run
+ * `node dist/main.js` instead of `pnpm start` and so left NODE_ENV unset. The
+ * database a process is pointed at is a fact about the deployment, so that is
+ * what decides whether this is a developer's machine.
+ */
+export function isUnsignedPaidPlaybackAllowed(source: NodeJS.ProcessEnv): boolean {
+  return !isDeployment(source.NODE_ENV, source.DATABASE_URL);
 }
 
 const apiEnvSchema = z
@@ -163,13 +203,31 @@ const apiEnvSchema = z
       });
     }
 
-    // Signed playback is what gates PAID lessons, so production must be able to
-    // mint tokens rather than falling back to an unsigned url.
-    if (value.NODE_ENV === 'production' && value.MUX_TOKEN_ID && !value.MUX_SIGNING_KEY_ID) {
+    // Signed playback is what gates PAID lessons, so a deployment must be able
+    // to mint tokens rather than falling back to an unsigned url. Refusing on
+    // the database as well as on NODE_ENV is what makes that hold for a server
+    // started without NODE_ENV set - the same reasoning as the bypass above.
+    //
+    // Deliberately keyed on the deployment alone, with no "is Mux enabled"
+    // proxy. This used to be gated on MUX_TOKEN_ID, which drifted: no runtime
+    // code reads that variable, so a deployment that serves Mux video without
+    // ever setting it skipped the check entirely and every PAID lesson answered
+    // 500 with no boot-time signal. Any proxy can drift the same way. The
+    // signing key pair cannot, because what is required here is exactly what
+    // createMuxPlaybackToken reads, and it is the only thing standing between a
+    // PAID lesson and either a 500 or an unsigned url. A deployed API can never
+    // serve paid Mux video without it, so there is no configuration in which
+    // the requirement is wrong - the same unconditional shape as the
+    // DIAZ_INTERNAL_API_KEY production requirement below.
+    if (
+      isDeployment(value.NODE_ENV, value.DATABASE_URL) &&
+      (!value.MUX_SIGNING_KEY_ID || !value.MUX_SIGNING_KEY_PRIVATE)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['MUX_SIGNING_KEY_ID'],
-        message: 'required in production when Mux is enabled (signs PAID lesson playback)',
+        message:
+          'required on a deployment together with MUX_SIGNING_KEY_PRIVATE - a deployment being NODE_ENV=production, or a DATABASE_URL that is not loopback - because the pair signs PAID lesson playback, and without it a paid lesson is served over an unsigned, non-expiring url or not served at all',
       });
     }
 

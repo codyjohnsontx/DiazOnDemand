@@ -78,7 +78,8 @@ Mux (optional now):
 - `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` (API access token, from Settings > Access Tokens)
 - `MUX_WEBHOOK_SECRET` (webhook signing secret; required in production when `MUX_TOKEN_ID` is set)
 - `MUX_SIGNING_KEY_ID` / `MUX_SIGNING_KEY_PRIVATE` (signing key, from Settings > Signing Keys - a
-  separate credential from the access token; signs the RS256 playback JWTs for `PAID` lessons)
+  separate credential from the access token; signs the RS256 playback JWTs for `PAID` lessons.
+  Optional locally, **required on any deployment** - see "Vercel Deployment Notes")
 
 Seed helper:
 - `SEED_DEV_CLERK_USER_ID`
@@ -372,17 +373,62 @@ Test locally with Stripe CLI:
 stripe listen --forward-to localhost:4000/webhooks/stripe
 ```
 
-## Mux Notes
+## Video Notes
 - Lessons store `muxAssetId` and `muxPlaybackId`.
 - API returns `playbackUrl` for clients to treat as an opaque playback source.
-- Free lessons use a public playback URL; paid lessons use a signed playback URL when Mux signing keys are configured.
+- Free lessons use a public playback URL; paid lessons use a signed playback URL.
+- **A `PAID` lesson's provider identifiers are withheld from every unauthenticated payload.**
+  `/programs`, `/programs/:id` and `/courses/:id` need no authentication, and neither
+  identifier is a name for a video, each is the whole address of one: on an asset uploaded
+  with a `public` playback policy, `https://stream.mux.com/<id>.m3u8` plays for anyone
+  holding it, and a YouTube video id plays at youtube.com for anyone holding it unless that
+  video is Private. So `publicVideoIdentifiers` in
+  `apps/api/src/content/lesson-presentation.ts` nulls `muxPlaybackId` and `youtubeVideoId`
+  together for paid lessons, on both the summary and the detail payload - one rule for every
+  provider, so a new one cannot be added past it. The entitlement-gated handles built in
+  `mapLessonDetail` are what an entitled member watches with: the signed `playbackUrl` for
+  Mux, the `embedUrl` for YouTube. `mapAdminLessonSummary` puts the real ids back for the
+  `ADMIN`/`COACH`-guarded admin routes, which is where admins type them in. Free lessons are
+  unchanged - their identifiers are public on purpose.
+  Withholding the id on the detail payload is also what keeps signed playback working:
+  measured against `@mux/mux-player` 3.11.4 in Chrome, a player handed both a `playbackId`
+  and a signed `src` requests `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops
+  the token entirely. The web player passes the id only when `src` carries no token for it
+  to drop, and the mobile player prefers `playbackUrl`, but they deploy separately from the
+  API, so neither substitutes for withholding the id.
 - `POST /webhooks/mux` verifies the `mux-signature` HMAC (rejecting timestamps older than
   300s) and, on `video.asset.ready`, writes `muxPlaybackId` and `durationSeconds` onto the
   lesson whose `muxAssetId` matches. Set `muxAssetId` in the admin lesson editor to opt a
   lesson into that sync.
+  For a `PAID` lesson the asset must be **signed-only**: the sync refuses an asset that
+  carries no `signed` playback id, and equally refuses one that carries a `public` playback
+  id even when a signed id sits beside it, because nothing stops a caller using the public
+  one. The refusal logs an error and throws, so the delivery fails visibly in the Mux
+  dashboard next to the asset whose upload policy is wrong rather than quietly attaching a
+  public id to a paid video, and Mux redelivers once a signed-only asset replaces it. A
+  `FREE` lesson takes the asset's `public` id and is refused the same way when the asset
+  carries none: a free lesson is served over a plain `stream.mux.com` url, so an id with any
+  other policy would be stored and then silently fail to play. Either way the stored id
+  comes from the policy the access level requires, never from whichever id arrived first.
 - Signed playback needs a Mux *signing key* (`MUX_SIGNING_KEY_ID` /
   `MUX_SIGNING_KEY_PRIVATE`), which is a different credential from the `MUX_TOKEN_ID` /
   `MUX_TOKEN_SECRET` API access token.
+- What none of this fixes: an asset already uploaded to Mux with a `public` playback policy
+  stays public, and no code change retracts a playback id that has already been served. Both
+  are Mux dashboard work for the account owner. Two cases to audit, not one:
+  - every asset backing a lesson that is `PAID` today, and
+  - every asset backing a lesson that was `FREE` and later flipped to `PAID`. The admin
+    editor's `updateLesson` (`apps/api/src/admin/admin.service.ts`) changes `accessLevel`
+    while the row keeps its existing `muxPlaybackId`. From then on the API withholds that id
+    and mints signed URLs, but it was already served to every anonymous `/programs` caller
+    while the lesson was free, so anyone who read the catalogue earlier still holds a
+    working, non-expiring `stream.mux.com` URL against a public-policy asset. Closing that
+    needs the asset rotated or re-created in Mux; it is filed as separate work and is
+    deliberately not mitigated in code, because a half-measure here would only look handled.
+
+  A `PAID` lesson hosted on YouTube needs the same audit in YouTube Studio, for the same
+  reason: its video id was served anonymously too, and the video plays for anyone holding
+  that id unless it is set to **Private**. Unlisted is not retracted.
 
 Test webhooks locally with the Mux CLI - it forwards to localhost and prints a signing
 secret to use as `MUX_WEBHOOK_SECRET`:
@@ -396,13 +442,17 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 - API deploy: deploy `apps/api` as a separate service/project. Start it with `pnpm start`
   (root) or `pnpm --filter api start`, which sets `NODE_ENV=production` itself rather than
   relying on the host to export it.
-- Pre-deploy checklist. Because `pnpm start` sets `NODE_ENV=production`, the production-only
-  startup checks are now live. The API **exits instead of starting** if any of these is
-  missing:
+- Pre-deploy checklist. The API **exits instead of starting** if any of these is missing:
   - `DIAZ_INTERNAL_API_KEY` - always required in production.
   - `STRIPE_WEBHOOK_SECRET` - required when Stripe is enabled (`STRIPE_SECRET_KEY` set).
-  - `MUX_WEBHOOK_SECRET` and the signing key pair `MUX_SIGNING_KEY_ID` +
-    `MUX_SIGNING_KEY_PRIVATE` - required when Mux is enabled (`MUX_TOKEN_ID` set).
+  - `MUX_WEBHOOK_SECRET` - required in production when Mux is enabled (`MUX_TOKEN_ID` set).
+  - The signing key pair `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` - required on any
+    deployment, unconditionally, with no "is Mux enabled" condition attached.
+
+  The first three are live because `pnpm start` sets `NODE_ENV=production`. The signing key
+  pair does not depend on that: it is refused whenever `NODE_ENV=production` **or**
+  `DATABASE_URL` points anywhere but loopback, so a run started as `node dist/main.js`,
+  a Dockerfile `CMD` or a Procfile - none of which export `NODE_ENV` - is refused too.
 
   This refusal is deliberate. The webhook and internal-API paths already fail closed at
   request time - `verifyStripeSignature`/`verifyMuxSignature` throw when the secret is
@@ -411,15 +461,21 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   exposure; it is a service that cannot do its job, silently, until someone notices.
   Refusing at startup makes that visible immediately.
 
-  The Mux signing keys are not like that. Paid lesson detail returns a 500 instead of an
-  unsigned playback URL only when `NODE_ENV=production` - see
-  `apps/api/src/content/lesson-presentation.ts`. That is the same guard the auth bypass
-  deliberately does not rely on, because only `pnpm start` sets it. So a run started some
-  other way (`node dist/main.js`, a Dockerfile `CMD`, a Procfile) that does not export
-  `NODE_ENV` itself skips both the startup check and the 500: with `MUX_TOKEN_ID` set and
-  the signing keys absent, an entitled viewer of a **paid** lesson gets an unsigned,
-  non-expiring `stream.mux.com` playback URL. That is an exposure, and it is why the
-  signing keys matter. Start the API with `pnpm start`, set the values, then deploy.
+  The Mux signing keys are the other kind. Without them a `PAID` lesson has no signed URL to
+  serve, so the request-time half decides what happens next - and it is keyed on the same
+  fact as the startup check, not on `NODE_ENV`: `isUnsignedPaidPlaybackAllowed` in
+  `apps/api/src/config/env.ts` allows the unsigned fallback only against a loopback
+  `DATABASE_URL`, the same predicate the dev auth bypass uses and for the same reason. On a
+  deployed database, paid lesson detail answers 500 rather than handing out an unsigned,
+  non-expiring `stream.mux.com` URL - however the process was started, and whatever
+  `NODE_ENV` says. On a developer's localhost database the fallback still works.
+  Two halves of one rule: a deployment cannot boot without the keys, and if it somehow runs
+  without them it refuses to serve rather than serving a paid video unsigned.
+
+  What this does **not** do: it does not make paid video safe on its own. Every existing Mux
+  asset still carries whatever playback policy it was created with, and a playback id that
+  has already been served cannot be retracted. See the audit list at the end of "Video Notes" -
+  that part is the account owner's job in the Mux dashboard.
 - Prefer real host environment variables for those production values, with the monorepo-root
   `.env` as the local fallback. That is ordinary good practice for a deployed service, not a
   workaround for a load-ordering bug. `apps/api/.env` is **not** a blind spot: `app.module.ts`

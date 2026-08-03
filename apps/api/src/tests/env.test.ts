@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isDevAuthBypassEnabled, isLoopbackDatabaseUrl, validateApiEnv } from '../config/env.js';
+import {
+  isDeployment,
+  isDevAuthBypassEnabled,
+  isLoopbackDatabaseUrl,
+  isUnsignedPaidPlaybackAllowed,
+  validateApiEnv,
+} from '../config/env.js';
 
 const LOCAL_DB = 'postgresql://postgres:postgres@localhost:5432/diaz_ondemand';
 const REMOTE_DB = 'postgresql://app:secret@db.example.com:5432/diaz_ondemand';
@@ -103,6 +109,223 @@ describe('isDevAuthBypassEnabled', () => {
   });
 });
 
+describe('isUnsignedPaidPlaybackAllowed', () => {
+  it('is false against a deployed database whatever NODE_ENV says', () => {
+    for (const NODE_ENV of [undefined, 'development', 'test', 'production']) {
+      expect(isUnsignedPaidPlaybackAllowed({ NODE_ENV, DATABASE_URL: REMOTE_DB })).toBe(false);
+    }
+  });
+
+  it('fails closed when there is no DATABASE_URL to judge by', () => {
+    expect(isUnsignedPaidPlaybackAllowed({})).toBe(false);
+    expect(isUnsignedPaidPlaybackAllowed({ DATABASE_URL: 'not-a-url' })).toBe(false);
+  });
+
+  it('is false in production, even against a local database', () => {
+    expect(isUnsignedPaidPlaybackAllowed({ NODE_ENV: 'production', DATABASE_URL: LOCAL_DB })).toBe(
+      false,
+    );
+  });
+
+  it('is true for local development, so a developer can still watch a paid lesson', () => {
+    expect(isUnsignedPaidPlaybackAllowed({ DATABASE_URL: LOCAL_DB })).toBe(true);
+    expect(isUnsignedPaidPlaybackAllowed({ NODE_ENV: 'development', DATABASE_URL: LOCAL_DB })).toBe(
+      true,
+    );
+  });
+});
+
+/**
+ * The places that decide "is this a deployment" must never disagree: one lets a
+ * PAID lesson fall back to an unsigned url, one refuses to boot without the key
+ * that signs it, and one lets an uncredentialed request through as an admin.
+ * They were written as separate expressions, so this pins the full matrix at
+ * every call site rather than trusting that the spellings mean the same thing.
+ *
+ * The deployment answer is asserted here as a literal per row, so the table is
+ * a fixed expectation of behaviour rather than a restatement of whatever the
+ * predicate currently returns.
+ */
+const DEPLOYMENT_MATRIX: { databaseUrl: string | undefined; deployedWhenNotProduction: boolean }[] =
+  [
+    { databaseUrl: LOCAL_DB, deployedWhenNotProduction: false },
+    { databaseUrl: 'postgresql://u:p@127.0.0.1:5432/db', deployedWhenNotProduction: false },
+    { databaseUrl: 'postgresql://u:p@127.9.9.9:5432/db', deployedWhenNotProduction: false },
+    { databaseUrl: 'postgres://u:p@[::1]:5432/db?schema=public', deployedWhenNotProduction: false },
+    { databaseUrl: 'postgresql://u:p@LOCALHOST:5432/db', deployedWhenNotProduction: false },
+    { databaseUrl: REMOTE_DB, deployedWhenNotProduction: true },
+    { databaseUrl: 'postgresql://u:p@10.0.0.4:5432/db', deployedWhenNotProduction: true },
+    { databaseUrl: 'postgresql://u:p@localhost.example.com:5432/db', deployedWhenNotProduction: true },
+    { databaseUrl: 'not-a-url', deployedWhenNotProduction: true },
+    { databaseUrl: '', deployedWhenNotProduction: true },
+    { databaseUrl: undefined, deployedWhenNotProduction: true },
+  ];
+
+const NODE_ENVS = [undefined, 'development', 'test', 'production'] as const;
+
+/** True when validateApiEnv refuses specifically for the deployment signing-key rule. */
+function refusesForDeploymentSigningKey(env: NodeJS.ProcessEnv): boolean {
+  try {
+    validateApiEnv(env);
+    return false;
+  } catch (error) {
+    return (error as Error).message.includes(
+      'required on a deployment together with MUX_SIGNING_KEY_PRIVATE',
+    );
+  }
+}
+
+describe('the deployment predicate, at every call site', () => {
+  it('answers the whole matrix as the shared predicate', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+        expect(
+          isDeployment(nodeEnv, databaseUrl),
+          `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`,
+        ).toBe(nodeEnv === 'production' || deployedWhenNotProduction);
+      }
+    }
+  });
+
+  it('answers the whole matrix identically at the request-time call site', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+        const deployed = nodeEnv === 'production' || deployedWhenNotProduction;
+
+        // The request-time site allows the unsigned fallback exactly when this
+        // is NOT a deployment.
+        expect(
+          isUnsignedPaidPlaybackAllowed({ NODE_ENV: nodeEnv, DATABASE_URL: databaseUrl }),
+          `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`,
+        ).toBe(!deployed);
+      }
+    }
+  });
+
+  it('answers the whole matrix identically at the dev auth bypass call site', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+        const deployed = nodeEnv === 'production' || deployedWhenNotProduction;
+        const label = `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`;
+
+        // The bypass is allowed exactly when this is NOT a deployment and the
+        // flag is on. Nothing else may turn it on.
+        expect(
+          isDevAuthBypassEnabled({
+            NODE_ENV: nodeEnv,
+            DATABASE_URL: databaseUrl,
+            DEV_BYPASS_AUTH: 'true',
+          }),
+          `${label} DEV_BYPASS_AUTH=true`,
+        ).toBe(!deployed);
+
+        expect(
+          isDevAuthBypassEnabled({
+            NODE_ENV: nodeEnv,
+            DATABASE_URL: databaseUrl,
+            DEV_BYPASS_AUTH: 'false',
+          }),
+          `${label} DEV_BYPASS_AUTH=false`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('answers the whole matrix identically at the startup call site', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+        const deployed = nodeEnv === 'production' || deployedWhenNotProduction;
+        const label = `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`;
+        const env = envWithoutBypass({
+          NODE_ENV: nodeEnv,
+          DATABASE_URL: databaseUrl,
+          DIAZ_INTERNAL_API_KEY: 'internal',
+        });
+
+        // An absent DATABASE_URL fails the field rule fatally, so superRefine
+        // never runs and the startup site is unreachable - which is why the
+        // request-time site has to fail closed on its own rather than lean on
+        // this one. An *empty* DATABASE_URL is not the same case: min(1) is a
+        // non-fatal issue, so superRefine still runs and still refuses. Both
+        // are pinned here because the difference is not obvious from the schema.
+        if (databaseUrl === undefined) {
+          expect(refusesForDeploymentSigningKey(env), label).toBe(false);
+          expect(() => validateApiEnv(env), label).toThrow(/DATABASE_URL/);
+          continue;
+        }
+
+        expect(refusesForDeploymentSigningKey(env), label).toBe(deployed);
+      }
+    }
+  });
+
+  it('leaves the two sites exact complements wherever both are reachable', () => {
+    for (const nodeEnv of NODE_ENVS) {
+      for (const { databaseUrl } of DEPLOYMENT_MATRIX) {
+        if (databaseUrl === undefined) {
+          continue;
+        }
+
+        const label = `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl || '<empty>'}`;
+        const startupRefuses = refusesForDeploymentSigningKey(
+          envWithoutBypass({
+            NODE_ENV: nodeEnv,
+            DATABASE_URL: databaseUrl,
+            DIAZ_INTERNAL_API_KEY: 'internal',
+          }),
+        );
+        const requestTimeAllows = isUnsignedPaidPlaybackAllowed({
+          NODE_ENV: nodeEnv,
+          DATABASE_URL: databaseUrl,
+        });
+
+        expect(requestTimeAllows, label).toBe(!startupRefuses);
+      }
+    }
+  });
+});
+
+describe('Mux signing key startup refusal', () => {
+  it('refuses a deployed database without signing keys, NODE_ENV unset', () => {
+    expect(() => validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB }))).toThrow(
+      /MUX_SIGNING_KEY_ID: required on a deployment together with MUX_SIGNING_KEY_PRIVATE/,
+    );
+  });
+
+  // The refusal is keyed on the deployment, never on an "is Mux enabled" proxy:
+  // nothing in the runtime reads MUX_TOKEN_ID, so a deployment can serve Mux
+  // video without it and would otherwise slip past this check.
+  it('refuses a deployed database with no Mux access token set at all', () => {
+    expect(() =>
+      validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB, MUX_WEBHOOK_SECRET: 'whsec' })),
+    ).toThrow(/MUX_SIGNING_KEY_ID: required on a deployment/);
+  });
+
+  it('refuses a deployed database that sets only half the signing key pair', () => {
+    expect(() =>
+      validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB, MUX_SIGNING_KEY_ID: 'key' })),
+    ).toThrow(/MUX_SIGNING_KEY_ID: required on a deployment/);
+  });
+
+  it('accepts a deployed database once the signing key pair is set', () => {
+    expect(() =>
+      validateApiEnv(
+        envWithoutBypass({
+          DATABASE_URL: REMOTE_DB,
+          MUX_SIGNING_KEY_ID: 'key',
+          MUX_SIGNING_KEY_PRIVATE: 'private',
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it('still lets a developer run Mux against a local database without signing keys', () => {
+    expect(() =>
+      validateApiEnv(envWithoutBypass({ MUX_TOKEN_ID: 'token', MUX_TOKEN_SECRET: 'secret' })),
+    ).not.toThrow();
+  });
+});
+
 describe('existing startup refusals', () => {
   it('requires DATABASE_URL', () => {
     expect(() => validateApiEnv({ DEV_BYPASS_AUTH: 'true' })).toThrow(/DATABASE_URL/);
@@ -167,7 +390,7 @@ describe('existing startup refusals', () => {
           DIAZ_INTERNAL_API_KEY: 'internal',
         }),
       ),
-    ).toThrow(/MUX_SIGNING_KEY_ID: required in production/);
+    ).toThrow(/MUX_SIGNING_KEY_ID: required on a deployment together with MUX_SIGNING_KEY_PRIVATE/);
   });
 
   it('requires the internal API key in production', () => {

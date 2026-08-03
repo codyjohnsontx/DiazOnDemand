@@ -271,8 +271,9 @@ the reason it exists is stated with it.
 - Deployed API runs start via `pnpm start`, which sets `NODE_ENV=production` itself.
   That makes the production-only startup checks live, so a deploy needs these set or the
   API exits instead of starting: `DIAZ_INTERNAL_API_KEY` (always), `STRIPE_WEBHOOK_SECRET`
-  (when `STRIPE_SECRET_KEY` is set), and `MUX_WEBHOOK_SECRET` plus the signing key pair
-  `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` (when `MUX_TOKEN_ID` is set). The
+  (when `STRIPE_SECRET_KEY` is set), and `MUX_WEBHOOK_SECRET` (when `MUX_TOKEN_ID` is set).
+  The signing key pair `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` is required on any
+  deployment as well, and does not depend on `pnpm start` - see the Mux entry below. The
   refusal is deliberate - do not relax a check to get a deploy green.
 - Every `.env.example` in the repo - root, `apps/api`, `apps/diaz-ondemand-web`,
   `apps/mobile` - ships its bypass flag as `false`. Keep all four copy-safe; the
@@ -293,6 +294,72 @@ the reason it exists is stated with it.
   deliberately sets `DEV_BYPASS_AUTH=true` and the run is not `NODE_ENV=production`. The
   residual risk is that combination, not the loopback proxy on its own. This is written
   down on purpose; do not add detection code for it.
+- A PAID lesson's provider identifiers never leave the API on an unauthenticated payload, and
+  the Mux one never sits next to a signed url - `publicVideoIdentifiers` in
+  `apps/api/src/content/lesson-presentation.ts` nulls `muxPlaybackId` and `youtubeVideoId`
+  together, and `mapAdminLessonSummary` puts them back for the admin routes only. One rule for
+  every provider, so a new one cannot be added past it. `/programs`, `/programs/:id` and
+  `/courses/:id` take no authentication, and neither id is a name for a video, it is the whole
+  address of one: `stream.mux.com/<id>.m3u8` plays a public-policy Mux asset for anyone holding
+  it, and a YouTube video id plays at youtube.com for anyone holding it unless that video is
+  Private. Nothing ties `accessLevel` to `videoProvider` in `admin.service.ts`, so PAID plus
+  YOUTUBE is saveable even though every seeded YouTube lesson is FREE. What an entitled member
+  watches with is built in `mapLessonDetail`, behind the 402 in `ContentService.getLesson` -
+  the signed `playbackUrl` for Mux, the `embedUrl` for YouTube.
+  The Mux id has a second, independent reason. Measured in Chrome against `@mux/mux-player`
+  3.11.4, a player handed both a `playbackId` and a signed `src` requests
+  `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops the token entirely -
+  byte-identical to the request it makes with no `src` at all. The web player passes the id
+  only when `src` carries no token for it to drop, and the mobile player prefers `playbackUrl`
+  outright, so neither can drop a signed token today, but both ship separately from the API.
+  Restoring the id to a paid payload would still widen the exposure, and would silently switch
+  signed playback off in any client that passes both.
+- The unsigned-playback fallback for a PAID lesson is gated on a loopback `DATABASE_URL`, not
+  on `NODE_ENV`: `isUnsignedPaidPlaybackAllowed` in `apps/api/src/config/env.ts`, the same
+  predicate and the same reasoning as the auth bypass above. Startup validation is the other
+  half of the same rule and is keyed on the same fact: `MUX_SIGNING_KEY_ID` +
+  `MUX_SIGNING_KEY_PRIVATE` are required whenever the run is a deployment - `NODE_ENV`
+  production *or* a non-loopback database - unconditionally, with no "is Mux enabled" proxy.
+  It used to be gated on `MUX_TOKEN_ID`; that drifted, because no runtime code reads that
+  variable, so a deployment serving Mux video without it skipped the check and answered 500
+  on every paid lesson with no boot-time signal. Any proxy can drift the same way; the
+  signing key pair cannot, because it is exactly what `createMuxPlaybackToken` reads. Do not
+  reintroduce a condition here. Verified against the built API with `NODE_ENV` unset
+  throughout: it exits without opening a port when a signing key is missing on a deployed
+  database, and a paid lesson answers 500 rather than an unsigned url when only the
+  request-time half applies - both still behave the old way against a localhost database.
+- The Mux `video.asset.ready` webhook requires a PAID lesson's asset to be signed-only: it
+  refuses an asset offering no `signed` playback id, and equally refuses one carrying a
+  `public` playback id even when a signed id sits beside it, because nothing stops a caller
+  using the public one. It logs an error and throws, so the delivery fails in the Mux
+  dashboard next to the asset whose upload policy is wrong, rather than quietly attaching a
+  watchable id to a paid video. A FREE lesson takes the asset's public id, and is refused the
+  same way when the asset carries none - it is served over a plain url, so an id with any
+  other policy would be stored and then fail to play. See `syncMuxAsset` in
+  `apps/api/src/webhooks/webhooks.service.ts`.
+- What the code guarantees here is narrow, and the boundary is the point of this entry.
+  Every check in this repository is repo-side. Together they prove one thing: the API stops
+  emitting a PAID lesson's provider identifiers from this commit forward. They cannot retract
+  an identifier already handed to an anonymous caller, cannot tell whether a given Mux asset
+  was uploaded with a `public` playback policy, and cannot tell whether a paid lesson's
+  YouTube video is still Public. Shipping this change did not make an already-served
+  identifier safe. An asset uploaded to Mux with a `public` playback policy stays public, and
+  rotating it is the only fix.
+  The audit covers two populations, not one. First, lessons that are PAID today. Second, and
+  this is the one that gets missed, lessons that were FREE and were later flipped to PAID:
+  `updateLesson` in `apps/api/src/admin/admin.service.ts` applies a partial update, so setting
+  `accessLevel` leaves the row holding the provider identifier it already had, and that
+  identifier was served to every anonymous `/programs` caller for as long as the lesson was
+  free. This was reproduced end to end against the built API on a seeded database. It is what
+  happens, not what might happen.
+  Two checks only the project owner can settle, neither of them from this repository: every
+  paid Mux asset must use a signed playback policy, which is a Mux dashboard job, and every
+  paid YouTube-hosted lesson must not be publicly listed, which is a YouTube Studio job.
+  Unlisted is not the same as retracted, because a YouTube video plays for anyone holding its
+  id unless that video is Private, so an identifier already served is closed only by rotating
+  the Mux asset or restricting the YouTube video. Agents must not touch the Mux account to
+  check. This is deliberately not mitigated in code; a partial mitigation would only make it
+  look handled.
 
 ## Maintaining this file
 
