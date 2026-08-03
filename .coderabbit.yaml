@@ -1,0 +1,126 @@
+# CodeRabbit configuration
+#
+# Goal: keep the full review quality Cody values, while cutting the number of
+# review runs and the amount of noise each one has to chew through.
+#
+# Schema confirmed against docs.coderabbit.ai. Defaults noted so it is obvious
+# what is actually being changed and what is just written down for clarity.
+
+reviews:
+  # Already the default. Stated explicitly so nobody "tunes" it to assertive
+  # later and wonders where the noise came from.
+  profile: chill
+
+  auto_review:
+    enabled: true
+
+    # THE ONE THAT MATTERS.
+    # Default is true: CodeRabbit re-reviews as new commits land. Our workflow
+    # pushes fix rounds after the first review, so that spends a second review
+    # on a pull request we are still working on.
+    # With this off, CodeRabbit reviews once, and re-reviews only when asked
+    # with `@coderabbitai review`. Same review, requested when the branch is
+    # actually ready.
+    auto_incremental_review: false
+
+    # Already the default. Draft pull requests are not reviewed, which is what
+    # makes "open early as a draft" safe if we ever want it.
+    drafts: false
+
+  # Skip what nobody should be reviewing. Every one of these is generated,
+  # vendored, or binary - reviewing them costs quota and returns nothing.
+  #
+  # The rule to carry away from this file, because it has been read wrong here
+  # before: absence from an exclusion list is not inclusion. CodeRabbit ships
+  # its own built-in skip list, and anything on it needs an explicit include to
+  # come back. Do not guess at what is on it, in either direction - it is
+  # published in full, 137 patterns under "Default ignored paths" at
+  # https://docs.coderabbit.ai/configuration/path-instructions. Ordinary source
+  # and markdown are not on it; they are reviewed by default and are simply not
+  # excluded here, which is why they need no include (today's most useful
+  # comments were on markdown, and that is worth paying for).
+  path_filters:
+    # The entries in this list with no `!` are force-INCLUDES rather than
+    # excludes. An explicit include is the documented way to override a built-in
+    # default. Mixing includes and excludes does not narrow the review to only
+    # these paths; everything else still follows the exclusions below.
+    #
+    # The two below appear on the built-in skip list by name
+    # (`!**/pnpm-lock.yaml` under "Lock files", `!**/*.svg` under "Images and
+    # fonts"), so leaving them out of the exclusions further down was NOT enough
+    # to get them reviewed. These two includes are what actually turns them back
+    # on, and removing either one silently turns it back off.
+    - 'pnpm-lock.yaml'
+    - '**/*.svg'
+    # pnpm-lock.yaml is DELIBERATELY REVIEWED - do not turn it into a `!` exclude.
+    # This is a pnpm workspace (packageManager pnpm@9.12.3, pnpm-workspace.yaml),
+    # so pnpm-lock.yaml is the only lockfile that can appear here, and it is
+    # where a transitive dependency first appears, where an integrity hash
+    # changes, and where a registry URL gets rewritten. Those are the places a
+    # supply-chain problem shows up and nowhere else. The lockfile is also the
+    # input CodeRabbit's dependency-vulnerability scanning reads, so filtering
+    # it does not merely hide a diff, it switches off a whole class of scanning,
+    # and it would quietly override the Dependency Policy in CLAUDE.md that
+    # makes introducing a dependency explicitly review-worthy. Lockfile diffs
+    # are enormous and nobody reads them by hand - that is the argument for
+    # letting the bot read them, not for filtering them to reclaim quota.
+    #
+    # The Prisma migrations and schema below are a different case, and the
+    # difference is worth stating so nobody reasons from the lockfile to them.
+    # They are NOT on the built-in skip list. Nothing on it matches `.sql`,
+    # `schema.prisma`, or a `migrations/` directory - its generated-code entries
+    # are directory names (`generated/`, `gen/`, and variants) plus a
+    # `*.generated.*` suffix, and none of those hit these paths. So Prisma
+    # writing them does not get them skipped; they are reviewed by default, and
+    # these entries pin that rather than restore it.
+    #
+    # Kept anyway, because a migration is the highest-risk change in this repo
+    # (see the Database Safety rules in CLAUDE.md) and is exactly what a
+    # reviewer should be reading, and a pinned include cannot be lost to a later
+    # change in CodeRabbit's defaults. Migrations are rare, so the review cost
+    # is near zero either way.
+    - 'packages/db/prisma/migrations/**/*.sql'
+    - 'packages/db/prisma/schema.prisma'
+    # Tracked today: apps/diaz-ondemand-web/tsconfig.tsbuildinfo
+    - '!**/*.tsbuildinfo'
+    # Prisma writes this; it is not hand-edited.
+    - '!**/prisma/migrations/migration_lock.toml'
+    # Build output. Gitignored today, so these are cheap insurance against a
+    # stray `git add -f` rather than a live problem.
+    # `dist` and `build` match at any depth, the same way .gitignore and the
+    # turbo.json `outputs` globs treat them, so they would also hide a source
+    # directory that happened to take one of those names (a `src/build/`
+    # module). Nothing tracked collides today; revisit these two if one ever
+    # does, because hiding real source is the failure this file exists to avoid.
+    - '!**/dist/**'
+    - '!**/build/**'
+    - '!**/.next/**'
+    - '!**/coverage/**'
+    # Turborepo and Expo caches - both toolchains are in use here (turbo.json,
+    # apps/mobile), and neither generic build-output glob above covers them.
+    - '!**/.turbo/**'
+    - '!**/.expo/**'
+    # Raster images. None are tracked yet, kept because a web and mobile
+    # product will grow them and there is nothing to review in a binary
+    # image diff.
+    # SVG is deliberately absent from this group, and is force-included at the
+    # top of this list: it is text, it diffs readably, and when inlined into the
+    # web app rather than served through an <img> it can carry executable
+    # content (inline <script>, on* handlers, javascript: hrefs). A filtered SVG
+    # is an unreviewed script that looks like a picture. Zero are tracked today,
+    # which is exactly why it is cheap to get right now instead of after the
+    # first one lands.
+    - '!**/*.png'
+    - '!**/*.jpg'
+    - '!**/*.jpeg'
+    - '!**/*.gif'
+    - '!**/*.webp'
+    - '!**/*.ico'
+
+  # Keep. This is the summary Cody actually reads.
+  high_level_summary: true
+
+  # Keep. The status line is how we tell a finished review from a running one.
+  review_status: true
+
+  poem: false
