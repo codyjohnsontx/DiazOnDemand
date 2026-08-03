@@ -174,8 +174,20 @@ So if a pull request gained commits after it was opened:
 
 - comment `@coderabbitai review`
 - wait for that review before merging
+- confirm it actually ran:
+  `gh api "repos/codyjohnsontx/DiazOnDemand/pulls/<n>/reviews" --jq '.[] | .submitted_at + " " + .state + " " + .commit_id'`
 
 Skip that step and those later commits merge unreviewed. That is the whole reason the step exists.
+
+Confirm in that reviews list, never in the bot's reply. The reply ("Action performed - Review
+finished", plus a note about not re-reviewing reviewed commits) is the same boilerplate whether a
+review follows or nothing does, and it arrives in about 5 seconds while the review itself takes a
+couple of minutes. Reading the reply as evidence is how a config that had switched review off for
+almost the whole repository survived for a day.
+
+Which paths get reviewed at all is decided by `path_filters` in `.coderabbit.yaml`. Read the
+comments there before adding an entry: an entry without a leading `!` is an include, and it
+narrows review to only the paths it matches.
 
 Debugging Rules
 When fixing bugs:
