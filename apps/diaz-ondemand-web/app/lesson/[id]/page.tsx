@@ -91,6 +91,18 @@ function isTrustedYouTubeEmbed(url: string) {
   }
 }
 
+function isSignedPlaybackUrl(playbackUrl: string | null | undefined) {
+  if (!playbackUrl) {
+    return false;
+  }
+
+  try {
+    return new URL(playbackUrl).searchParams.has('token');
+  } catch {
+    return true;
+  }
+}
+
 export default function LessonPage() {
   const params = useParams<{ id: string }>();
   const lessonId = params.id;
@@ -397,18 +409,19 @@ export default function LessonPage() {
                 // wins: measured in Chrome against @mux/mux-player 3.11.4, a
                 // player given both requests
                 // `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops
-                // the signed token on `src` altogether. The API does keep the
-                // two mutually exclusive - `publicPlaybackId` in
+                // the signed token on `src` altogether. So the id goes only to
+                // a player whose `src` carries no token for it to drop, which
+                // is every FREE lesson, and they keep the poster frame,
+                // storyboard scrubbing and redundant-stream delivery the
+                // player derives from an id. This is not the both-passed
+                // hazard: a signed source is never one of the two.
+                // `publicPlaybackId` in
                 // apps/api/src/content/lesson-presentation.ts nulls
-                // `muxPlaybackId` exactly when it mints a signed `playbackUrl`
-                // - but that invariant is enforced in a separately deployed
-                // service, and one deploy of drift would play a paid lesson
-                // unsigned, perfectly and with no error to notice. So prefer
-                // the signed source here too, the way
-                // apps/mobile/src/mobile-app.tsx already does. Accepted cost:
-                // FREE lessons always carry a `playbackUrl`, so they now
-                // resolve through `src` and lose Mux redundant-stream delivery.
-                playbackId={video.playbackUrl ? undefined : (video.muxPlaybackId ?? undefined)}
+                // `muxPlaybackId` exactly when it mints a signed `playbackUrl`,
+                // so a payload holding both is that separately deployed API
+                // having drifted, and the signed source wins. A `playbackUrl`
+                // that will not parse counts as signed for the same reason.
+                playbackId={isSignedPlaybackUrl(video.playbackUrl) ? undefined : (video.muxPlaybackId ?? undefined)}
                 preferPlayback="mse"
                 src={video.playbackUrl ?? undefined}
                 streamType="on-demand"

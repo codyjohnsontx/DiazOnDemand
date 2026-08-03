@@ -389,9 +389,9 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   Withholding the id on the detail payload is also what keeps signed playback working:
   measured against `@mux/mux-player` 3.11.4 in Chrome, a player handed both a `playbackId`
   and a signed `src` requests `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops
-  the token entirely. The web and mobile players prefer `playbackUrl` over the id for that
-  reason, but they deploy separately from the API, so neither substitutes for withholding
-  the id.
+  the token entirely. The web player passes the id only when `src` carries no token for it
+  to drop, and the mobile player prefers `playbackUrl`, but they deploy separately from the
+  API, so neither substitutes for withholding the id.
 - `POST /webhooks/mux` verifies the `mux-signature` HMAC (rejecting timestamps older than
   300s) and, on `video.asset.ready`, writes `muxPlaybackId` and `durationSeconds` onto the
   lesson whose `muxAssetId` matches. Set `muxAssetId` in the admin lesson editor to opt a

@@ -302,10 +302,11 @@ the reason it exists is stated with it.
   video, not a name for it. And, measured in Chrome against `@mux/mux-player` 3.11.4, a player
   handed both a `playbackId` and a signed `src` requests
   `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops the token entirely -
-  byte-identical to the request it makes with no `src` at all. The web and mobile players each
-  prefer `playbackUrl` over the id, so neither hands the player both today, but both ship
-  separately from the API. Restoring the id to a paid payload would still widen the exposure,
-  and would silently switch signed playback off in any client that passes both.
+  byte-identical to the request it makes with no `src` at all. The web player passes the id
+  only when `src` carries no token for it to drop, and the mobile player prefers `playbackUrl`
+  outright, so neither can drop a signed token today, but both ship separately from the API.
+  Restoring the id to a paid payload would still widen the exposure, and would silently switch
+  signed playback off in any client that passes both.
 - The unsigned-playback fallback for a PAID lesson is gated on a loopback `DATABASE_URL`, not
   on `NODE_ENV`: `isUnsignedPaidPlaybackAllowed` in `apps/api/src/config/env.ts`, the same
   predicate and the same reasoning as the auth bypass above. Startup validation is the other
