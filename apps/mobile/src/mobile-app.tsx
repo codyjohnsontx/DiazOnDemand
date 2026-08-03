@@ -52,13 +52,11 @@ const ExpoVideo = Video as unknown as React.ComponentType<any>;
 
 type DevUserContextValue = {
   devUserId: string | null;
-  resetDevUserId: () => void;
 };
 
-const DevUserContext = createContext<DevUserContextValue>({
-  devUserId: DEV_USER_ID,
-  resetDevUserId: () => undefined,
-});
+const devUserContextValue: DevUserContextValue = { devUserId: DEV_USER_ID };
+
+const DevUserContext = createContext<DevUserContextValue>(devUserContextValue);
 
 function useDevUser() {
   return useContext(DevUserContext);
@@ -463,13 +461,8 @@ function AccountScreen() {
 }
 
 export function MobileApp() {
-  const [devUserId, setDevUserId] = useState(DEV_USER_ID);
-  const resetDevUserId = useCallback(() => {
-    setDevUserId(DEV_USER_ID);
-  }, []);
-
   return (
-    <DevUserContext.Provider value={{ devUserId, resetDevUserId }}>
+    <DevUserContext.Provider value={devUserContextValue}>
       <NavigationRoot>
         <TabsNavigator>
           <Tabs.Screen name="Library" component={LibraryStack} options={{ headerShown: false }} />

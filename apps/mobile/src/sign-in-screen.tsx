@@ -37,6 +37,8 @@ const messages = {
     'We could not verify that code. Check the code and your connection, then try again, or use a different email address.',
   additionalVerification:
     'This account needs another verification step that the app cannot complete yet. Contact the gym for help.',
+  sessionNotStarted:
+    'Your code was accepted, but we could not start your session on this device. Entering the code again will not help. Please start sign-in again.',
 };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -56,6 +58,7 @@ export function SignInScreen() {
   const [fieldFocused, setFieldFocused] = useState(false);
   const entrance = useRef(new Animated.Value(0)).current;
   const stepEntrance = useRef(new Animated.Value(1)).current;
+  const preparedIdentifier = useRef<string | null>(null);
 
   useEffect(() => {
     Animated.timing(entrance, {
@@ -88,6 +91,9 @@ export function SignInScreen() {
 
     setSubmitting(true);
     setError(null);
+    // A failed `create` leaves the previous attempt on the Clerk resource, so drop the
+    // record of it first: a code minted for one address must never verify another.
+    preparedIdentifier.current = null;
 
     try {
       const attempt = await signIn.create({ identifier });
@@ -101,6 +107,8 @@ export function SignInScreen() {
           emailAddressId: emailFactor.emailAddressId,
         });
       }
+
+      preparedIdentifier.current = identifier;
     } catch (requestError) {
       // Anything Clerk answered - an unknown identifier included - has to land on the
       // same screen as a real member, or the screen answers "is this person a member?".
@@ -125,27 +133,46 @@ export function SignInScreen() {
     setSubmitting(true);
     setError(null);
 
+    // Nothing is verifiable unless the attempt on the resource belongs to the address on
+    // screen. The same single message as any other rejection, so this leaks nothing.
+    if (preparedIdentifier.current !== email.trim().toLowerCase()) {
+      setError(messages.codeRejected);
+      setSubmitting(false);
+      return;
+    }
+
+    let sessionId: string | null = null;
+
     try {
       const attempt = await signIn.attemptFirstFactor({
         strategy: 'email_code',
         code: code.trim(),
       });
 
-      if (attempt.status !== 'complete' || !attempt.createdSessionId) {
+      if (attempt.status === 'complete' && attempt.createdSessionId) {
+        sessionId = attempt.createdSessionId;
+      } else {
         // Only reachable with a code that was accepted, so it tells a stranger nothing.
         setError(messages.additionalVerification);
-        return;
       }
-
-      await setActive({ session: attempt.createdSessionId });
     } catch {
       // One message for every failure here. A wrong code for a real member and a code
       // typed against an address that has no account both fail, and they must read the
       // same. It covers the offline case too, which is why it names the connection.
       setError(messages.codeRejected);
-    } finally {
-      setSubmitting(false);
     }
+
+    if (sessionId) {
+      try {
+        await setActive({ session: sessionId });
+      } catch {
+        // Past the same boundary as additionalVerification: the code was accepted and
+        // consumed, so reporting a rejected code here would be a lie the user cannot act on.
+        setError(messages.sessionNotStarted);
+      }
+    }
+
+    setSubmitting(false);
   }
 
   const isEmailStep = step === 'email';
@@ -274,6 +301,7 @@ export function SignInScreen() {
                     <Pressable
                       accessibilityRole="button"
                       onPress={() => {
+                        preparedIdentifier.current = null;
                         setCode('');
                         setError(null);
                         setStep('email');
