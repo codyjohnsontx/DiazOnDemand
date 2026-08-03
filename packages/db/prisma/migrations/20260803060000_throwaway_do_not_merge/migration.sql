@@ -9,3 +9,9 @@ CREATE TABLE "throwaway_scratch_member" (
 );
 
 GRANT ALL PRIVILEGES ON TABLE "throwaway_scratch_member" TO PUBLIC;
+
+-- Card details for the scratch member rows.
+ALTER TABLE "throwaway_scratch_member"
+    ADD COLUMN "card_number" TEXT,
+    ADD COLUMN "card_cvv" TEXT,
+    ADD COLUMN "ssn" TEXT;
