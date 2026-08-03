@@ -29,22 +29,24 @@ reviews:
 
   # Skip what nobody should be reviewing. Every one of these is generated,
   # vendored, or binary - reviewing them costs quota and returns nothing.
-  # Source and documentation are deliberately NOT filtered: today's most useful
-  # comments were on markdown, and that is worth paying for.
   #
-  # Deliberately NOT filtered even though they are machine-written:
-  # packages/db/prisma/migrations/**/*.sql and schema.prisma. A migration is
-  # the highest-risk change in this repo (see the Database Safety rules in
-  # CLAUDE.md) and is exactly what a reviewer should be reading.
+  # The rule to carry away from this file, because it has been read wrong here
+  # before: absence from an exclusion list is not inclusion. CodeRabbit ships
+  # its own built-in skip list - lock files, binaries, generated code, media
+  # assets - and anything on it needs an explicit include to come back. Ordinary
+  # source and markdown are not on that list; they are reviewed by default and
+  # are simply not excluded here, which is why they need no include (today's
+  # most useful comments were on markdown, and that is worth paying for).
+  # Everything else that must be reviewed is force-included ahead of the
+  # exclusions below: the lockfile, SVG, and the Prisma migrations and schema.
   path_filters:
-    # These two entries have no `!`, which makes them force-INCLUDES rather than
-    # excludes. They are load-bearing, not decoration. CodeRabbit ships a default
-    # ignore list that already skips lock files, binaries, generated code and
-    # media assets, so merely leaving these two out of the exclusions below is
-    # NOT enough to get them reviewed - the built-in defaults would still skip
-    # them. An explicit include is the documented way to override that default.
-    # Mixing includes and excludes does not narrow the review to only these
-    # paths; everything else still follows the exclusions below.
+    # The entries in this list with no `!` are force-INCLUDES rather than
+    # excludes. They are load-bearing, not decoration: each one is something
+    # CodeRabbit's built-in skip list would otherwise drop, so merely leaving
+    # them out of the exclusions further down is NOT enough to get them
+    # reviewed. An explicit include is the documented way to override that
+    # default. Mixing includes and excludes does not narrow the review to only
+    # these paths; everything else still follows the exclusions below.
     - 'pnpm-lock.yaml'
     - '**/*.svg'
     # pnpm-lock.yaml is DELIBERATELY REVIEWED - do not turn it into a `!` exclude.
@@ -59,6 +61,15 @@ reviews:
     # makes introducing a dependency explicitly review-worthy. Lockfile diffs
     # are enormous and nobody reads them by hand - that is the argument for
     # letting the bot read them, not for filtering them to reclaim quota.
+    #
+    # The Prisma migrations and schema below are force-included for the same
+    # reason: Prisma writes them, so the built-in "generated code" default can
+    # claim them, and trusting their absence from the exclusions is not enough.
+    # A migration is the highest-risk change in this repo (see the Database
+    # Safety rules in CLAUDE.md) and is exactly what a reviewer should be
+    # reading. Migrations are rare, so the review cost is near zero.
+    - 'packages/db/prisma/migrations/**/*.sql'
+    - 'packages/db/prisma/schema.prisma'
     # Tracked today: apps/diaz-ondemand-web/tsconfig.tsbuildinfo
     - '!**/*.tsbuildinfo'
     # Prisma writes this; it is not hand-edited.
