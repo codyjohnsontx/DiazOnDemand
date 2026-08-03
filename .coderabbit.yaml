@@ -40,16 +40,38 @@ reviews:
   # excluded here, which is why they need no include (today's most useful
   # comments were on markdown, and that is worth paying for).
   path_filters:
-    # The entries in this list with no `!` are force-INCLUDES rather than
-    # excludes. An explicit include is the documented way to override a built-in
-    # default. Mixing includes and excludes does not narrow the review to only
-    # these paths; everything else still follows the exclusions below.
+    # READ THIS BEFORE ADDING AN ENTRY WITHOUT A LEADING `!`.
     #
-    # The two below appear on the built-in skip list by name
-    # (`!**/pnpm-lock.yaml` under "Lock files", `!**/*.svg` under "Images and
-    # fonts"), so leaving them out of the exclusions further down was NOT enough
-    # to get them reviewed. These two includes are what actually turns them back
-    # on, and removing either one silently turns it back off.
+    # An entry without `!` is an INCLUDE, and a surviving include NARROWS the
+    # review to only what it matches. Everything else is then skipped with
+    # "excluded by none and included by none" - skipped not because something
+    # excludes it but because nothing includes it. An earlier version of this
+    # file asserted the opposite ("mixing includes and excludes does not narrow
+    # the review to only these paths"). That assertion was false, and it is the
+    # reason this repository went unreviewed from 2026-08-03 00:50Z until this
+    # change: four includes were in force, and the two that survived narrowed
+    # review to two Prisma paths.
+    # VERIFIED by experiment, not inferred: with those four includes in place, a
+    # throwaway pull request containing one plain `.ts` file, and another
+    # containing one `.svg`, were both skipped with that exact wording.
+    #
+    # The single exception is an include naming a path on CodeRabbit's built-in
+    # skip list. CodeRabbit documents that such an include is applied "by
+    # removing the pattern from both the lists": it cancels the built-in block
+    # and does NOT survive as a narrowing include. The two entries below are
+    # exactly that case, which is why they can restore coverage without
+    # switching off review of everything else.
+    # VERIFIED for this file as it now stands: with only these two entries, a
+    # throwaway pull request containing one plain `.ts` file got a real review.
+    # Anything added here that is NOT on the built-in skip list will narrow, so
+    # do not pin an already-reviewed path "for safety" - that is the defect this
+    # comment exists to stop from recurring.
+    #
+    # Both below appear on the built-in skip list by name (`!**/pnpm-lock.yaml`
+    # under "Lock files", `!**/*.svg` under "Images and fonts"), so leaving them
+    # out of the exclusions further down was NOT enough to get them reviewed.
+    # These two includes are what actually turns them back on, and removing
+    # either one silently turns it back off.
     - 'pnpm-lock.yaml'
     - '**/*.svg'
     # pnpm-lock.yaml is DELIBERATELY REVIEWED - do not turn it into a `!` exclude.
@@ -65,22 +87,19 @@ reviews:
     # are enormous and nobody reads them by hand - that is the argument for
     # letting the bot read them, not for filtering them to reclaim quota.
     #
-    # The Prisma migrations and schema below are a different case, and the
-    # difference is worth stating so nobody reasons from the lockfile to them.
-    # They are NOT on the built-in skip list. Nothing on it matches `.sql`,
-    # `schema.prisma`, or a `migrations/` directory - its generated-code entries
-    # are directory names (`generated/`, `gen/`, and variants) plus a
-    # `*.generated.*` suffix, and none of those hit these paths. So Prisma
-    # writing them does not get them skipped; they are reviewed by default, and
-    # these entries pin that rather than restore it.
-    #
-    # Kept anyway, because a migration is the highest-risk change in this repo
-    # (see the Database Safety rules in CLAUDE.md) and is exactly what a
-    # reviewer should be reading, and a pinned include cannot be lost to a later
-    # change in CodeRabbit's defaults. Migrations are rare, so the review cost
-    # is near zero either way.
-    - 'packages/db/prisma/migrations/**/*.sql'
-    - 'packages/db/prisma/schema.prisma'
+    # The Prisma migrations and schema USED TO BE PINNED HERE the same way, as
+    # `packages/db/prisma/migrations/**/*.sql` and
+    # `packages/db/prisma/schema.prisma`. Do not put them back. They are NOT on
+    # the built-in skip list - nothing on it matches `.sql`, `schema.prisma`, or
+    # a `migrations/` directory, since its generated-code entries are directory
+    # names (`generated/`, `gen/`, and variants) plus a `*.generated.*` suffix,
+    # and none of those hit these paths. So they are reviewed by default, the
+    # includes restored nothing, and because they were not block-overrides they
+    # were the two entries that survived and did the narrowing. Pinning an
+    # already-reviewed path costs the review of every path not pinned.
+    # A migration is still the highest-risk change in this repo (see the
+    # Database Safety rules in CLAUDE.md) and is still reviewed - by default,
+    # which is the only way to have it reviewed without switching off the rest.
     # Tracked today: apps/diaz-ondemand-web/tsconfig.tsbuildinfo
     - '!**/*.tsbuildinfo'
     # Prisma writes this; it is not hand-edited.
