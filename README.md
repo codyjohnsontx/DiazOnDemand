@@ -373,7 +373,7 @@ Test locally with Stripe CLI:
 stripe listen --forward-to localhost:4000/webhooks/stripe
 ```
 
-## Mux Notes
+## Video Notes
 - Lessons store `muxAssetId` and `muxPlaybackId`.
 - API returns `playbackUrl` for clients to treat as an opaque playback source.
 - Free lessons use a public playback URL; paid lessons use a signed playback URL.
@@ -474,7 +474,7 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 
   What this does **not** do: it does not make paid video safe on its own. Every existing Mux
   asset still carries whatever playback policy it was created with, and a playback id that
-  has already been served cannot be retracted. See the audit list at the end of "Mux Notes" -
+  has already been served cannot be retracted. See the audit list at the end of "Video Notes" -
   that part is the account owner's job in the Mux dashboard.
 - Prefer real host environment variables for those production values, with the monorepo-root
   `.env` as the local fallback. That is ordinary good practice for a deployed service, not a
