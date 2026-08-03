@@ -69,13 +69,22 @@ reviews:
     #     present, one plain `.ts` file: STILL SKIPPED (PR #13). So at least one
     #     block-override include survives as a narrowing include. The documented
     #     "removed from both lists" behaviour did not hold here.
-    #   - no includes at all, the list as it stands now, one plain `.ts` file:
-    #     REVIEWED (PR #14). That is the state this file is in and the only
-    #     arrangement observed to review ordinary source.
+    #   - no includes at all, this exact list, one plain `.ts` file: REVIEWED
+    #     (PR #15, submitted review 2026-08-03T06:43:33Z on the head commit,
+    #     four line comments, one of them on this file). That is the state this
+    #     file is in and the only arrangement observed to review ordinary
+    #     source.
     # Config is read from the pull request HEAD branch, not the base - verified
     # on PR #13, where `@coderabbitai configuration` echoed back the head
     # branch's path_filters while `main` still had the old ones. So a change
     # here can and should be tested in its own pull request before merging.
+    # Test it by opening the pull request and letting the automatic on-open
+    # review answer, not by asking for a review afterwards. A pull request that
+    # was rate limited when it opened never got a first review, and a later
+    # `@coderabbitai review` then finds nothing to re-review, so it sits with no
+    # review and no skip comment and proves nothing either way (PR #14 did
+    # exactly this and had to be thrown away). A fair-usage limit is also worth
+    # planning around: it cost 36 minutes here.
     #
     # KNOWN COST OF THIS ARRANGEMENT, accepted deliberately, not overlooked:
     # `pnpm-lock.yaml` and `**/*.svg` are on CodeRabbit's built-in skip list and
