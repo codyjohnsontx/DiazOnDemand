@@ -72,8 +72,7 @@ reviews:
     # out of the exclusions further down was NOT enough to get them reviewed.
     # These two includes are what actually turns them back on, and removing
     # either one silently turns it back off.
-    - 'pnpm-lock.yaml'
-    - '**/*.svg'
+    # OPTION B EXPERIMENT: both block-override includes removed too.
     # pnpm-lock.yaml is DELIBERATELY REVIEWED - do not turn it into a `!` exclude.
     # This is a pnpm workspace (packageManager pnpm@9.12.3, pnpm-workspace.yaml),
     # so pnpm-lock.yaml is the only lockfile that can appear here, and it is
