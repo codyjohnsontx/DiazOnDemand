@@ -7,9 +7,16 @@
 # what is actually being changed and what is just written down for clarity.
 
 reviews:
-  # Already the default. Stated explicitly so nobody "tunes" it to assertive
-  # later and wonders where the noise came from.
-  profile: chill
+  # MUST stay here, and must stay `assertive`. Omitting this key does NOT
+  # inherit the organization-level setting: CodeRabbit falls back to its own
+  # `chill` default, and reviews here get quietly shallower than the rest of
+  # the fleet. Verified: DiazMartialArts pull requests #15, #16 and #17 carry
+  # no repo config and report `profile: ASSERTIVE` (the organization setting),
+  # while repos that do ship a config report `CHILL`.
+  # Depth is the thing being paid for. Cut the number of review runs
+  # (auto_incremental_review below, drafts) if quota is the worry - never the
+  # depth of the review that does run.
+  profile: assertive
 
   auto_review:
     enabled: true
