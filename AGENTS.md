@@ -417,7 +417,8 @@ gates `durationLabel` in `buildLessonQueue` and the watch-page duration badge. T
 program-level totals still count it.
 
 Current counts, and the 16 seeded mnemonic ids that caused this, are in the "Catalogue Video
-States" section of README.md.
+States" section of README.md. The public payload follows the same resolution: an identifier
+the read path refuses never leaves `publicVideoIdentifiers`, at any access level.
 
 ## Maintaining this file
 
