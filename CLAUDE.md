@@ -397,7 +397,7 @@ failure the SDK 52 to 54 upgrade existed to fix. Do not run `expo install expo@l
 the current store ceiling before proposing any further bump, and when it moves, go one SDK at a time
 with `npx expo install --fix` then `npx expo-doctor`.
 
-Two things that bite on an SDK bump here:
+Three things that bite on an SDK bump here:
 - The `tokenCache` prop passed to `ClerkProvider` in `App.tsx` is the only reason the session token
   lives in `SecureStore`. Drop it and `@clerk/clerk-expo` falls back to an in-memory cache
   (`createClerkInstance.js` defaults `tokenCache = MemoryTokenCache`) with no error and no warning,
@@ -405,6 +405,11 @@ Two things that bite on an SDK bump here:
 - `expo-av` still ships in SDK 54 and its native module is present in Expo Go 54, but SDK 55 removes
   it. `LessonScreen` in `src/mobile-app.tsx` is the only caller and has to move to `expo-video`
   before any SDK 55 attempt.
+- Screens take `SafeAreaView` from `react-native-safe-area-context`, never from `react-native`.
+  RN 0.81 deprecates its own `SafeAreaView` and defines it as
+  `Platform.select({ ios: <native view>, default: View })`, so on Android it applies no insets at
+  all, and SDK 54 makes Android edge-to-edge, which leaves content under the status bar. Moving
+  that import back reads as a harmless cleanup and shows nothing wrong on an iOS simulator.
 
 ## Maintaining this file
 

@@ -6,15 +6,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  AppState,
-  Button,
-  FlatList,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, AppState, Button, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   VideoProvider,
