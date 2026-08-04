@@ -387,6 +387,34 @@ the reason it exists is stated with it.
   No automated test guards either property: `apps/mobile` has no test runner at all (its
   `test` script is an echo), so anything changed on this screen has to be re-checked by hand.
 
+## Clerk route shape on the web app
+
+Every Clerk UI component that does path routing owns sub-paths under where it is mounted, so it
+must live at an optional catch-all route, not a fixed one. `<SignIn />` sits at
+`apps/diaz-ondemand-web/app/sign-in/[[...sign-in]]/page.tsx` for that reason. It is currently the
+only routed Clerk component in the repo; there is no `/sign-up` route, and the card's "Sign up"
+link goes to Clerk's hosted account portal because `NEXT_PUBLIC_CLERK_SIGN_UP_URL` is unset. Mount
+any future one the same way.
+
+Mounted at a fixed `app/sign-in/page.tsx` it looks fine, because the flows that stay on the page
+never leave it. Only a flow that hands off to a provider and comes back breaks: OAuth returns to
+`/sign-in/sso-callback`, Next has no such route, and the user is authenticated and then dropped on
+a 404. That is one bug for every social provider at once, and it does not reproduce through the UI
+in the app - `curl` the callback path directly.
+
+Clerk ships the check for this. `useEnforceCatchAllRoute` fetches
+`<mounted path>/<Component>_clerk_catchall_check_<ts>` in development and throws if it 404s, so
+`curl -o /dev/null -w '%{http_code}' http://localhost:3000/sign-in/SignIn_clerk_catchall_check_1`
+answers "is this route shaped right" without any Clerk credentials. 404 means broken, 200 means
+correct.
+
+The other half is `middleware.ts`, and it fails in both directions. `createRouteMatcher` patterns
+must not cover the sign-in tree, or Clerk's callback is protected by the auth it exists to
+complete; the `config.matcher` must still cover it, or the handshake never gets its cookies.
+Neither announces itself. Both are pathname-only decisions, so a route-shape change cannot alter
+them by itself - assert it rather than assume it, by running the two matchers from `middleware.ts`
+over the paths directly.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
