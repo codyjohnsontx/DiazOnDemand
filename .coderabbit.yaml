@@ -128,7 +128,9 @@ reviews:
     # migration is still the highest-risk change in this repo (see the Database
     # Safety rules in CLAUDE.md) and is still reviewed - by default, which is
     # the only way to have it reviewed without switching off the rest.
-    # Tracked today: apps/diaz-ondemand-web/tsconfig.tsbuildinfo
+    # TypeScript incremental build state. Gitignored today (`*.tsbuildinfo` in
+    # the root .gitignore), and nothing matching it is tracked, so this is cheap
+    # insurance against a stray `git add -f` rather than a live problem.
     - '!**/*.tsbuildinfo'
     # Prisma writes this; it is not hand-edited.
     - '!**/prisma/migrations/migration_lock.toml'
