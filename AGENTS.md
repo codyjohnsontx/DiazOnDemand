@@ -384,6 +384,8 @@ the reason it exists is stated with it.
   on the identifier. Known residual, not closable from this repository: the known path makes two
   round trips and the unknown path one, so response timing still differs. Clerk's Strict user
   enumeration protection is the owner's half of it - see "Clerk Setup Notes" in README.md.
+  No automated test guards either property: `apps/mobile` has no test runner at all (its
+  `test` script is an echo), so anything changed on this screen has to be re-checked by hand.
 
 ## Maintaining this file
 
