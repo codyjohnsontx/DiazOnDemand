@@ -121,8 +121,10 @@ function publicVideoIdentifiers(lesson: LessonLike) {
  * Which provider can actually play this lesson, which is not the same question
  * as which provider the row says it uses.
  *
- * A stored identifier that is not shaped like one the provider issues - see
- * `isValidMuxPlaybackId` in @diaz/shared - resolves to NONE, so the member gets
+ * A stored identifier that is provably unusable - see `isValidMuxPlaybackId` in
+ * @diaz/shared, which rejects the placeholders this repository seeded and
+ * values unsafe in the playback url, and accepts everything else because Mux
+ * documents no shape - resolves to NONE, so the member gets
  * the honest not-yet-filmed state instead of a player that loads and then fails
  * with "Video does not exist". A truthful empty state beats a broken one, and
  * that is the whole reason this check sits on the read path rather than only on

@@ -8,7 +8,17 @@ import {
 } from './video-source.js';
 
 describe('isValidMuxPlaybackId', () => {
-  it('accepts identifiers shaped like the ones Mux issues', () => {
+  // The regression that forced this rule to be inverted. `a1B2c3D4e5F6g7H8i9`
+  // is the value in Mux's own API reference response example for a playback id,
+  // and it is 18 characters. The rule previously required 20 or more, so it
+  // routed a genuine Mux id to NONE and told the member the lesson had not been
+  // filmed. Mux documents `PlaybackID.id` as a string and gives no minimum
+  // length, so this test is the contract: do not reintroduce a length floor.
+  it("accepts the 18-character id from Mux's documented response example", () => {
+    expect(isValidMuxPlaybackId('a1B2c3D4e5F6g7H8i9')).toBe(true);
+  });
+
+  it('accepts the longer identifiers Mux also issues', () => {
     for (const id of [
       'qxb01i6T202018GFS02vp9RIe01icTcDCjVzQpmaB00CUisJ4',
       'a4nOgmxGWg6gULfcBbAa00gXyfcwPnAFldF8RdsNyk8M',
@@ -18,36 +28,49 @@ describe('isValidMuxPlaybackId', () => {
     }
   });
 
-  it('rejects every placeholder the seeded catalog used to publish', () => {
-    // The originals, one per course. Each of these loaded the player and then
-    // failed with "Video does not exist".
+  it('rejects every one of the 16 placeholders this repository seeded', () => {
+    // The complete known-bad set, not a sample: these are exactly the values
+    // that stood in the seed before they were cleared, and each one loaded the
+    // player and then failed with "Video does not exist".
     for (const id of [
       'seedgrddef101',
+      'seedgrddef102',
       'seedgrdoff201',
+      'seedgrdoff202',
       'seedgpsdef301',
+      'seedgpsdef302',
       'seedgpsoff401',
+      'seedgpsoff402',
       'seedscddef501',
+      'seedscddef502',
       'seedscdoff601',
+      'seedscdoff602',
       'seedbcddef701',
+      'seedbcddef702',
       'seedbcdoff801',
+      'seedbcdoff802',
     ]) {
       expect(isValidMuxPlaybackId(id)).toBe(false);
     }
   });
 
-  it('rejects anything too short to be issued, however it is spelled', () => {
-    // The rule is length and character set, not the word "seed" - the next
-    // placeholder someone types will not carry that prefix.
-    expect(isValidMuxPlaybackId('placeholder')).toBe(false);
-    expect(isValidMuxPlaybackId('lesson-01')).toBe(false);
-    expect(isValidMuxPlaybackId('TODO')).toBe(false);
-    expect(isValidMuxPlaybackId('')).toBe(false);
-  });
-
   it('rejects characters that would escape the stream URL they get pasted into', () => {
     expect(isValidMuxPlaybackId('abcdefghij0123456789/../secret')).toBe(false);
     expect(isValidMuxPlaybackId('abcdefghij0123456789?token=x')).toBe(false);
+    expect(isValidMuxPlaybackId('abcdefghij0123456789#frag')).toBe(false);
     expect(isValidMuxPlaybackId('abcdefghij0123456789.m3u8')).toBe(false);
+    expect(isValidMuxPlaybackId(' a1B2c3D4e5F6g7H8i9 ')).toBe(false);
+    expect(isValidMuxPlaybackId('')).toBe(false);
+  });
+
+  // The honest boundary, asserted so nobody mistakes this rule for an
+  // existence check. A short, URL-safe, made-up value is indistinguishable from
+  // a real Mux id by shape alone, so it is accepted here and will fail in the
+  // player instead. Catching those needs provider validation at a write
+  // boundary, which this repository deliberately does not do.
+  it('cannot tell a made-up URL-safe id from a real one, and does not pretend to', () => {
+    expect(isValidMuxPlaybackId('TODO')).toBe(true);
+    expect(isValidMuxPlaybackId('lesson-01')).toBe(true);
   });
 
   it('treats a missing identifier as invalid rather than throwing', () => {

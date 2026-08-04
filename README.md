@@ -198,9 +198,19 @@ Every published lesson resolves to exactly one of three states, and nothing else
 
 The catalogue previously seeded 16 lessons with mnemonic Mux playback ids (`seedgrddef101`
 and siblings). Every one of them loaded the player and then failed with "Video does not
-exist". They are cleared, and the API will no longer resolve an identifier that is not
-shaped like one the provider issues - see `isValidMuxPlaybackId` in `packages/shared` and
-`resolveVideoProvider` in `apps/api/src/content/lesson-presentation.ts`. Members get the
+exist". They are cleared, and the API will no longer resolve an identifier that is provably
+unusable - see `isValidMuxPlaybackId` in `packages/shared` and `resolveVideoProvider` in
+`apps/api/src/content/lesson-presentation.ts`.
+
+That rule rejects a known-bad set rather than guessing at a valid shape: the 16 seeded
+placeholders, plus values unsafe to interpolate into `stream.mux.com/<id>.m3u8`. Everything
+else is accepted, because Mux documents `PlaybackID.id` only as a string. **Do not add a
+length floor.** An earlier version required 20 or more characters and so refused Mux's own
+documented 18-character example `a1B2c3D4e5F6g7H8i9`, hiding a real video behind "not
+filmed" - the same dishonesty this rule exists to prevent, pointed the other way. It also
+cannot tell that an accepted identifier addresses anything: a mistyped but URL-safe id is
+accepted and fails in the player, and only provider validation at a write boundary could
+change that. Members get the
 not-yet-filmed state instead of a broken player; staff still see the stored value in the
 lesson editor, now with a non-blocking hint next to any identifier the read path will refuse,
 in the editor and on the admin course lesson rows. A not-yet-filmed lesson also shows no

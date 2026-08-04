@@ -11,11 +11,12 @@ import type {
  * `seedgrddef101`, and each one loaded the player and then failed with "Video
  * does not exist". Leave `videoProvider` as `NONE` until there is real footage:
  * a lesson that says it has not been filmed is truthful, a lesson that says it
- * has and then breaks is not. The API refuses to resolve an identifier that is
- * not shaped like one the provider issues, so a placeholder re-added here shows
- * as not-yet-filmed rather than as a broken player - see `isValidMuxPlaybackId`
- * in @diaz/shared and `resolveVideoProvider` in
- * apps/api/src/content/lesson-presentation.ts.
+ * has and then breaks is not. Those 16 exact values are now a rejected set in
+ * `isValidMuxPlaybackId` in @diaz/shared, so re-adding one shows as
+ * not-yet-filmed rather than as a broken player. A *newly invented*
+ * placeholder is not caught: the rule refuses only what is provably bad, and
+ * cannot tell a made-up id from a real one. So do not add an identifier here
+ * until there is real footage behind it.
  */
 type LessonSeed = {
   id: string;

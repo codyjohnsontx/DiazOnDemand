@@ -392,13 +392,27 @@ the reason it exists is stated with it.
 A published lesson may resolve to exactly one of three states, and nothing else: real
 playable video, a labelled demonstration clip, or an explicit not-yet-filmed state. The
 read path is what enforces it. `resolveVideoProvider` in
-`apps/api/src/content/lesson-presentation.ts` returns `NONE` for any identifier that is not
-shaped like one the provider issues - `isValidMuxPlaybackId` / `isValidYouTubeVideoId` in
-`@diaz/shared` - so a member sees the honest empty state instead of a player that loads and
-then fails with "Video does not exist". The rule is shape rather than a list of known
-placeholders, because the next placeholder someone types will be spelled differently. It
-cannot catch a well-formed identifier that points at nothing; only the Mux account can, and
-agents must not ask it.
+`apps/api/src/content/lesson-presentation.ts` returns `NONE` for an identifier that is
+provably unusable - `isValidMuxPlaybackId` / `isValidYouTubeVideoId` in `@diaz/shared` - so a
+member sees the honest empty state instead of a player that loads and then fails with "Video
+does not exist".
+
+The Mux rule rejects a known-bad set, not a guessed-at good shape, and that direction is
+load-bearing. It rejects the 16 placeholders this repository seeded, listed in
+`video-source.ts` and checkable against git history, plus values that are unsafe to
+interpolate into `stream.mux.com/<id>.m3u8`. Everything else is accepted, because Mux
+documents `PlaybackID.id` only as a string. An earlier version required 20 or more
+characters on an assertion that Mux issues ids of 35 to 50; Mux's own API reference example
+is the 18-character `a1B2c3D4e5F6g7H8i9`, so that floor hid a real video behind "not filmed"
+- the same lie this rule exists to stop, pointed the other way and silent. An independent
+review reproduced it. Do not reintroduce a length floor; `video-source.test.ts` pins the
+18-character example as accepted and all 16 placeholders as rejected. The YouTube rule is
+the documented fixed 11-character format, which is a real contract rather than a guess.
+
+The rule cannot decide whether an accepted identifier addresses anything, in either
+direction: a mistyped-but-URL-safe id is accepted and fails in the player. Only the provider
+could settle that, agents must not ask it, and catching a newly typed placeholder needs
+provider validation at a write boundary rather than a shape rule.
 
 `mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
 one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would

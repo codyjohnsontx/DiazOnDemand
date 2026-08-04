@@ -1,37 +1,82 @@
 import { VideoProvider } from './enums.js';
 
 /**
- * Whether a stored provider identifier can address a video at all.
+ * The 16 placeholder Mux playback ids this repository itself seeded into
+ * published lessons. `seedgrddef101` reads "seed / guard retention / defense /
+ * 101"; each one loaded the player and then failed with "Video does not exist".
  *
- * The seeded catalog shipped 16 published lessons whose `muxPlaybackId` was a
- * hand-written mnemonic - `seedgrddef101` is "seed / guard retention / defense
- * / 101" - and every one of them made the player fail with "Video does not
- * exist". Telling a placeholder apart from a real identifier has to be a rule
- * rather than a list of those 16, because the next placeholder someone types
- * will be spelled differently.
- *
- * The rule is shape, and it comes from where each identifier is born:
- *
- * - A Mux playback id is *issued by Mux*, never authored by a person. It is an
- *   opaque alphanumeric token, and the ones Mux issues run to roughly 35-50
- *   characters. The floor below is 20: far under anything Mux issues, far over
- *   the 13-character mnemonics, so a real id cannot trip it.
- * - A YouTube video id is exactly 11 characters of `A-Z a-z 0-9 _ -`. That is a
- *   fixed, documented width, so the check can be exact.
- *
- * Restricting the character set is also what keeps an identifier safe to
- * interpolate into `https://stream.mux.com/<id>.m3u8`.
- *
- * What this deliberately cannot do: a *well formed* identifier that points at
- * nothing - a single-character typo in a real id, or an asset later deleted
- * from Mux - still passes here. Only the Mux account can settle that, and
- * nothing in this repository is permitted to ask it.
+ * This list is the whole known-bad set, and it is verifiable rather than
+ * inferred: it is exactly the `muxPlaybackId: 'seed...'` values that stood in
+ * `packages/db/prisma/seed-curriculum/programs.ts` before they were cleared,
+ * recoverable from git history at `d099a83`.
  */
-const MUX_PLAYBACK_ID_PATTERN = /^[A-Za-z0-9]{20,}$/;
+const SEEDED_PLACEHOLDER_MUX_PLAYBACK_IDS: ReadonlySet<string> = new Set([
+  'seedgrddef101',
+  'seedgrddef102',
+  'seedgrdoff201',
+  'seedgrdoff202',
+  'seedgpsdef301',
+  'seedgpsdef302',
+  'seedgpsoff401',
+  'seedgpsoff402',
+  'seedscddef501',
+  'seedscddef502',
+  'seedscdoff601',
+  'seedscdoff602',
+  'seedbcddef701',
+  'seedbcddef702',
+  'seedbcdoff801',
+  'seedbcdoff802',
+]);
+
+/**
+ * Characters an identifier may contain to be interpolated into
+ * `https://stream.mux.com/<id>.m3u8` without changing what that URL addresses.
+ *
+ * This constraint is justified by the interpolation site, NOT by any claim
+ * about Mux's alphabet: `/`, `?`, `#`, `.` and whitespace would change the path,
+ * start a query, start a fragment, or traverse. Everything else is allowed
+ * through, because Mux does not document a character set and inventing one is
+ * how the previous version of this rule broke.
+ */
+const URL_PATH_SAFE_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 
+/**
+ * Whether a stored Mux playback id may be used, which is a narrower claim than
+ * "this identifier addresses a real video".
+ *
+ * This rule used to require 20 or more characters, on my assertion that Mux
+ * issues ids of roughly 35 to 50. Mux documents no such thing: `PlaybackID.id`
+ * is documented only as a string, and Mux's own API reference response example
+ * is the 18-character `a1B2c3D4e5F6g7H8i9`. That floor therefore routed a
+ * genuine Mux id to NONE and told the member the lesson was not filmed - the
+ * same product lying this module exists to stop, pointed the other way, and
+ * silently. An independent review reproduced it.
+ *
+ * So the rule is inverted. It rejects only what can be shown to be bad:
+ *
+ * - the 16 placeholders this repository seeded, listed above and checkable
+ *   against git history, and
+ * - values that are not safe to interpolate into the playback URL.
+ *
+ * Everything else is accepted, because Mux's documented contract is "a string"
+ * and guessing at a tighter shape is what caused the defect.
+ *
+ * What this deliberately does NOT promise, in either direction: it cannot tell
+ * whether an accepted id addresses anything. A mistyped-but-URL-safe id, or an
+ * asset later deleted from Mux, is accepted here and will still fail in the
+ * player. Only the provider can settle existence, and nothing in this
+ * repository is permitted to ask it. Catching a *new* placeholder someone types
+ * needs provider validation at a write boundary, not a shape rule.
+ */
 export function isValidMuxPlaybackId(value: string | null | undefined): value is string {
-  return typeof value === 'string' && MUX_PLAYBACK_ID_PATTERN.test(value);
+  return (
+    typeof value === 'string' &&
+    URL_PATH_SAFE_PATTERN.test(value) &&
+    !SEEDED_PLACEHOLDER_MUX_PLAYBACK_IDS.has(value)
+  );
 }
 
 export function isValidYouTubeVideoId(value: string | null | undefined): value is string {

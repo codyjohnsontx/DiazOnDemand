@@ -1150,9 +1150,15 @@ describe('published lessons never resolve to an unplayable identifier', () => {
     tags: [],
   };
 
-  // Spelled every which way on purpose: the guard is the shape of the
-  // identifier, not a list of the 16 that shipped or of the word "seed".
-  const unplayableMuxIds = ['seedgrddef101', 'seedbcdoff802', 'placeholder', 'TODO', 'lesson-01', ''];
+  // Only values that are provably unplayable: the placeholders this repository
+  // seeded, and values that cannot be interpolated into the playback URL. The
+  // rule deliberately no longer guesses at a valid Mux shape - it used to
+  // require 20 characters and so refused Mux's own documented 18-character
+  // example, telling members a real lesson was not filmed. See
+  // isValidMuxPlaybackId in @diaz/shared. A short made-up id like 'TODO' is
+  // therefore accepted here and fails in the player instead, which is the
+  // honest boundary of what shape can decide.
+  const unplayableMuxIds = ['seedgrddef101', 'seedbcdoff802', 'a1B2c3D4e5F6g7H8i9/../x', ' pad ', ''];
   const unplayableYoutubeIds = ['not-filmed', 'https://youtu.be/M7lc1UVf-VE', 'TBD', ''];
 
   it.each(unplayableMuxIds)('reports a Mux lesson holding "%s" as having no video', async (id) => {
@@ -1196,6 +1202,24 @@ describe('published lessons never resolve to an unplayable identifier', () => {
       }
     },
   );
+
+  // The regression this suite exists to prevent, at the read path rather than
+  // in the helper: a genuine Mux id must reach the player. `a1B2c3D4e5F6g7H8i9`
+  // is the 18-character value from Mux's own API reference response example,
+  // and the previous 20-character floor routed it to NONE.
+  it("serves Mux's documented 18-character example rather than hiding the lesson", async () => {
+    const lesson = {
+      ...publishedLesson,
+      videoProvider: 'MUX',
+      muxPlaybackId: 'a1B2c3D4e5F6g7H8i9',
+    };
+    const detail = await withDatabaseUrl(DEPLOYED_DB, () => mapLessonDetail(lesson));
+
+    expect(detail.video.provider).toBe(VideoProvider.MUX);
+    expect(detail.video.playbackUrl).toBe('https://stream.mux.com/a1B2c3D4e5F6g7H8i9.m3u8');
+    expect(detail.video.muxPlaybackId).toBe('a1B2c3D4e5F6g7H8i9');
+    expect(mapLessonSummary(lesson).videoProvider).toBe(VideoProvider.MUX);
+  });
 
   it('still resolves identifiers the providers actually issue', () => {
     const mux = mapLessonDetail({
