@@ -7,12 +7,16 @@
 # what is actually being changed and what is just written down for clarity.
 
 reviews:
-  # MUST stay here, and must stay `assertive`. Omitting this key does NOT
-  # inherit the organization-level setting: CodeRabbit falls back to its own
-  # `chill` default, and reviews here get quietly shallower than the rest of
-  # the fleet. Verified: DiazMartialArts pull requests #15, #16 and #17 carry
-  # no repo config and report `profile: ASSERTIVE` (the organization setting),
-  # while repos that do ship a config report `CHILL`.
+  # MUST stay here, and must stay `assertive`, set explicitly so this
+  # repository matches the organization-level setting instead of depending on
+  # defaulting or inheritance rules that have not been verified here.
+  # What was actually observed, and nothing beyond it: DiazMartialArts pull
+  # requests #15, #16 and #17 ship no config file at all and report
+  # `profile: ASSERTIVE`, which is the organization setting; this repository
+  # shipped a config file setting `profile: chill` and reported `CHILL`.
+  # Neither observation says what a config file that omits the key does -
+  # nobody has run that experiment - which is exactly why the key stays here
+  # with a value written out.
   # Depth is the thing being paid for. Cut the number of review runs
   # (auto_incremental_review below, drafts) if quota is the worry - never the
   # depth of the review that does run.
