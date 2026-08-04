@@ -20,8 +20,7 @@ import {
   getCurriculumTrackLabel,
   getCurriculumTrackKeys,
   getDisciplineLabel,
-  isValidMuxPlaybackId,
-  isValidYouTubeVideoId,
+  hasUnplayableVideoIdentifier,
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
@@ -212,12 +211,14 @@ export default function AdminLessonDetailPage() {
     );
   }
 
-  const storedMuxPlaybackId = form.muxPlaybackId.trim();
-  const storedYoutubeVideoId = form.youtubeVideoId.trim();
-  const showMuxPlaybackIdHint =
-    storedMuxPlaybackId.length > 0 && !isValidMuxPlaybackId(storedMuxPlaybackId);
-  const showYoutubeVideoIdHint =
-    storedYoutubeVideoId.length > 0 && !isValidYouTubeVideoId(storedYoutubeVideoId);
+  const showMuxPlaybackIdHint = hasUnplayableVideoIdentifier({
+    videoProvider: form.videoProvider,
+    muxPlaybackId: form.muxPlaybackId,
+  });
+  const showYoutubeVideoIdHint = hasUnplayableVideoIdentifier({
+    videoProvider: form.videoProvider,
+    youtubeVideoId: form.youtubeVideoId,
+  });
   const phaseOptions = getCurriculumPhaseKeys(form.curriculum.discipline);
   const trackOptions = getCurriculumTrackKeys(form.curriculum.discipline, form.curriculum.phase);
   const skillOptions = getCurriculumSkillKeys(form.curriculum.discipline);
@@ -345,9 +346,8 @@ export default function AdminLessonDetailPage() {
               />
               {showMuxPlaybackIdHint ? (
                 <p className="type-meta text-[var(--danger)]">
-                  This playback ID is not shaped like one Mux issues, so it will not play. Members
-                  see the not-filmed state for this lesson until it is corrected. Saving is still
-                  allowed.
+                  This playback ID will not play. A published lesson with it shows the not-filmed
+                  state.
                 </p>
               ) : null}
             </div>
@@ -368,9 +368,8 @@ export default function AdminLessonDetailPage() {
               />
               {showYoutubeVideoIdHint ? (
                 <p className="type-meta text-[var(--danger)]">
-                  A YouTube video ID is exactly 11 characters, so this one will not play. Members
-                  see the not-filmed state for this lesson until it is corrected. Saving is still
-                  allowed.
+                  This video ID will not play. A published lesson with it shows the not-filmed
+                  state.
                 </p>
               ) : null}
             </div>

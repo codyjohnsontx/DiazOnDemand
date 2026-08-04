@@ -211,8 +211,8 @@ export default function AdminCourseDetailPage() {
                     </p>
                     {hasUnplayableVideoIdentifier(lesson) ? (
                       <p className="text-sm text-[var(--danger)]">
-                        The stored video ID cannot address a video, so members see the not-filmed
-                        state for this lesson. Edit the lesson to correct it.
+                        The stored video ID will not play. A published lesson with it shows the
+                        not-filmed state.
                       </p>
                     ) : null}
                   </div>
