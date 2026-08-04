@@ -3,7 +3,11 @@ import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
 import * as SecureStore from 'expo-secure-store';
 import type React from 'react';
 import { ActivityIndicator, Text } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  initialWindowMetrics,
+} from 'react-native-safe-area-context';
 import { AuthTokenProvider, StaticAuthTokenProvider } from './src/auth-provider';
 import { MobileApp } from './src/mobile-app';
 import { SignInScreen } from './src/sign-in-screen';
@@ -24,7 +28,7 @@ export default function App() {
 
   if (devBypassEnabled) {
     return (
-      <SafeAreaProvider>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <StaticAuthTokenProvider>
           <MobileApp />
         </StaticAuthTokenProvider>
@@ -34,7 +38,7 @@ export default function App() {
 
   if (!clerkPublishableKey) {
     return (
-      <SafeAreaProvider>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <MissingClerkConfigScreen />
       </SafeAreaProvider>
     );
@@ -47,7 +51,7 @@ export default function App() {
   }) => React.ReactNode;
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       {
         Provider({
           tokenCache,
