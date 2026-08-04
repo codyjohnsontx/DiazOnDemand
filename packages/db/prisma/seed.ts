@@ -75,11 +75,19 @@ async function seedPrograms() {
         orderIndex: lesson.orderIndex,
         accessLevel: lesson.accessLevel,
         videoProvider: lesson.videoProvider as VideoProvider,
-        // `?? null` rather than the raw value: Prisma reads `undefined` as
-        // "leave this column alone", so a lesson that drops its identifier from
-        // the seed would keep the stale one already in the row. Re-running the
-        // seed has to be able to clear a playback id, not only set one.
-        muxPlaybackId: lesson.muxPlaybackId ?? null,
+        // Always null, never a seeded value: `LessonSeed` has no field for a Mux
+        // playback id, because seed data inventing them is what published 16
+        // lessons pointing at videos that did not exist. The only Mux ids that
+        // reach this column come from the `video.asset.ready` webhook and are
+        // real by construction.
+        //
+        // Written explicitly rather than left out, because Prisma reads
+        // `undefined` as "leave this column alone": re-running the seed has to
+        // be able to clear a stale identifier, not only set one. That does mean
+        // the seed is authoritative and will clear a Mux id later attached to a
+        // seeded lesson, which matches how it already overwrites title, access
+        // level, duration and publication state.
+        muxPlaybackId: null,
         youtubeVideoId: lesson.youtubeVideoId ?? null,
         durationSeconds: lesson.durationSeconds,
         isPublished: true,
@@ -92,7 +100,7 @@ async function seedPrograms() {
         orderIndex: lesson.orderIndex,
         accessLevel: lesson.accessLevel,
         videoProvider: lesson.videoProvider as VideoProvider,
-        muxPlaybackId: lesson.muxPlaybackId ?? null,
+        muxPlaybackId: null,
         youtubeVideoId: lesson.youtubeVideoId ?? null,
         durationSeconds: lesson.durationSeconds,
         isPublished: true,

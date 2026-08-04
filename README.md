@@ -202,7 +202,17 @@ exist". They are cleared, and the API will no longer resolve an identifier that 
 unusable - see `isValidMuxPlaybackId` in `packages/shared` and `resolveVideoProvider` in
 `apps/api/src/content/lesson-presentation.ts`.
 
-That rule rejects a known-bad set rather than guessing at a valid shape: the 16 seeded
+The cause is closed structurally, not just the symptom. `LessonSeed` in
+`packages/db/prisma/seed-curriculum/programs.ts` **has no field for a Mux playback id**, so
+the seed cannot invent one again - adding one is a compile error, which `pnpm typecheck`
+catches. That matters because it makes the remaining ids trustworthy by construction: every
+Mux id that reaches the database now arrives through the `video.asset.ready` webhook, which
+only ever reports ids Mux itself issued. A seeded lesson is therefore either YouTube with a
+real public video id, or not filmed. (Validating an id an admin types by hand against Mux is
+deliberately deferred and tracked separately.)
+
+The read-path rule remains as the backstop for rows this repository never wrote. It rejects a
+known-bad set rather than guessing at a valid shape: the 16 seeded
 placeholders, plus values unsafe to interpolate into `stream.mux.com/<id>.m3u8`. Everything
 else is accepted, because Mux documents `PlaybackID.id` only as a string. **Do not add a
 length floor.** An earlier version required 20 or more characters and so refused Mux's own

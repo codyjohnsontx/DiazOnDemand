@@ -397,8 +397,17 @@ provably unusable - `isValidMuxPlaybackId` / `isValidYouTubeVideoId` in `@diaz/s
 member sees the honest empty state instead of a player that loads and then fails with "Video
 does not exist".
 
-The Mux rule rejects a known-bad set, not a guessed-at good shape, and that direction is
-load-bearing. It rejects the 16 placeholders this repository seeded, listed in
+The cause is closed structurally, not only the symptom: `LessonSeed` in
+`packages/db/prisma/seed-curriculum/programs.ts` has no field for a Mux playback id, so the
+seed cannot fabricate one again and `pnpm typecheck` fails if someone adds one. That is where
+all 16 broken lessons came from - seed data inventing ids to fill out a catalogue, not Mux
+and not an admin typo. It also makes the surviving ids trustworthy by construction: every Mux
+id now reaching the database arrives through the `video.asset.ready` webhook, so it is one
+Mux issued. Validating an admin-typed id against Mux is deliberately deferred and tracked
+separately; do not build it.
+
+The read-path rule stays as the backstop for rows this repository never wrote. It rejects a
+known-bad set, not a guessed-at good shape, and that direction is load-bearing. It rejects the 16 placeholders this repository seeded, listed in
 `video-source.ts` and checkable against git history, plus values that are unsafe to
 interpolate into `stream.mux.com/<id>.m3u8`. Everything else is accepted, because Mux
 documents `PlaybackID.id` only as a string. An earlier version required 20 or more

@@ -6,17 +6,29 @@ import type {
 } from '@diaz/shared';
 
 /**
- * A seeded lesson carries a provider identifier only when that identifier
- * addresses a real video. Sixteen of these once held mnemonics like
- * `seedgrddef101`, and each one loaded the player and then failed with "Video
- * does not exist". Leave `videoProvider` as `NONE` until there is real footage:
- * a lesson that says it has not been filmed is truthful, a lesson that says it
- * has and then breaks is not. Those 16 exact values are now a rejected set in
- * `isValidMuxPlaybackId` in @diaz/shared, so re-adding one shows as
- * not-yet-filmed rather than as a broken player. A *newly invented*
- * placeholder is not caught: the rule refuses only what is provably bad, and
- * cannot tell a made-up id from a real one. So do not add an identifier here
- * until there is real footage behind it.
+ * A seeded lesson cannot carry a Mux playback id. There is deliberately no
+ * field for one, so the seed cannot invent one again.
+ *
+ * That is where all 16 broken lessons came from: not from Mux, not from an
+ * admin typo, but from seed data making ids up to fill out a catalogue.
+ * `seedgrddef101` reads "seed / guard retention / defense / 101", and each one
+ * loaded the player and then failed with "Video does not exist". Rejecting
+ * those values at read time treats the symptom; a seed that cannot fabricate
+ * one removes the cause, and it is the stronger guarantee because it is
+ * structural rather than a rule that has to recognise a bad value.
+ *
+ * It matters because of where the trustworthy ids come from. Every Mux id that
+ * reaches the database arrives through the `video.asset.ready` webhook and is
+ * real by construction - see `syncMuxAsset` in
+ * apps/api/src/webhooks/webhooks.service.ts. With the seed no longer
+ * fabricating any, the remaining ids need no shape guessing to be trusted.
+ * (Validating an id an admin types by hand against Mux is deliberately deferred
+ * and tracked separately. Do not build it here.)
+ *
+ * So a seeded lesson is either YOUTUBE with a real, public, human-checkable
+ * video id, or NONE. Leave it NONE until there is real footage: a lesson that
+ * says it has not been filmed is truthful, a lesson that says it has and then
+ * breaks is not.
  */
 type LessonSeed = {
   id: string;
@@ -25,7 +37,6 @@ type LessonSeed = {
   orderIndex: number;
   accessLevel: AccessLevel;
   videoProvider: VideoProvider;
-  muxPlaybackId?: string | null;
   youtubeVideoId?: string | null;
   durationSeconds: number;
   curriculum: CurriculumMetadata;
@@ -109,7 +120,6 @@ function buildProgram(options: {
         orderIndex: lessonIndex + 1,
         accessLevel: lesson.accessLevel,
         videoProvider: lesson.videoProvider,
-        muxPlaybackId: lesson.muxPlaybackId ?? null,
         youtubeVideoId: lesson.youtubeVideoId ?? null,
         durationSeconds: lesson.durationSeconds,
         curriculum: {
