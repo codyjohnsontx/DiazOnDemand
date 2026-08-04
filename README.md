@@ -204,6 +204,14 @@ After seed:
   simply sends no credentials. All three default to `false` in `.env.example`.
 - API reads `x-dev-user-id` header and auto-upserts a user.
 - For real Clerk auth, each app needs its own keys in its own `.env`: the API needs `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`) in the root `.env`; the web app needs **both** `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env`; Expo needs `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/mobile/.env`. The web/mobile clients then forward bearer tokens to the API.
+- The Expo sign-in screen (`apps/mobile/src/sign-in-screen.tsx`) answers identically for an
+  address that has a Clerk account and one that does not, so it cannot be used to ask whether
+  someone is a member. Turning on **Strict user enumeration protection** in the Clerk dashboard
+  is the account owner's half of that, and is not done from this repo: it closes the
+  response-timing difference the app cannot.
+- Signing out revokes the session at Clerk, so it needs the network. Offline it fails and says
+  so, rather than clearing the local token and showing a signed-out app while the session stays
+  live server-side.
 
 ## Stripe + Webhooks
 Billing endpoints (both Clerk-authenticated):

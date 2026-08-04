@@ -1,20 +1,22 @@
 {
   "expo": {
-    "name": "Diaz On Demand",
-    "slug": "diaz-ondemand-mobile",
-    "scheme": "diazondemand",
+    "name": "Diaz Martial Arts",
+    "slug": "diaz-martial-arts",
+    "scheme": "diazmartialarts",
     "version": "0.1.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "splash": {
-      "backgroundColor": "#ffffff"
+      "image": "./assets/diaz-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#08090b"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#08090b"
       }
     },
     "plugins": []

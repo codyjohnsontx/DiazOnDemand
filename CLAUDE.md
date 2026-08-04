@@ -372,6 +372,20 @@ the reason it exists is stated with it.
   the Mux asset or restricting the YouTube video. Agents must not touch the Mux account to
   check. This is deliberately not mitigated in code; a partial mitigation would only make it
   look handled.
+- The mobile sign-in screen never renders a provider's error text, and no Clerk answer at the
+  email step changes what the user sees. The flow has no password step, so an address with no
+  Clerk account would otherwise fail visibly differently from a member's, and that difference
+  is the whole answer to "is this person a member of the gym?". Every message is written in the
+  app - see `messages` in `apps/mobile/src/sign-in-screen.tsx`; any Clerk API response at the
+  email step lands on the same code screen a real member reaches; and the code step gives one
+  message for every failure, so a wrong code and an address with no account read alike. The one
+  deliberate asymmetry is a failure Clerk never answered at all (offline, service unreachable):
+  it is reported as unreachable and stays on the email step, because that outcome cannot depend
+  on the identifier. Known residual, not closable from this repository: the known path makes two
+  round trips and the unknown path one, so response timing still differs. Clerk's Strict user
+  enumeration protection is the owner's half of it - see "Clerk Setup Notes" in README.md.
+  No automated test guards either property: `apps/mobile` has no test runner at all (its
+  `test` script is an echo), so anything changed on this screen has to be re-checked by hand.
 
 ## Maintaining this file
 

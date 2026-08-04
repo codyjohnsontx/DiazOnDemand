@@ -35,7 +35,6 @@ const DEV_BYPASS_AUTH =
   process.env.NODE_ENV !== 'production' && process.env.EXPO_PUBLIC_DEV_BYPASS_AUTH === 'true';
 const rawDevUserId = process.env.EXPO_PUBLIC_DEV_USER_ID?.trim();
 const DEV_USER_ID = DEV_BYPASS_AUTH ? rawDevUserId || null : null;
-const SUBSCRIBE_URL = process.env.EXPO_PUBLIC_SUBSCRIBE_URL ?? 'http://localhost:3000/subscribe';
 
 type RootStackParamList = {
   Programs: undefined;
@@ -53,13 +52,11 @@ const ExpoVideo = Video as unknown as React.ComponentType<any>;
 
 type DevUserContextValue = {
   devUserId: string | null;
-  resetDevUserId: () => void;
 };
 
-const DevUserContext = createContext<DevUserContextValue>({
-  devUserId: DEV_USER_ID,
-  resetDevUserId: () => undefined,
-});
+const devUserContextValue: DevUserContextValue = { devUserId: DEV_USER_ID };
+
+const DevUserContext = createContext<DevUserContextValue>(devUserContextValue);
 
 function useDevUser() {
   return useContext(DevUserContext);
@@ -81,7 +78,11 @@ async function requestApi<T>(
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : devUserId ? { 'x-dev-user-id': devUserId } : {}),
+      ...(token
+        ? { Authorization: `Bearer ${token}` }
+        : devUserId
+          ? { 'x-dev-user-id': devUserId }
+          : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -289,8 +290,10 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
     return (
       <SafeAreaView style={{ flex: 1, padding: 16 }}>
         <Text style={{ fontSize: 20, fontWeight: '700' }}>Premium lesson</Text>
-        <Text style={{ marginTop: 8 }}>Upgrade to premium to watch this lesson.</Text>
-        <Button onPress={() => Linking.openURL(SUBSCRIBE_URL)} title="Subscribe" />
+        <Text style={{ marginTop: 8 }}>
+          This lesson is not included in your current Diaz On Demand access. Your access updates
+          automatically when your membership changes.
+        </Text>
       </SafeAreaView>
     );
   }
@@ -305,11 +308,13 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
 
   const source =
     lesson.video.provider === VideoProvider.MUX
-      ? lesson.video.playbackUrl ??
-        (lesson.video.muxPlaybackId ? `https://stream.mux.com/${lesson.video.muxPlaybackId}.m3u8` : null)
+      ? (lesson.video.playbackUrl ??
+        (lesson.video.muxPlaybackId
+          ? `https://stream.mux.com/${lesson.video.muxPlaybackId}.m3u8`
+          : null))
       : null;
   const youtubeEmbedUrl =
-    lesson.video.provider === VideoProvider.YOUTUBE ? lesson.video.embedUrl ?? null : null;
+    lesson.video.provider === VideoProvider.YOUTUBE ? (lesson.video.embedUrl ?? null) : null;
   const queue = course ? buildLessonQueue(course, progress, lesson.id) : [];
 
   return (
@@ -334,10 +339,7 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
           }}
         />
       ) : youtubeEmbedUrl ? (
-        <Button
-          onPress={() => Linking.openURL(youtubeEmbedUrl)}
-          title="Open demo video"
-        />
+        <Button onPress={() => Linking.openURL(youtubeEmbedUrl)} title="Open demo video" />
       ) : lesson.video.provider === VideoProvider.YOUTUBE ? (
         <Text>Demo video link is unavailable for this lesson.</Text>
       ) : (
@@ -358,8 +360,16 @@ function LibraryStack() {
   return (
     <StackNavigator>
       <Stack.Screen name="Programs" component={ProgramsScreen} />
-      <Stack.Screen name="ProgramDetail" component={ProgramDetailScreen} options={{ title: 'Program' }} />
-      <Stack.Screen name="CourseDetail" component={CourseDetailScreen} options={{ title: 'Course' }} />
+      <Stack.Screen
+        name="ProgramDetail"
+        component={ProgramDetailScreen}
+        options={{ title: 'Program' }}
+      />
+      <Stack.Screen
+        name="CourseDetail"
+        component={CourseDetailScreen}
+        options={{ title: 'Course' }}
+      />
       <Stack.Screen name="Lesson" component={LessonScreen} options={{ title: 'Lesson' }} />
     </StackNavigator>
   );
@@ -377,7 +387,10 @@ function FavoritesScreen() {
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
       <Text style={{ fontSize: 24, fontWeight: '700', marginBottom: 12 }}>Favorites</Text>
       {favorites.map((favorite) => (
-        <View key={favorite.id} style={{ padding: 12, borderWidth: 1, borderRadius: 8, marginBottom: 8 }}>
+        <View
+          key={favorite.id}
+          style={{ padding: 12, borderWidth: 1, borderRadius: 8, marginBottom: 8 }}
+        >
           <Text>{favorite.lesson?.title ?? 'Lesson'}</Text>
         </View>
       ))}
@@ -388,11 +401,37 @@ function FavoritesScreen() {
 
 function AccountScreen() {
   const api = useApiClient();
+  const { isDevelopmentBypass, signOut } = useAuthToken();
   const [me, setMe] = useState<MeDto | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
   useEffect(() => {
     api<MeDto>('/me').then(setMe).catch(console.error);
   }, [api]);
+
+  const handleSignOut = useCallback(async () => {
+    if (signingOut) {
+      return;
+    }
+
+    setSigningOut(true);
+    setSignOutError(null);
+
+    try {
+      await signOut();
+    } catch {
+      // Signing out revokes the session at Clerk, so it needs the network. When that
+      // fails the session is still live and the token in SecureStore still works, so
+      // the honest outcome is to stay signed in and say so. Clearing local storage
+      // instead would show a signed-out app while the session stayed usable.
+      setSignOutError(
+        'We could not sign you out, so you are still signed in on this device. Check your connection and try again.',
+      );
+    } finally {
+      setSigningOut(false);
+    }
+  }, [signOut, signingOut]);
 
   return (
     <SafeAreaView style={{ flex: 1, padding: 16 }}>
@@ -400,47 +439,35 @@ function AccountScreen() {
       <Text>Role: {me?.role ?? 'Loading...'}</Text>
       <Text>Entitlement: {me?.entitlementTier ?? 'Loading...'}</Text>
       <Text>Subscription: {me?.subscriptionStatus ?? 'Not started'}</Text>
-      <View style={{ marginTop: 16 }}>
-        <Button title="Manage Subscription" onPress={() => Linking.openURL(SUBSCRIBE_URL)} />
-      </View>
-    </SafeAreaView>
-  );
-}
-
-function SignInScreen() {
-  const { devUserId, resetDevUserId } = useDevUser();
-
-  return (
-    <SafeAreaView style={{ flex: 1, padding: 16 }}>
-      <Text style={{ fontSize: 24, fontWeight: '700', marginBottom: 12 }}>Sign In</Text>
-      <Text>Clerk can be enabled via EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY.</Text>
-      <Text style={{ marginTop: 8 }}>Development bypass header:</Text>
-      <Text>Current dev user header:</Text>
-      <Text style={{ marginTop: 8, fontWeight: '600' }}>{devUserId ?? 'Disabled'}</Text>
-      <View style={{ marginTop: 16 }}>
-        <Button
-          title="Reset to default"
-          onPress={resetDevUserId}
-        />
-      </View>
+      <Text style={{ marginTop: 16 }}>
+        Membership purchases and changes are not available in this app.
+      </Text>
+      {!isDevelopmentBypass ? (
+        <View style={{ marginTop: 16 }}>
+          {signOutError ? (
+            <Text accessibilityLiveRegion="polite" style={{ color: '#b3261e', marginBottom: 8 }}>
+              {signOutError}
+            </Text>
+          ) : null}
+          <Button
+            disabled={signingOut}
+            title={signingOut ? 'Signing out...' : 'Sign out'}
+            onPress={() => void handleSignOut()}
+          />
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
 
 export function MobileApp() {
-  const [devUserId, setDevUserId] = useState(DEV_USER_ID);
-  const resetDevUserId = useCallback(() => {
-    setDevUserId(DEV_USER_ID);
-  }, []);
-
   return (
-    <DevUserContext.Provider value={{ devUserId, resetDevUserId }}>
+    <DevUserContext.Provider value={devUserContextValue}>
       <NavigationRoot>
         <TabsNavigator>
           <Tabs.Screen name="Library" component={LibraryStack} options={{ headerShown: false }} />
           <Tabs.Screen name="Favorites" component={FavoritesScreen} />
           <Tabs.Screen name="Account" component={AccountScreen} />
-          <Tabs.Screen name="SignIn" component={SignInScreen} options={{ title: 'Sign In' }} />
         </TabsNavigator>
       </NavigationRoot>
     </DevUserContext.Provider>
