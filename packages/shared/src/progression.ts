@@ -1,5 +1,6 @@
 import { AccessLevel } from './enums.js';
 import { formatCurriculumMetadataLabel } from './curriculum.js';
+import { hasPlayableVideo } from './video-source.js';
 import type { CourseDto, LessonSummary, ProgramWithContentDto, ProgressDto } from './schemas.js';
 
 type CourseWithLessons = ProgramWithContentDto['courses'][number] | CourseDto;
@@ -174,7 +175,7 @@ export function buildLessonQueue(
     href: `/lesson/${lesson.id}`,
     orderLabel: lesson.orderIndex.toString().padStart(2, '0'),
     title: lesson.title,
-    durationLabel: formatDuration(lesson.durationSeconds),
+    durationLabel: hasPlayableVideo(lesson) ? formatDuration(lesson.durationSeconds) : null,
     accessLabel: lesson.accessLevel === AccessLevel.PAID ? 'Premium' : 'Free',
     isCompleted: Boolean(progressMap.get(lesson.id)?.completed),
     isCurrent: lesson.id === currentLessonId,

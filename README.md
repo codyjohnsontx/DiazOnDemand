@@ -202,7 +202,10 @@ exist". They are cleared, and the API will no longer resolve an identifier that 
 shaped like one the provider issues - see `isValidMuxPlaybackId` in `packages/shared` and
 `resolveVideoProvider` in `apps/api/src/content/lesson-presentation.ts`. Members get the
 not-yet-filmed state instead of a broken player; staff still see the stored value in the
-lesson editor. Whether unfilmed lessons stay published is an open product decision.
+lesson editor, now with a non-blocking hint next to any identifier the read path will refuse,
+in the editor and on the admin course lesson rows. A not-yet-filmed lesson also shows no
+runtime to a member - the seeded `durationSeconds` stays as a planned length and still counts
+towards course totals. Whether unfilmed lessons stay published is an open product decision.
 
 ## Clerk Setup Notes (Web + Expo)
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the

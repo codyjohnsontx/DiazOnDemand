@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isValidMuxPlaybackId, isValidYouTubeVideoId } from './video-source.js';
+import { VideoProvider } from './enums.js';
+import {
+  hasPlayableVideo,
+  hasUnplayableVideoIdentifier,
+  isValidMuxPlaybackId,
+  isValidYouTubeVideoId,
+} from './video-source.js';
 
 describe('isValidMuxPlaybackId', () => {
   it('accepts identifiers shaped like the ones Mux issues', () => {
@@ -63,5 +69,85 @@ describe('isValidYouTubeVideoId', () => {
     expect(isValidYouTubeVideoId('M7lc1UVf VE')).toBe(false);
     expect(isValidYouTubeVideoId('https://youtu.be/M7lc1UVf-VE')).toBe(false);
     expect(isValidYouTubeVideoId(null)).toBe(false);
+  });
+});
+
+describe('hasPlayableVideo', () => {
+  it('trusts the provider the API resolved', () => {
+    expect(hasPlayableVideo({ videoProvider: VideoProvider.MUX })).toBe(true);
+    expect(hasPlayableVideo({ videoProvider: VideoProvider.YOUTUBE })).toBe(true);
+  });
+
+  it('is false for a lesson the read path resolved to no playable video', () => {
+    expect(hasPlayableVideo({ videoProvider: VideoProvider.NONE })).toBe(false);
+    expect(hasPlayableVideo({ videoProvider: null })).toBe(false);
+    expect(hasPlayableVideo({})).toBe(false);
+  });
+});
+
+describe('hasUnplayableVideoIdentifier', () => {
+  it('flags a stored identifier the read path will refuse', () => {
+    expect(
+      hasUnplayableVideoIdentifier({
+        videoProvider: VideoProvider.MUX,
+        muxPlaybackId: 'seedgrddef101',
+      }),
+    ).toBe(true);
+    expect(
+      hasUnplayableVideoIdentifier({
+        videoProvider: VideoProvider.YOUTUBE,
+        youtubeVideoId: 'M7lc1UVf-V',
+      }),
+    ).toBe(true);
+  });
+
+  it('flags surrounding whitespace, which the read path does not strip either', () => {
+    expect(
+      hasUnplayableVideoIdentifier({
+        videoProvider: VideoProvider.MUX,
+        muxPlaybackId: ' DS00Spx1CV902MCtPj5WknGlR102V5HFkDe ',
+      }),
+    ).toBe(true);
+  });
+
+  it('stays quiet for an identifier the provider could have issued', () => {
+    expect(
+      hasUnplayableVideoIdentifier({
+        videoProvider: VideoProvider.MUX,
+        muxPlaybackId: 'DS00Spx1CV902MCtPj5WknGlR102V5HFkDe',
+      }),
+    ).toBe(false);
+    expect(
+      hasUnplayableVideoIdentifier({
+        videoProvider: VideoProvider.YOUTUBE,
+        youtubeVideoId: 'M7lc1UVf-VE',
+      }),
+    ).toBe(false);
+  });
+
+  it('stays quiet for an empty field, which is a lesson nobody has configured yet', () => {
+    expect(hasUnplayableVideoIdentifier({ videoProvider: VideoProvider.MUX })).toBe(false);
+    expect(
+      hasUnplayableVideoIdentifier({ videoProvider: VideoProvider.MUX, muxPlaybackId: '   ' }),
+    ).toBe(false);
+    expect(
+      hasUnplayableVideoIdentifier({ videoProvider: VideoProvider.YOUTUBE, youtubeVideoId: null }),
+    ).toBe(false);
+  });
+
+  it('only judges the identifier the stored provider actually uses', () => {
+    expect(
+      hasUnplayableVideoIdentifier({
+        videoProvider: VideoProvider.YOUTUBE,
+        muxPlaybackId: 'seedgrddef101',
+        youtubeVideoId: 'M7lc1UVf-VE',
+      }),
+    ).toBe(false);
+    expect(
+      hasUnplayableVideoIdentifier({
+        videoProvider: VideoProvider.NONE,
+        muxPlaybackId: 'seedgrddef101',
+      }),
+    ).toBe(false);
   });
 });

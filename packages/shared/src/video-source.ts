@@ -1,3 +1,5 @@
+import { VideoProvider } from './enums.js';
+
 /**
  * Whether a stored provider identifier can address a video at all.
  *
@@ -34,4 +36,51 @@ export function isValidMuxPlaybackId(value: string | null | undefined): value is
 
 export function isValidYouTubeVideoId(value: string | null | undefined): value is string {
   return typeof value === 'string' && YOUTUBE_VIDEO_ID_PATTERN.test(value);
+}
+
+/**
+ * Whether a lesson resolves to a video a member can actually watch.
+ *
+ * The API answers that on the read path and publishes the answer as the
+ * lesson's `videoProvider`, so member surfaces read it here rather than
+ * re-deriving the rule: a lesson whose stored identifier cannot address a video
+ * arrives as NONE. Anything a member is told *about* the video - its runtime,
+ * for one - is only true when this is true, so a not-yet-filmed lesson does not
+ * advertise an exact length it has never had.
+ *
+ * Admin payloads carry the *stored* provider instead, so this is not the
+ * question to ask there - see `hasUnplayableVideoIdentifier`.
+ */
+export function hasPlayableVideo(lesson: { videoProvider?: VideoProvider | null }) {
+  return (
+    lesson.videoProvider === VideoProvider.MUX || lesson.videoProvider === VideoProvider.YOUTUBE
+  );
+}
+
+/**
+ * Whether a lesson holds a stored identifier the read path will refuse.
+ *
+ * This is the staff-side view of the same rule. Members are shown the honest
+ * not-filmed state, silently, which leaves the one person who can fix a
+ * mistyped identifier with nothing to see: the admin payload reports the row as
+ * saved, so a broken id looks correctly configured. It rejects nothing and
+ * blocks no save - a format rule cannot be checked against the provider account
+ * - it only says that this row, as stored, will not play.
+ */
+export function hasUnplayableVideoIdentifier(lesson: {
+  videoProvider?: VideoProvider | null;
+  muxPlaybackId?: string | null;
+  youtubeVideoId?: string | null;
+}) {
+  if (lesson.videoProvider === VideoProvider.MUX) {
+    const stored = lesson.muxPlaybackId ?? '';
+    return stored.trim().length > 0 && !isValidMuxPlaybackId(stored);
+  }
+
+  if (lesson.videoProvider === VideoProvider.YOUTUBE) {
+    const stored = lesson.youtubeVideoId ?? '';
+    return stored.trim().length > 0 && !isValidYouTubeVideoId(stored);
+  }
+
+  return false;
 }

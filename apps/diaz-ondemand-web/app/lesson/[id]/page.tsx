@@ -8,6 +8,7 @@ import {
   VideoProvider,
   getCurriculumPhaseLabel,
   getDisciplineLabel,
+  hasPlayableVideo,
   type CourseDto,
   type FavoriteDto,
   type LessonDetailDto,
@@ -360,6 +361,7 @@ export default function LessonPage() {
   const nextLesson =
     currentLessonIndex >= 0 && course?.lessons ? course.lessons[currentLessonIndex + 1] ?? null : null;
   const curriculumLabel = formatCurriculumLabel(lesson);
+  const durationLabel = hasPlayableVideo(lesson) ? formatDuration(lesson.durationSeconds) : null;
   const currentCompleted = Boolean(currentProgress?.completed);
   const trustedYoutubeEmbedUrl =
     video.provider === VideoProvider.YOUTUBE && video.embedUrl && isTrustedYouTubeEmbed(video.embedUrl)
@@ -386,7 +388,7 @@ export default function LessonPage() {
                 />
               ) : null}
               {curriculumLabel ? <PremiumBadge label={curriculumLabel} /> : null}
-              {formatDuration(lesson.durationSeconds) ? <PremiumBadge label={formatDuration(lesson.durationSeconds) ?? ''} /> : null}
+              {durationLabel ? <PremiumBadge label={durationLabel} /> : null}
             </div>
             <div className="space-y-3">
               <h1 className="type-title-xl max-w-4xl text-[var(--text)]">

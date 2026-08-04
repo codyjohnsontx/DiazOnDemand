@@ -404,6 +404,18 @@ agents must not ask it.
 one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would
 hide the playback-id field and blank the identifier on the next save.
 
+That payload is therefore honest about the row and silent about playback, which would leave
+the one person who can fix a mistyped id with nothing to see. The admin surfaces carry a
+non-blocking hint instead: `hasUnplayableVideoIdentifier` in `@diaz/shared` marks a stored
+identifier the read path will refuse, beside the id fields in the lesson editor and on the
+admin course lesson rows. It rejects nothing and blocks no save, because a shape rule cannot
+be checked against the Mux account.
+
+Member surfaces show no runtime for a lesson that resolves to `NONE`: `hasPlayableVideo`
+gates `durationLabel` in `buildLessonQueue` and the watch-page duration badge. The seeded
+`durationSeconds` stays in the database as a planned length, and course-level and
+program-level totals still count it.
+
 Current counts, and the 16 seeded mnemonic ids that caused this, are in the "Catalogue Video
 States" section of README.md.
 

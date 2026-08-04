@@ -8,6 +8,7 @@ import {
   createDefaultCurriculum,
   formatCurriculumLabel,
   getDisciplineLabel,
+  hasUnplayableVideoIdentifier,
   programDisciplineToCurriculumDiscipline,
   type ProgramWithContentDto,
 } from '@diaz/shared';
@@ -197,6 +198,9 @@ export default function AdminCourseDetailPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{lesson.title}</h3>
                       <PremiumBadge label={VIDEO_PROVIDER_LABELS[lesson.videoProvider] ?? 'No video'} />
+                      {hasUnplayableVideoIdentifier(lesson) ? (
+                        <PremiumBadge label="Video ID will not play" tone="premium" />
+                      ) : null}
                       <PremiumBadge label={lesson.accessLevel === 'PAID' ? 'Premium' : 'Free'} tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'} />
                       <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
                     </div>
@@ -205,6 +209,12 @@ export default function AdminCourseDetailPage() {
                         ? `${formatCurriculumLabel(lesson)} / ${lesson.curriculum.level}`
                         : 'Curriculum metadata not set'}
                     </p>
+                    {hasUnplayableVideoIdentifier(lesson) ? (
+                      <p className="text-sm text-[var(--danger)]">
+                        The stored video ID cannot address a video, so members see the not-filmed
+                        state for this lesson. Edit the lesson to correct it.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <button

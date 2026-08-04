@@ -20,6 +20,8 @@ import {
   getCurriculumTrackLabel,
   getCurriculumTrackKeys,
   getDisciplineLabel,
+  isValidMuxPlaybackId,
+  isValidYouTubeVideoId,
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
@@ -210,6 +212,12 @@ export default function AdminLessonDetailPage() {
     );
   }
 
+  const storedMuxPlaybackId = form.muxPlaybackId.trim();
+  const storedYoutubeVideoId = form.youtubeVideoId.trim();
+  const showMuxPlaybackIdHint =
+    storedMuxPlaybackId.length > 0 && !isValidMuxPlaybackId(storedMuxPlaybackId);
+  const showYoutubeVideoIdHint =
+    storedYoutubeVideoId.length > 0 && !isValidYouTubeVideoId(storedYoutubeVideoId);
   const phaseOptions = getCurriculumPhaseKeys(form.curriculum.discipline);
   const trackOptions = getCurriculumTrackKeys(form.curriculum.discipline, form.curriculum.phase);
   const skillOptions = getCurriculumSkillKeys(form.curriculum.discipline);
@@ -335,6 +343,13 @@ export default function AdminLessonDetailPage() {
                   setForm((prev) => ({ ...prev, muxPlaybackId: event.target.value }))
                 }
               />
+              {showMuxPlaybackIdHint ? (
+                <p className="type-meta text-[var(--danger)]">
+                  This playback ID is not shaped like one Mux issues, so it will not play. Members
+                  see the not-filmed state for this lesson until it is corrected. Saving is still
+                  allowed.
+                </p>
+              ) : null}
             </div>
           ) : null}
           {form.videoProvider === VideoProvider.YOUTUBE ? (
@@ -351,6 +366,13 @@ export default function AdminLessonDetailPage() {
                   setForm((prev) => ({ ...prev, youtubeVideoId: event.target.value }))
                 }
               />
+              {showYoutubeVideoIdHint ? (
+                <p className="type-meta text-[var(--danger)]">
+                  A YouTube video ID is exactly 11 characters, so this one will not play. Members
+                  see the not-filmed state for this lesson until it is corrected. Saving is still
+                  allowed.
+                </p>
+              ) : null}
             </div>
           ) : null}
           <div className="flex flex-wrap gap-3">
