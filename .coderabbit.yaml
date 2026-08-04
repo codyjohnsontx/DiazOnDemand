@@ -7,9 +7,20 @@
 # what is actually being changed and what is just written down for clarity.
 
 reviews:
-  # Already the default. Stated explicitly so nobody "tunes" it to assertive
-  # later and wonders where the noise came from.
-  profile: chill
+  # MUST stay here, and must stay `assertive`, set explicitly so this
+  # repository matches the organization-level setting instead of depending on
+  # defaulting or inheritance rules that have not been verified here.
+  # What was actually observed, and nothing beyond it: DiazMartialArts pull
+  # requests #15, #16 and #17 ship no config file at all and report
+  # `profile: ASSERTIVE`, which is the organization setting; this repository
+  # shipped a config file setting `profile: chill` and reported `CHILL`.
+  # Neither observation says what a config file that omits the key does -
+  # nobody has run that experiment - which is exactly why the key stays here
+  # with a value written out.
+  # Depth is the thing being paid for. Cut the number of review runs
+  # (auto_incremental_review below, drafts) if quota is the worry - never the
+  # depth of the review that does run.
+  profile: assertive
 
   auto_review:
     enabled: true
