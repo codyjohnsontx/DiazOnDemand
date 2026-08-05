@@ -490,7 +490,11 @@ pnpm install --frozen-lockfile
 pnpm --filter diaz-ondemand-web... --filter '!diaz-ondemand-web' run build
 ln -sfn "$tmp"/node_modules/.pnpm/@types+react@18.*/node_modules/@types/react \
   node_modules/.pnpm/node_modules/@types/react
-pnpm --filter diaz-ondemand-web exec tsc --noEmit --explainFiles > "$explain"
+if ! pnpm --filter diaz-ondemand-web exec tsc --noEmit --explainFiles > "$explain" 2>&1; then
+  echo "FAIL: tsc did not complete, see $explain"
+  grep -E 'error TS' "$explain" | head -20 || true
+  exit 1
+fi
 if grep -q '@types+react@18' "$explain"; then
   echo "FAIL: the hoisted 18 copy reached the web compilation, see $explain"
   exit 1
@@ -501,20 +505,21 @@ PROOF
 bash /tmp/react-types-proof.sh
 ```
 
-It must print `PASS` and exit 0, and it fails closed rather than on a bare exit status:
-`set -euo pipefail` aborts on the install, the build or a non-zero `tsc` instead of falling
-through to a `grep` whose zero-match status is 1 on the outcome you want. The `grep` is the
-stricter backstop, for an 18 copy that reaches the compilation without yet causing a type
-error. The trap removes the workspace on every exit, while `$explain` deliberately survives a
+It must print `PASS` and exit 0, and every other outcome is a named failure rather than a bare
+exit status. `set -euo pipefail` aborts on the install or the build; a non-zero `tsc` is caught
+explicitly, because that is the likely failure and `set -e` alone would end the run silently;
+and neither reaches the `grep`, whose own zero-match status is 1 on the outcome you want. The
+`grep` is the stricter backstop, for an 18 copy that reaches the compilation without yet
+causing a type error. The trap removes the workspace on every exit, while `$explain` survives a
 failure so there is something left to read. Build the web app's workspace dependencies first
 or `tsc` fails on missing `@diaz/shared` types instead of on React. `git archive HEAD` copies
 committed state only, so commit a change to the block before testing it.
 
 Verified 2026-08-05 on pnpm 9.12.3: `PASS`, exit 0. Deleting `pnpm.packageExtensions` from the
-temp copy after the archive exits 1 at `tsc` and leaves an `$explain` holding 8 errors and 12
-`@types+react@18` matches, the first of them the original `app/layout.tsx(29,13)`. A green
-build proves nothing on its own while the 19 copy happens to be the hoisted one; that is what
-hid `@clerk/shared`.
+temp copy after the archive gives `FAIL: tsc did not complete`, exit 1, and an `$explain`
+holding 8 errors and 12 `@types+react@18` matches, the first of them the original
+`app/layout.tsx(29,13)`. A green build proves nothing on its own while the 19 copy happens to
+be the hoisted one; that is what hid `@clerk/shared`.
 
 Do not replace the block with a workspace-wide `pnpm.overrides` pin of `@types/react`. That
 is green on build, lint, typecheck and test today, but it types mobile's react 18.3.1 runtime
