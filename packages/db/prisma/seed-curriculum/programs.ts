@@ -5,6 +5,31 @@ import type {
   CurriculumMetadata,
 } from '@diaz/shared';
 
+/**
+ * A seeded lesson cannot carry a Mux playback id. There is deliberately no
+ * field for one, so the seed cannot invent one again.
+ *
+ * That is where all 16 broken lessons came from: not from Mux, not from an
+ * admin typo, but from seed data making ids up to fill out a catalogue.
+ * `seedgrddef101` reads "seed / guard retention / defense / 101", and each one
+ * loaded the player and then failed with "Video does not exist". Rejecting
+ * those values at read time treats the symptom; a seed that cannot fabricate
+ * one removes the cause, and it is the stronger guarantee because it is
+ * structural rather than a rule that has to recognise a bad value.
+ *
+ * It matters because of where the trustworthy ids come from. Every Mux id that
+ * reaches the database arrives through the `video.asset.ready` webhook and is
+ * real by construction - see `syncMuxAsset` in
+ * apps/api/src/webhooks/webhooks.service.ts. With the seed no longer
+ * fabricating any, the remaining ids need no shape guessing to be trusted.
+ * (Validating an id an admin types by hand against Mux is deliberately deferred
+ * and tracked separately. Do not build it here.)
+ *
+ * So a seeded lesson is either YOUTUBE with a real, public, human-checkable
+ * video id, or NONE. Leave it NONE until there is real footage: a lesson that
+ * says it has not been filmed is truthful, a lesson that says it has and then
+ * breaks is not.
+ */
 type LessonSeed = {
   id: string;
   title: string;
@@ -12,7 +37,6 @@ type LessonSeed = {
   orderIndex: number;
   accessLevel: AccessLevel;
   videoProvider: VideoProvider;
-  muxPlaybackId?: string | null;
   youtubeVideoId?: string | null;
   durationSeconds: number;
   curriculum: CurriculumMetadata;
@@ -96,7 +120,6 @@ function buildProgram(options: {
         orderIndex: lessonIndex + 1,
         accessLevel: lesson.accessLevel,
         videoProvider: lesson.videoProvider,
-        muxPlaybackId: lesson.muxPlaybackId ?? null,
         youtubeVideoId: lesson.youtubeVideoId ?? null,
         durationSeconds: lesson.durationSeconds,
         curriculum: {
@@ -135,8 +158,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Build foundational frames to deny immediate guard passes and create recovery space.',
           orderIndex: 1,
           accessLevel: AccessLevel.FREE,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedgrddef101',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 540,
           curriculum: {
             discipline: 'bjj',
@@ -152,8 +174,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Use coordinated hip escapes and angle changes to recover guard under pressure.',
           orderIndex: 2,
           accessLevel: AccessLevel.PAID,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedgrddef102',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 620,
           curriculum: {
             discipline: 'bjj',
@@ -177,8 +198,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Convert stable retention into inside position for immediate offensive threats.',
           orderIndex: 1,
           accessLevel: AccessLevel.FREE,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedgrdoff201',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 510,
           curriculum: {
             discipline: 'bjj',
@@ -194,8 +214,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Chain retention cues directly into a high-percentage triangle setup.',
           orderIndex: 2,
           accessLevel: AccessLevel.PAID,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedgrdoff202',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 580,
           curriculum: {
             discipline: 'bjj',
@@ -219,8 +238,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Recognize passing entries early and reinforce frame structure before pressure settles.',
           orderIndex: 1,
           accessLevel: AccessLevel.FREE,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedgpsdef301',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 505,
           curriculum: {
             discipline: 'bjj',
@@ -236,8 +254,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Recover guard from knee cut passing chains with timing-based counters.',
           orderIndex: 2,
           accessLevel: AccessLevel.PAID,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedgpsdef302',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 610,
           curriculum: {
             discipline: 'bjj',
@@ -261,8 +278,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Learn clean entries, angle control, and pressure lines for a reliable knee cut pass.',
           orderIndex: 1,
           accessLevel: AccessLevel.FREE,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedgpsoff401',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 550,
           curriculum: {
             discipline: 'bjj',
@@ -278,8 +294,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Connect body lock pressure to stable side control with proper hip and shoulder control.',
           orderIndex: 2,
           accessLevel: AccessLevel.PAID,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedgpsoff402',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 645,
           curriculum: {
             discipline: 'bjj',
@@ -303,8 +318,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Apply frame placement and elbow alignment to prevent flattening under top pressure.',
           orderIndex: 1,
           accessLevel: AccessLevel.FREE,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedscddef501',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 525,
           curriculum: {
             discipline: 'bjj',
@@ -320,8 +334,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Use the underhook line to create elevation and recover guard efficiently.',
           orderIndex: 2,
           accessLevel: AccessLevel.PAID,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedscddef502',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 605,
           curriculum: {
             discipline: 'bjj',
@@ -345,8 +358,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Establish top control points that prevent escapes and open positional attacks.',
           orderIndex: 1,
           accessLevel: AccessLevel.FREE,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedscdoff601',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 500,
           curriculum: {
             discipline: 'bjj',
@@ -362,8 +374,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Build arm isolation from side control and chain finishing details under resistance.',
           orderIndex: 2,
           accessLevel: AccessLevel.PAID,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedscdoff602',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 640,
           curriculum: {
             discipline: 'bjj',
@@ -387,8 +398,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Use hand fighting priorities to stay safe and deny immediate submissions.',
           orderIndex: 1,
           accessLevel: AccessLevel.FREE,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedbcddef701',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 515,
           curriculum: {
             discipline: 'bjj',
@@ -404,8 +414,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Create shoulder angle and clear hooks to recover safer half guard positions.',
           orderIndex: 2,
           accessLevel: AccessLevel.PAID,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedbcddef702',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 590,
           curriculum: {
             discipline: 'bjj',
@@ -429,8 +438,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Establish stable control from the back before progressing to attack chains.',
           orderIndex: 1,
           accessLevel: AccessLevel.FREE,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedbcdoff801',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 520,
           curriculum: {
             discipline: 'bjj',
@@ -446,8 +454,7 @@ export const bjjFundamentalsProgram: ProgramSeed = {
           description: 'Refine choking mechanics and grip transitions to finish from back control.',
           orderIndex: 2,
           accessLevel: AccessLevel.PAID,
-          videoProvider: VideoProvider.MUX,
-          muxPlaybackId: 'seedbcdoff802',
+          videoProvider: VideoProvider.NONE,
           durationSeconds: 655,
           curriculum: {
             discipline: 'bjj',
