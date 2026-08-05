@@ -470,11 +470,34 @@ its `pnpm-lock.yaml` snapshot key, whether it declares the peer itself the way
 `@mux/mux-player-react` does or gets it from this block; a missing suffix is the signal to
 extend the block.
 
-Test the block rather than the current hoist. Point
-`node_modules/.pnpm/node_modules/@types/react` at the 18 copy, then confirm
-`pnpm --filter diaz-ondemand-web exec tsc --noEmit --explainFiles` still names no
-`@types+react@18`, and `pnpm install` to restore. A green build proves nothing on its own
-while the 19 copy happens to be the hoisted one; that is what hid `@clerk/shared`.
+Test the block rather than the current hoist, in a disposable install outside this repository.
+Boundaries above forbids mutating `node_modules`, and a real install is half the test anyway:
+resolving every dependency against the block and writing the hoisted store is the behaviour
+under test, so nothing short of an install proves anything about it. A fresh install still
+picks the hoist itself and picked 19 every time this was run, so the adverse case has to be
+forced - inside the throwaway copy, where it costs nothing.
+
+```bash
+tmp=$(mktemp -d)
+git archive HEAD | tar -x -C "$tmp"
+cd "$tmp"
+pnpm install --frozen-lockfile
+pnpm --filter diaz-ondemand-web... --filter '!diaz-ondemand-web' run build
+ln -sfn "$tmp"/node_modules/.pnpm/@types+react@18.*/node_modules/@types/react \
+  node_modules/.pnpm/node_modules/@types/react
+pnpm --filter diaz-ondemand-web exec tsc --noEmit --explainFiles > "$tmp/explain.txt"
+grep -c '@types+react@18' "$tmp/explain.txt"
+cd - && rm -rf "$tmp"
+```
+
+`tsc` must exit 0 and the grep must count 0. Build the web app's workspace dependencies first
+or `tsc` fails on missing `@diaz/shared` types instead of on React, and a run that bails early
+proves nothing. `git archive HEAD` copies committed state only, so commit a change to the block
+before testing it. Verified 2026-08-05 on pnpm 9.12.3: clean, and the same procedure with
+`pnpm.packageExtensions` deleted from the temp copy's `package.json` before installing gives 12
+matches and 8 errors, the first of them the original `app/layout.tsx(29,13)`. A green build
+proves nothing on its own while the 19 copy happens to be the hoisted one; that is what hid
+`@clerk/shared`.
 
 Do not replace the block with a workspace-wide `pnpm.overrides` pin of `@types/react`. That
 is green on build, lint, typecheck and test today, but it types mobile's react 18.3.1 runtime
