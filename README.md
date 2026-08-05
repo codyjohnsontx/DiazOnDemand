@@ -179,11 +179,53 @@ pnpm dev:mobile
 ## Vertical Slice Walkthrough
 After seed:
 1. Open web library at `http://localhost:3000/library`.
-2. Open seeded lesson and play video (placeholder playback IDs).
+2. Open a lesson in the Instructor Showcase program and play it. Those three carry real
+   YouTube demonstration clips and are the only seeded lessons with a video; the other 64
+   show the not-yet-filmed state, which is deliberate - see "Catalogue video states" below.
 3. Progress saves every ~10 seconds and before unload.
 4. Open admin at `http://localhost:3000/admin/programs`.
 5. Create/edit/publish content.
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).
+
+## Catalogue Video States
+Every published lesson resolves to exactly one of three states, and nothing else is allowed:
+
+| State                            | Seeded lessons | What a member sees                                    |
+| -------------------------------- | -------------: | ----------------------------------------------------- |
+| Real playable video              |              0 | The player, with real Diaz instruction                |
+| Labelled demonstration clip      |              3 | A YouTube clip, badged `Demo video` in the showcase    |
+| Not yet filmed                   |             64 | "This lesson has not been filmed", no player, no error |
+
+The catalogue previously seeded 16 lessons with mnemonic Mux playback ids (`seedgrddef101`
+and siblings). Every one of them loaded the player and then failed with "Video does not
+exist". They are cleared, and the API will no longer resolve an identifier that is provably
+unusable - see `isValidMuxPlaybackId` in `packages/shared` and `resolveVideoProvider` in
+`apps/api/src/content/lesson-presentation.ts`.
+
+The cause is closed structurally, not just the symptom. `LessonSeed` in
+`packages/db/prisma/seed-curriculum/programs.ts` **has no field for a Mux playback id**, so
+the seed cannot invent one again - adding one is a compile error, which `pnpm typecheck`
+catches. That matters because it makes the remaining ids trustworthy by construction: every
+Mux id that reaches the database now arrives through the `video.asset.ready` webhook, which
+only ever reports ids Mux itself issued. A seeded lesson is therefore either YouTube with a
+real public video id, or not filmed. (Validating an id an admin types by hand against Mux is
+deliberately deferred and tracked separately.)
+
+The read-path rule remains as the backstop for rows this repository never wrote. It rejects a
+known-bad set rather than guessing at a valid shape: the 16 seeded
+placeholders, plus values unsafe to interpolate into `stream.mux.com/<id>.m3u8`. Everything
+else is accepted, because Mux documents `PlaybackID.id` only as a string. **Do not add a
+length floor.** An earlier version required 20 or more characters and so refused Mux's own
+documented 18-character example `a1B2c3D4e5F6g7H8i9`, hiding a real video behind "not
+filmed" - the same dishonesty this rule exists to prevent, pointed the other way. It also
+cannot tell that an accepted identifier addresses anything: a mistyped but URL-safe id is
+accepted and fails in the player, and only provider validation at a write boundary could
+change that. Members get the
+not-yet-filmed state instead of a broken player; staff still see the stored value in the
+lesson editor, now with a non-blocking hint next to any identifier the read path will refuse,
+in the editor and on the admin course lesson rows. A not-yet-filmed lesson also shows no
+runtime to a member - the seeded `durationSeconds` stays as a planned length and still counts
+towards course totals. Whether unfilmed lessons stay published is an open product decision.
 
 ## Clerk Setup Notes (Web + Expo)
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
@@ -396,8 +438,11 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   provider, so a new one cannot be added past it. The entitlement-gated handles built in
   `mapLessonDetail` are what an entitled member watches with: the signed `playbackUrl` for
   Mux, the `embedUrl` for YouTube. `mapAdminLessonSummary` puts the real ids back for the
-  `ADMIN`/`COACH`-guarded admin routes, which is where admins type them in. Free lessons are
-  unchanged - their identifiers are public on purpose.
+  `ADMIN`/`COACH`-guarded admin routes, which is where admins type them in. A `FREE` lesson's
+  identifiers stay public on purpose, subject to one limit that applies at every access level:
+  `publicVideoIdentifiers` emits only the identifier of the provider the lesson actually
+  resolves to, so an id the read path refuses - see "Catalogue Video States" above - is never
+  handed out, and neither is an id belonging to a provider the lesson does not play on.
   Withholding the id on the detail payload is also what keeps signed playback working:
   measured against `@mux/mux-player` 3.11.4 in Chrome, a player handed both a `playbackId`
   and a signed `src` requests `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops

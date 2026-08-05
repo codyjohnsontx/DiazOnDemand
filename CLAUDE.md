@@ -387,6 +387,62 @@ the reason it exists is stated with it.
   No automated test guards either property: `apps/mobile` has no test runner at all (its
   `test` script is an echo), so anything changed on this screen has to be re-checked by hand.
 
+## Catalogue video states
+
+A published lesson may resolve to exactly one of three states, and nothing else: real
+playable video, a labelled demonstration clip, or an explicit not-yet-filmed state. The
+read path is what enforces it. `resolveVideoProvider` in
+`apps/api/src/content/lesson-presentation.ts` returns `NONE` for an identifier that is
+provably unusable - `isValidMuxPlaybackId` / `isValidYouTubeVideoId` in `@diaz/shared` - so a
+member sees the honest empty state instead of a player that loads and then fails with "Video
+does not exist".
+
+The cause is closed structurally, not only the symptom: `LessonSeed` in
+`packages/db/prisma/seed-curriculum/programs.ts` has no field for a Mux playback id, so the
+seed cannot fabricate one again and `pnpm typecheck` fails if someone adds one. That is where
+all 16 broken lessons came from - seed data inventing ids to fill out a catalogue, not Mux
+and not an admin typo. It also makes the surviving ids trustworthy by construction: every Mux
+id now reaching the database arrives through the `video.asset.ready` webhook, so it is one
+Mux issued. Validating an admin-typed id against Mux is deliberately deferred and tracked
+separately; do not build it.
+
+The read-path rule stays as the backstop for rows this repository never wrote. It rejects a
+known-bad set, not a guessed-at good shape, and that direction is load-bearing. It rejects the 16 placeholders this repository seeded, listed in
+`video-source.ts` and checkable against git history, plus values that are unsafe to
+interpolate into `stream.mux.com/<id>.m3u8`. Everything else is accepted, because Mux
+documents `PlaybackID.id` only as a string. An earlier version required 20 or more
+characters on an assertion that Mux issues ids of 35 to 50; Mux's own API reference example
+is the 18-character `a1B2c3D4e5F6g7H8i9`, so that floor hid a real video behind "not filmed"
+- the same lie this rule exists to stop, pointed the other way and silent. An independent
+review reproduced it. Do not reintroduce a length floor; `video-source.test.ts` pins the
+18-character example as accepted and all 16 placeholders as rejected. The YouTube rule is
+the documented fixed 11-character format, which is a real contract rather than a guess.
+
+The rule cannot decide whether an accepted identifier addresses anything, in either
+direction: a mistyped-but-URL-safe id is accepted and fails in the player. Only the provider
+could settle that, agents must not ask it, and catching a newly typed placeholder needs
+provider validation at a write boundary rather than a shape rule.
+
+`mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
+one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would
+hide the playback-id field and blank the identifier on the next save.
+
+That payload is therefore honest about the row and silent about playback, which would leave
+the one person who can fix a mistyped id with nothing to see. The admin surfaces carry a
+non-blocking hint instead: `hasUnplayableVideoIdentifier` in `@diaz/shared` marks a stored
+identifier the read path will refuse, beside the id fields in the lesson editor and on the
+admin course lesson rows. It rejects nothing and blocks no save, because a shape rule cannot
+be checked against the Mux account.
+
+Member surfaces show no runtime for a lesson that resolves to `NONE`: `hasPlayableVideo`
+gates `durationLabel` in `buildLessonQueue` and the watch-page duration badge. The seeded
+`durationSeconds` stays in the database as a planned length, and course-level and
+program-level totals still count it.
+
+Current counts, and the 16 seeded mnemonic ids that caused this, are in the "Catalogue Video
+States" section of README.md. The public payload follows the same resolution: an identifier
+the read path refuses never leaves `publicVideoIdentifiers`, at any access level.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
