@@ -411,6 +411,157 @@ Three things that bite on an SDK bump here:
   all, and SDK 54 makes Android edge-to-edge, which leaves content under the status bar. Moving
   that import back reads as a harmless cleanup and shows nothing wrong on an iOS simulator.
 
+## Catalogue video states
+
+A published lesson may resolve to exactly one of three states, and nothing else: real
+playable video, a labelled demonstration clip, or an explicit not-yet-filmed state. The
+read path is what enforces it. `resolveVideoProvider` in
+`apps/api/src/content/lesson-presentation.ts` returns `NONE` for an identifier that is
+provably unusable - `isValidMuxPlaybackId` / `isValidYouTubeVideoId` in `@diaz/shared` - so a
+member sees the honest empty state instead of a player that loads and then fails with "Video
+does not exist".
+
+The cause is closed structurally, not only the symptom: `LessonSeed` in
+`packages/db/prisma/seed-curriculum/programs.ts` has no field for a Mux playback id, so the
+seed cannot fabricate one again and `pnpm typecheck` fails if someone adds one. That is where
+all 16 broken lessons came from - seed data inventing ids to fill out a catalogue, not Mux
+and not an admin typo. It also makes the surviving ids trustworthy by construction: every Mux
+id now reaching the database arrives through the `video.asset.ready` webhook, so it is one
+Mux issued. Validating an admin-typed id against Mux is deliberately deferred and tracked
+separately; do not build it.
+
+The read-path rule stays as the backstop for rows this repository never wrote. It rejects a
+known-bad set, not a guessed-at good shape, and that direction is load-bearing. It rejects the 16 placeholders this repository seeded, listed in
+`video-source.ts` and checkable against git history, plus values that are unsafe to
+interpolate into `stream.mux.com/<id>.m3u8`. Everything else is accepted, because Mux
+documents `PlaybackID.id` only as a string. An earlier version required 20 or more
+characters on an assertion that Mux issues ids of 35 to 50; Mux's own API reference example
+is the 18-character `a1B2c3D4e5F6g7H8i9`, so that floor hid a real video behind "not filmed"
+- the same lie this rule exists to stop, pointed the other way and silent. An independent
+review reproduced it. Do not reintroduce a length floor; `video-source.test.ts` pins the
+18-character example as accepted and all 16 placeholders as rejected. The YouTube rule is
+the documented fixed 11-character format, which is a real contract rather than a guess.
+
+The rule cannot decide whether an accepted identifier addresses anything, in either
+direction: a mistyped-but-URL-safe id is accepted and fails in the player. Only the provider
+could settle that, agents must not ask it, and catching a newly typed placeholder needs
+provider validation at a write boundary rather than a shape rule.
+
+`mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
+one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would
+hide the playback-id field and blank the identifier on the next save.
+
+That payload is therefore honest about the row and silent about playback, which would leave
+the one person who can fix a mistyped id with nothing to see. The admin surfaces carry a
+non-blocking hint instead: `hasUnplayableVideoIdentifier` in `@diaz/shared` marks a stored
+identifier the read path will refuse, beside the id fields in the lesson editor and on the
+admin course lesson rows. It rejects nothing and blocks no save, because a shape rule cannot
+be checked against the Mux account.
+
+Member surfaces show no runtime for a lesson that resolves to `NONE`: `hasPlayableVideo`
+gates `durationLabel` in `buildLessonQueue` and the watch-page duration badge. The seeded
+`durationSeconds` stays in the database as a planned length, and course-level and
+program-level totals still count it.
+
+Current counts, and the 16 seeded mnemonic ids that caused this, are in the "Catalogue Video
+States" section of README.md. The public payload follows the same resolution: an identifier
+the read path refuses never leaves `publicVideoIdentifiers`, at any access level.
+
+## React types across the workspace
+
+Two copies of `@types/react` are correct and must both stay: `apps/mobile` runs react 18.3.1
+and pins `^18`, while `apps/diaz-ondemand-web` and `packages/ui` run react 19 and pin `^19`.
+
+`next@15.1.7`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
+each declare `react` as a peer but not `@types/react`, even though their shipped `.d.ts` files
+import React types. pnpm therefore links no `@types/react` beside them, and TypeScript falls
+through to pnpm's hoisted fallback store, `node_modules/.pnpm/node_modules/@types/react`,
+which holds whichever single copy pnpm happened to hoist. When that was the 18 copy, Next's
+types built `React.ReactNode` from React 18 while the app built `ReactNode` from React 19 and
+`next build` failed at `app/layout.tsx:29`. Clerk reaches that same store from
+`@clerk/shared/dist/runtime/react/index.d.mts`, and types the `<ClerkProvider>` children that
+`apps/diaz-ondemand-web/components/auth-provider.tsx` passes as React 19 `ReactNode`.
+`skipLibCheck` covers none of it, because the mismatch is at the usage site rather than inside
+the declaration file. The hoist choice varies between installs, so it looked intermittent.
+
+The `pnpm.packageExtensions` block in the root `package.json` declares that missing peer for
+all four, so each resolves `@types/react` from its consumer and never consults the hoisted
+store. Treat those entries as instances of a rule, not a fixed list: any dependency whose
+shipped `.d.ts` imports React types but omits the `@types/react` peer belongs in the same
+block, including a transitive one like `@clerk/shared` that no workspace manifest names. A
+dependency that resolves `@types/react` correctly carries an `(@types/react@...)` suffix on
+its `pnpm-lock.yaml` snapshot key, whether it declares the peer itself the way
+`@mux/mux-player-react` does or gets it from this block; a missing suffix is the signal to
+extend the block.
+
+Test the block rather than the current hoist, in a disposable install outside this repository.
+Boundaries above forbids mutating `node_modules`, and a real install is half the test anyway:
+resolving every dependency against the block and writing the hoisted store is the behaviour
+under test, so nothing short of an install proves anything about it. A fresh install still
+picks the hoist itself and picked 19 every time this was run, so the adverse case has to be
+forced - inside the throwaway copy, where it costs nothing.
+
+```bash
+cat > /tmp/react-types-proof.sh <<'PROOF'
+set -euo pipefail
+repo=$PWD
+tmp=$(mktemp -d)
+explain=$(mktemp)
+trap 'rm -rf "$tmp"' EXIT
+git -C "$repo" archive HEAD | tar -x -C "$tmp"
+cd "$tmp"
+pnpm install --frozen-lockfile
+pnpm --filter diaz-ondemand-web... --filter '!diaz-ondemand-web' run build
+ln -sfn "$tmp"/node_modules/.pnpm/@types+react@18.*/node_modules/@types/react \
+  node_modules/.pnpm/node_modules/@types/react
+if ! pnpm --filter diaz-ondemand-web exec tsc --noEmit --explainFiles > "$explain" 2>&1; then
+  echo "FAIL: tsc did not complete, see $explain"
+  grep -E 'error TS' "$explain" | head -20 || true
+  exit 1
+fi
+if grep -q '@types+react@18' "$explain"; then
+  echo "FAIL: the hoisted 18 copy reached the web compilation, see $explain"
+  exit 1
+fi
+rm -f "$explain"
+echo PASS
+PROOF
+bash /tmp/react-types-proof.sh
+```
+
+It must print `PASS` and exit 0, and every other outcome is a named failure rather than a bare
+exit status. `set -euo pipefail` aborts on the install or the build; a non-zero `tsc` is caught
+explicitly, because that is the likely failure and `set -e` alone would end the run silently;
+and neither reaches the `grep`, whose own zero-match status is 1 on the outcome you want. The
+`grep` is the stricter backstop, for an 18 copy that reaches the compilation without yet
+causing a type error. The trap removes the workspace on every exit, while `$explain` survives a
+failure so there is something left to read. Build the web app's workspace dependencies first
+or `tsc` fails on missing `@diaz/shared` types instead of on React. `git archive HEAD` copies
+committed state only, so commit a change to the block before testing it.
+
+Verified 2026-08-05 on pnpm 9.12.3: `PASS`, exit 0. Deleting `pnpm.packageExtensions` from the
+temp copy after the archive gives `FAIL: tsc did not complete`, exit 1, and an `$explain`
+holding 8 errors and 12 `@types+react@18` matches, the first of them the original
+`app/layout.tsx(29,13)`. A green build proves nothing on its own while the 19 copy happens to
+be the hoisted one; that is what hid `@clerk/shared`.
+
+Do not replace the block with a workspace-wide `pnpm.overrides` pin of `@types/react`. That
+is green on build, lint, typecheck and test today, but it types mobile's react 18.3.1 runtime
+with React 19 types, after which mobile's `tsc` accepts `use` and `useActionState`, neither of
+which exists at runtime there. Both approaches were verified end to end before choosing.
+
+Turbo's cache is keyed on the lockfile, not on resolved `node_modules`, so a build can replay
+from cache after an install that changed resolved `node_modules` without changing the
+lockfile. Turbo also shares one cache across git worktrees. Measured on turbo 2.8.10, which
+reports `Remote caching disabled, using shared worktree cache`: a worktree holding no
+`.turbo/cache` of its own replayed hash `00a2e301a6b5cf13` from an artifact present only in
+the primary checkout's `.turbo/cache`. Re-check that after a turbo upgrade, because it
+differs from pre-2.8 behaviour and a claim that silently stops being true is worse than none.
+The exact route by which the broken state reached `main` was not established. Verify any
+dependency-resolution change with `pnpm exec turbo run build --force`. Run `build` and
+`typecheck` in separate turbo invocations as CI does: the web `tsconfig.json` includes
+`.next/types/**`, which `next build` generates, so one combined invocation races.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

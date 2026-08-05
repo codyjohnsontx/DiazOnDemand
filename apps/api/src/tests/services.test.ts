@@ -1,7 +1,7 @@
 import { createHmac, createVerify, generateKeyPairSync } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { EntitlementTier, Role } from '@diaz/shared';
+import { EntitlementTier, Role, VideoProvider } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier } from '@diaz/db';
 import {
   REVOKE_REASON_CHARGEBACK,
@@ -16,7 +16,11 @@ import {
   resolveStripeEntitlement,
 } from '../common/entitlement.js';
 import { ContentService } from '../content/content.service.js';
-import { mapAdminLessonSummary, mapLessonDetail } from '../content/lesson-presentation.js';
+import {
+  mapAdminLessonSummary,
+  mapLessonDetail,
+  mapLessonSummary,
+} from '../content/lesson-presentation.js';
 import { FavoritesService } from '../favorites/favorites.service.js';
 import { MeService } from '../me/me.service.js';
 import { ProgressService } from '../progress/progress.service.js';
@@ -144,7 +148,7 @@ const paidCatalogueLesson = {
   accessLevel: 'PAID' as const,
   videoProvider: 'MUX',
   muxAssetId: 'asset-paid',
-  muxPlaybackId: 'paid-playback-id',
+  muxPlaybackId: 'paidPlaybackId00000000000000000001',
   durationSeconds: 120,
   tags: [],
 };
@@ -156,7 +160,7 @@ const freeCatalogueLesson = {
   orderIndex: 0,
   accessLevel: 'FREE' as const,
   muxAssetId: 'asset-free',
-  muxPlaybackId: 'free-playback-id',
+  muxPlaybackId: 'freePlaybackId00000000000000000001',
 };
 
 const paidYoutubeCatalogueLesson = {
@@ -166,7 +170,7 @@ const paidYoutubeCatalogueLesson = {
   videoProvider: 'YOUTUBE',
   muxAssetId: null,
   muxPlaybackId: null,
-  youtubeVideoId: 'paid-youtube-id',
+  youtubeVideoId: 'paidYoutube',
 };
 
 const freeYoutubeCatalogueLesson = {
@@ -175,7 +179,7 @@ const freeYoutubeCatalogueLesson = {
   title: 'Free YouTube Lesson',
   orderIndex: 0,
   accessLevel: 'FREE' as const,
-  youtubeVideoId: 'free-youtube-id',
+  youtubeVideoId: 'freeYoutube',
 };
 
 describe('ContentService', () => {
@@ -192,7 +196,7 @@ describe('ContentService', () => {
             isPublished: true,
             accessLevel: 'PAID',
             videoProvider: 'MUX',
-            muxPlaybackId: 'mux-playback-id',
+            muxPlaybackId: 'muxPlaybackId000000000000000000001',
             durationSeconds: 120,
             tags: [],
           }),
@@ -218,7 +222,7 @@ describe('ContentService', () => {
             isPublished: true,
             accessLevel: 'PAID',
             videoProvider: 'MUX',
-            muxPlaybackId: 'mux-playback-id',
+            muxPlaybackId: 'muxPlaybackId000000000000000000001',
             durationSeconds: 120,
             tags: [],
           }),
@@ -235,7 +239,7 @@ describe('ContentService', () => {
       }),
     );
 
-    expect(lesson.video.playbackUrl).toBe('https://stream.mux.com/mux-playback-id.m3u8');
+    expect(lesson.video.playbackUrl).toBe('https://stream.mux.com/muxPlaybackId000000000000000000001.m3u8');
   });
 
   it('keeps missing lessons as not found errors', async () => {
@@ -314,7 +318,7 @@ describe('ContentService', () => {
       const course = await catalogueService().getCourse('course-1');
       const free = course.lessons.find((lesson) => lesson.accessLevel === 'FREE');
 
-      expect(free?.muxPlaybackId).toBe('free-playback-id');
+      expect(free?.muxPlaybackId).toBe('freePlaybackId00000000000000000001');
     });
 
     // PAID + YOUTUBE is saveable today: createLesson and updateLesson in
@@ -347,7 +351,7 @@ describe('ContentService', () => {
 
       expect(
         course.lessons.find((lesson) => lesson.id === 'lesson-free-youtube')?.youtubeVideoId,
-      ).toBe('free-youtube-id');
+      ).toBe('freeYoutube');
     });
   });
 });
@@ -935,7 +939,7 @@ describe('Mux signed playback tokens', () => {
     isPublished: true,
     accessLevel: 'PAID' as const,
     videoProvider: 'MUX',
-    muxPlaybackId: 'playback-abc',
+    muxPlaybackId: 'playbackAbc00000000000000000000001',
     durationSeconds: 120,
     tags: [],
   };
@@ -983,7 +987,7 @@ describe('Mux signed playback tokens', () => {
 
     expect(token.header.alg).toBe('RS256');
     expect(token.header.kid).toBe('signing-key-1');
-    expect(token.payload.sub).toBe('playback-abc');
+    expect(token.payload.sub).toBe('playbackAbc00000000000000000000001');
     expect(token.payload.aud).toBe('v');
 
     const verified = createVerify('RSA-SHA256')
@@ -1004,7 +1008,7 @@ describe('Mux signed playback tokens', () => {
       mapLessonDetail({ ...paidLesson, accessLevel: 'FREE' as const }),
     );
 
-    expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
+    expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playbackAbc00000000000000000000001.m3u8');
   });
 
   // Measured against @mux/mux-player 3.11.4 in Chrome: a player handed both a
@@ -1023,12 +1027,12 @@ describe('Mux signed playback tokens', () => {
       mapLessonDetail({ ...paidLesson, accessLevel: 'FREE' as const }),
     );
 
-    expect(detail.video.muxPlaybackId).toBe('playback-abc');
+    expect(detail.video.muxPlaybackId).toBe('playbackAbc00000000000000000000001');
   });
 
   it('gives admins the real playback id back, so the lesson editor can show it', () => {
     expect(mapAdminLessonSummary({ ...paidLesson, muxAssetId: 'asset-1' })).toMatchObject({
-      muxPlaybackId: 'playback-abc',
+      muxPlaybackId: 'playbackAbc00000000000000000000001',
       muxAssetId: 'asset-1',
     });
   });
@@ -1064,7 +1068,7 @@ describe('Mux signed playback tokens', () => {
         withSigningKey(undefined, undefined, () => mapLessonDetail(paidLesson)),
       );
 
-      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
+      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playbackAbc00000000000000000000001.m3u8');
     });
 
     it('never applies to a free lesson, which is meant to be unsigned', async () => {
@@ -1074,7 +1078,7 @@ describe('Mux signed playback tokens', () => {
         ),
       );
 
-      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playback-abc.m3u8');
+      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playbackAbc00000000000000000000001.m3u8');
     });
   });
 });
@@ -1122,6 +1126,140 @@ describe('paid YouTube lessons', () => {
   });
 });
 
+/**
+ * The invariant the catalogue cleanup exists for: a published lesson can never
+ * resolve to a playback identifier the provider cannot address.
+ *
+ * The seeded catalogue published 16 lessons carrying mnemonics like
+ * `seedgrddef101`, and each one loaded the player and then failed with "Video
+ * does not exist". Clearing those rows fixes the catalogue as it stands; this
+ * check is what stops the next one, because it lives on the read path and so
+ * covers every lesson however it reached the database - seed, admin editor, or
+ * webhook.
+ */
+describe('published lessons never resolve to an unplayable identifier', () => {
+  const publishedLesson = {
+    id: 'lesson-1',
+    courseId: 'course-1',
+    title: 'Published Lesson',
+    description: null,
+    orderIndex: 0,
+    isPublished: true,
+    accessLevel: 'FREE' as const,
+    durationSeconds: 120,
+    tags: [],
+  };
+
+  // Only values that are provably unplayable: the placeholders this repository
+  // seeded, and values that cannot be interpolated into the playback URL. The
+  // rule deliberately no longer guesses at a valid Mux shape - it used to
+  // require 20 characters and so refused Mux's own documented 18-character
+  // example, telling members a real lesson was not filmed. See
+  // isValidMuxPlaybackId in @diaz/shared. A short made-up id like 'TODO' is
+  // therefore accepted here and fails in the player instead, which is the
+  // honest boundary of what shape can decide.
+  const unplayableMuxIds = ['seedgrddef101', 'seedbcdoff802', 'a1B2c3D4e5F6g7H8i9/../x', ' pad ', ''];
+  const unplayableYoutubeIds = ['not-filmed', 'https://youtu.be/M7lc1UVf-VE', 'TBD', ''];
+
+  it.each(unplayableMuxIds)('reports a Mux lesson holding "%s" as having no video', async (id) => {
+    for (const accessLevel of ['FREE', 'PAID'] as const) {
+      const lesson = {
+        ...publishedLesson,
+        accessLevel,
+        videoProvider: 'MUX',
+        muxPlaybackId: id,
+      };
+
+      // DEPLOYED_DB with no signing key is the strictest case: a paid lesson
+      // that still tried to build a Mux url here would throw a 500 instead.
+      const detail = await withDatabaseUrl(DEPLOYED_DB, () => mapLessonDetail(lesson));
+
+      expect(detail.video.provider).toBe(VideoProvider.NONE);
+      expect(detail.video.playbackUrl).toBeNull();
+      expect(detail.video.muxPlaybackId).toBeNull();
+      expect(detail.muxPlaybackId).toBeNull();
+      expect(mapLessonSummary(lesson).videoProvider).toBe(VideoProvider.NONE);
+      expect(mapLessonSummary(lesson).muxPlaybackId).toBeNull();
+    }
+  });
+
+  it.each(unplayableYoutubeIds)(
+    'reports a YouTube lesson holding "%s" as having no video',
+    (id) => {
+      for (const accessLevel of ['FREE', 'PAID'] as const) {
+        const lesson = {
+          ...publishedLesson,
+          accessLevel,
+          videoProvider: 'YOUTUBE',
+          youtubeVideoId: id,
+        };
+        const detail = mapLessonDetail(lesson);
+
+        expect(detail.video.provider).toBe(VideoProvider.NONE);
+        expect(detail.video.embedUrl).toBeNull();
+        expect(detail.video.youtubeVideoId).toBeNull();
+        expect(mapLessonSummary(lesson).videoProvider).toBe(VideoProvider.NONE);
+      }
+    },
+  );
+
+  // The regression this suite exists to prevent, at the read path rather than
+  // in the helper: a genuine Mux id must reach the player. `a1B2c3D4e5F6g7H8i9`
+  // is the 18-character value from Mux's own API reference response example,
+  // and the previous 20-character floor routed it to NONE.
+  it("serves Mux's documented 18-character example rather than hiding the lesson", async () => {
+    const lesson = {
+      ...publishedLesson,
+      videoProvider: 'MUX',
+      muxPlaybackId: 'a1B2c3D4e5F6g7H8i9',
+    };
+    const detail = await withDatabaseUrl(DEPLOYED_DB, () => mapLessonDetail(lesson));
+
+    expect(detail.video.provider).toBe(VideoProvider.MUX);
+    expect(detail.video.playbackUrl).toBe('https://stream.mux.com/a1B2c3D4e5F6g7H8i9.m3u8');
+    expect(detail.video.muxPlaybackId).toBe('a1B2c3D4e5F6g7H8i9');
+    expect(mapLessonSummary(lesson).videoProvider).toBe(VideoProvider.MUX);
+  });
+
+  it('still resolves identifiers the providers actually issue', () => {
+    const mux = mapLessonDetail({
+      ...publishedLesson,
+      videoProvider: 'MUX',
+      muxPlaybackId: 'a4nOgmxGWg6gULfcBbAa00gXyfcwPnAFldF8RdsNyk8M',
+    });
+
+    expect(mux.video.provider).toBe(VideoProvider.MUX);
+    expect(mux.video.playbackUrl).toBe(
+      'https://stream.mux.com/a4nOgmxGWg6gULfcBbAa00gXyfcwPnAFldF8RdsNyk8M.m3u8',
+    );
+
+    const youtube = mapLessonDetail({
+      ...publishedLesson,
+      videoProvider: 'YOUTUBE',
+      youtubeVideoId: 'M7lc1UVf-VE',
+    });
+
+    expect(youtube.video.provider).toBe(VideoProvider.YOUTUBE);
+    expect(youtube.video.embedUrl).toContain('/embed/M7lc1UVf-VE');
+  });
+
+  // Members get what plays; staff get what is stored. The lesson editor loads
+  // this payload straight into its form, so hiding the provider would blank the
+  // identifier an admin had typed on their next save.
+  it('still shows staff the provider and identifier stored on the row', () => {
+    expect(
+      mapAdminLessonSummary({
+        ...publishedLesson,
+        videoProvider: 'MUX',
+        muxPlaybackId: 'seedgrddef101',
+      }),
+    ).toMatchObject({
+      videoProvider: VideoProvider.MUX,
+      muxPlaybackId: 'seedgrddef101',
+    });
+  });
+});
+
 describe('WebhooksService Mux asset sync', () => {
   it('writes the public playback id and rounded duration onto a free lesson', async () => {
     const update = vi.fn().mockResolvedValue({});
@@ -1139,13 +1277,13 @@ describe('WebhooksService Mux asset sync', () => {
       data: {
         id: 'asset-1',
         duration: 723.4,
-        playback_ids: [{ id: 'public-playback', policy: 'public' }],
+        playback_ids: [{ id: 'publicPlayback00000000000000000001', policy: 'public' }],
       },
     });
 
     expect(update).toHaveBeenCalledWith({
       where: { id: 'lesson-1' },
-      data: { muxPlaybackId: 'public-playback', durationSeconds: 723 },
+      data: { muxPlaybackId: 'publicPlayback00000000000000000001', durationSeconds: 723 },
     });
   });
 
@@ -1230,13 +1368,13 @@ describe('WebhooksService Mux asset sync', () => {
         id: 'asset-1',
         playback_ids: [
           { id: 'signed-one', policy: 'signed' },
-          { id: 'public-one', policy: 'public' },
+          { id: 'publicOne0000000000000000000000001', policy: 'public' },
         ],
       },
     });
 
     expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ muxPlaybackId: 'public-one' }) }),
+      expect.objectContaining({ data: expect.objectContaining({ muxPlaybackId: 'publicOne0000000000000000000000001' }) }),
     );
   });
 
@@ -1256,13 +1394,13 @@ describe('WebhooksService Mux asset sync', () => {
       data: {
         id: 'asset-1',
         duration: 60,
-        playback_ids: [{ id: 'signed-playback', policy: 'signed' }],
+        playback_ids: [{ id: 'signedPlayback00000000000000000001', policy: 'signed' }],
       },
     });
 
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ muxPlaybackId: 'signed-playback' }),
+        data: expect.objectContaining({ muxPlaybackId: 'signedPlayback00000000000000000001' }),
       }),
     );
   });
@@ -1290,8 +1428,8 @@ describe('WebhooksService Mux asset sync', () => {
           id: 'asset-1',
           duration: 60,
           playback_ids: [
-            { id: 'public-playback', policy: 'public' },
-            { id: 'signed-playback', policy: 'signed' },
+            { id: 'publicPlayback00000000000000000001', policy: 'public' },
+            { id: 'signedPlayback00000000000000000001', policy: 'signed' },
           ],
         },
       }),
@@ -1323,7 +1461,7 @@ describe('WebhooksService Mux asset sync', () => {
         data: {
           id: 'asset-1',
           duration: 60,
-          playback_ids: [{ id: 'public-playback', policy: 'public' }],
+          playback_ids: [{ id: 'publicPlayback00000000000000000001', policy: 'public' }],
         },
       }),
     ).rejects.toThrow(/asset-1 has a public playback id.*PAID lesson lesson-1/);
@@ -1370,7 +1508,7 @@ describe('WebhooksService Mux asset sync', () => {
         type: 'video.asset.ready',
         data: {
           id: 'asset-1',
-          playback_ids: [{ id: 'public-playback' }, { id: 'another-public', policy: 'public' }],
+          playback_ids: [{ id: 'publicPlayback00000000000000000001' }, { id: 'another-public', policy: 'public' }],
         },
       }),
     ).rejects.toThrow(/has a public playback id/);

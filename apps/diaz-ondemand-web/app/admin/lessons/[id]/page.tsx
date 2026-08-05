@@ -20,6 +20,7 @@ import {
   getCurriculumTrackLabel,
   getCurriculumTrackKeys,
   getDisciplineLabel,
+  hasUnplayableVideoIdentifier,
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
@@ -210,6 +211,14 @@ export default function AdminLessonDetailPage() {
     );
   }
 
+  const showMuxPlaybackIdHint = hasUnplayableVideoIdentifier({
+    videoProvider: form.videoProvider,
+    muxPlaybackId: form.muxPlaybackId,
+  });
+  const showYoutubeVideoIdHint = hasUnplayableVideoIdentifier({
+    videoProvider: form.videoProvider,
+    youtubeVideoId: form.youtubeVideoId,
+  });
   const phaseOptions = getCurriculumPhaseKeys(form.curriculum.discipline);
   const trackOptions = getCurriculumTrackKeys(form.curriculum.discipline, form.curriculum.phase);
   const skillOptions = getCurriculumSkillKeys(form.curriculum.discipline);
@@ -335,6 +344,12 @@ export default function AdminLessonDetailPage() {
                   setForm((prev) => ({ ...prev, muxPlaybackId: event.target.value }))
                 }
               />
+              {showMuxPlaybackIdHint ? (
+                <p className="type-meta text-[var(--danger)]">
+                  This playback ID will not play. A published lesson with it shows the not-filmed
+                  state.
+                </p>
+              ) : null}
             </div>
           ) : null}
           {form.videoProvider === VideoProvider.YOUTUBE ? (
@@ -351,6 +366,12 @@ export default function AdminLessonDetailPage() {
                   setForm((prev) => ({ ...prev, youtubeVideoId: event.target.value }))
                 }
               />
+              {showYoutubeVideoIdHint ? (
+                <p className="type-meta text-[var(--danger)]">
+                  This video ID will not play. A published lesson with it shows the not-filmed
+                  state.
+                </p>
+              ) : null}
             </div>
           ) : null}
           <div className="flex flex-wrap gap-3">
