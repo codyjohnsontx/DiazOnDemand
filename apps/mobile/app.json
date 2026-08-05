@@ -19,6 +19,6 @@
         "backgroundColor": "#08090b"
       }
     },
-    "plugins": []
+    "plugins": ["expo-secure-store", "expo-web-browser"]
   }
 }

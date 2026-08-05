@@ -387,6 +387,30 @@ the reason it exists is stated with it.
   No automated test guards either property: `apps/mobile` has no test runner at all (its
   `test` script is an echo), so anything changed on this screen has to be re-checked by hand.
 
+## Mobile app (Expo SDK)
+
+`apps/mobile` targets Expo SDK 54 on purpose, not the newest SDK. Store-installed Expo Go has been
+frozen at SDK 54 since May 2026 (Expo's "Expo Go and the App Store in May 2026" changelog) while the
+published SDK line has moved well past it, and the project owner opens this app through the store
+build of Expo Go. Raising the SDK past 54 makes the app unopenable on his phone, which is the exact
+failure the SDK 52 to 54 upgrade existed to fix. Do not run `expo install expo@latest` here. Re-check
+the current store ceiling before proposing any further bump, and when it moves, go one SDK at a time
+with `npx expo install --fix` then `npx expo-doctor`.
+
+Three things that bite on an SDK bump here:
+- The `tokenCache` prop passed to `ClerkProvider` in `App.tsx` is the only reason the session token
+  lives in `SecureStore`. Drop it and `@clerk/clerk-expo` falls back to an in-memory cache
+  (`createClerkInstance.js` defaults `tokenCache = MemoryTokenCache`) with no error and no warning,
+  silently voiding the storage property behind the sign-in entry above.
+- `expo-av` still ships in SDK 54 and its native module is present in Expo Go 54, but SDK 55 removes
+  it. `LessonScreen` in `src/mobile-app.tsx` is the only caller and has to move to `expo-video`
+  before any SDK 55 attempt.
+- Screens take `SafeAreaView` from `react-native-safe-area-context`, never from `react-native`.
+  RN 0.81 deprecates its own `SafeAreaView` and defines it as
+  `Platform.select({ ios: <native view>, default: View })`, so on Android it applies no insets at
+  all, and SDK 54 makes Android edge-to-edge, which leaves content under the status bar. Moving
+  that import back reads as a harmless cleanup and shows nothing wrong on an iOS simulator.
+
 ## Catalogue video states
 
 A published lesson may resolve to exactly one of three states, and nothing else: real
