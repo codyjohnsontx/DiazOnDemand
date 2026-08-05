@@ -3,3 +3,4 @@ export * from './curriculum.js';
 export * from './enums.js';
 export * from './progression.js';
 export * from './schemas.js';
+export * from './video-source.js';

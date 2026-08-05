@@ -2,6 +2,8 @@ import { createSign } from 'node:crypto';
 import { InternalServerErrorException } from '@nestjs/common';
 import {
   VideoProvider,
+  isValidMuxPlaybackId,
+  isValidYouTubeVideoId,
   parseCurriculumTags,
   type AdminLessonSummary,
   type LessonDetailDto,
@@ -103,19 +105,42 @@ export function mapLessonCurriculum(tags: LessonTagLike[] = []) {
  */
 function publicVideoIdentifiers(lesson: LessonLike) {
   const withheld = lesson.accessLevel === 'PAID';
+  const provider = resolveVideoProvider(lesson);
 
   return {
-    muxPlaybackId: withheld ? null : (lesson.muxPlaybackId ?? null),
-    youtubeVideoId: withheld ? null : (lesson.youtubeVideoId ?? null),
+    // An identifier the provider cannot address is never handed out, whatever
+    // the access level: it can only produce a hard player error.
+    muxPlaybackId:
+      withheld || provider !== VideoProvider.MUX ? null : (lesson.muxPlaybackId ?? null),
+    youtubeVideoId:
+      withheld || provider !== VideoProvider.YOUTUBE ? null : (lesson.youtubeVideoId ?? null),
   };
 }
 
+/**
+ * Which provider can actually play this lesson, which is not the same question
+ * as which provider the row says it uses.
+ *
+ * A stored identifier that is provably unusable - see `isValidMuxPlaybackId` in
+ * @diaz/shared, which rejects the placeholders this repository seeded and
+ * values unsafe in the playback url, and accepts everything else because Mux
+ * documents no shape - resolves to NONE, so the member gets
+ * the honest not-yet-filmed state instead of a player that loads and then fails
+ * with "Video does not exist". A truthful empty state beats a broken one, and
+ * that is the whole reason this check sits on the read path rather than only on
+ * the seed: it covers rows this repository never wrote.
+ *
+ * Staff see the stored provider instead - see `mapAdminLessonSummary`.
+ */
 function resolveVideoProvider(lesson: LessonLike) {
-  if (lesson.videoProvider === VideoProvider.YOUTUBE && lesson.youtubeVideoId) {
+  if (lesson.videoProvider === VideoProvider.YOUTUBE && isValidYouTubeVideoId(lesson.youtubeVideoId)) {
     return VideoProvider.YOUTUBE;
   }
 
-  if ((lesson.videoProvider === VideoProvider.MUX || !lesson.videoProvider) && lesson.muxPlaybackId) {
+  if (
+    (lesson.videoProvider === VideoProvider.MUX || !lesson.videoProvider) &&
+    isValidMuxPlaybackId(lesson.muxPlaybackId)
+  ) {
     return VideoProvider.MUX;
   }
 
@@ -146,10 +171,17 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
  * the real provider identifiers the public summary withholds for PAID lessons -
  * admins type them into the lesson editor, and this route is behind
  * `AuthGuard` + `RolesGuard(ADMIN, COACH)`.
+ *
+ * `videoProvider` is the *stored* one here, not the resolved one. The lesson
+ * editor loads this payload straight into its form, so a resolved NONE would
+ * hide the playback-id field and blank the identifier on the next save - the
+ * editor would quietly eat whatever an admin had typed. Staff need to see the
+ * row as saved; members need to see only what plays.
  */
 export function mapAdminLessonSummary(lesson: LessonLike): AdminLessonSummary {
   return {
     ...mapLessonSummary(lesson),
+    videoProvider: (lesson.videoProvider as AdminLessonSummary['videoProvider']) ?? VideoProvider.MUX,
     muxPlaybackId: lesson.muxPlaybackId ?? null,
     youtubeVideoId: lesson.youtubeVideoId ?? null,
     muxAssetId: lesson.muxAssetId ?? null,
