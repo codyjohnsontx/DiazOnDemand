@@ -448,19 +448,37 @@ the read path refuses never leaves `publicVideoIdentifiers`, at any access level
 Two copies of `@types/react` are correct and must both stay: `apps/mobile` runs react 18.3.1
 and pins `^18`, while `apps/diaz-ondemand-web` and `packages/ui` run react 19 and pin `^19`.
 
-`next@15.1.7` declares `react` as a peer but not `@types/react`, even though its shipped
-`.d.ts` files import React types. pnpm therefore links no `@types/react` beside next, and
-TypeScript falls through to pnpm's hoisted fallback store,
-`node_modules/.pnpm/node_modules/@types/react`, which holds whichever single copy pnpm
-happened to hoist. When that was the 18 copy, Next's types built `React.ReactNode` from
-React 18 while the app built `ReactNode` from React 19 and `next build` failed at
-`app/layout.tsx:29`. The hoist choice varies between installs, so it looked intermittent.
+`next@15.1.7`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
+each declare `react` as a peer but not `@types/react`, even though their shipped `.d.ts` files
+import React types. pnpm therefore links no `@types/react` beside them, and TypeScript falls
+through to pnpm's hoisted fallback store, `node_modules/.pnpm/node_modules/@types/react`,
+which holds whichever single copy pnpm happened to hoist. When that was the 18 copy, Next's
+types built `React.ReactNode` from React 18 while the app built `ReactNode` from React 19 and
+`next build` failed at `app/layout.tsx:29`. Clerk reaches that same store from
+`@clerk/shared/dist/runtime/react/index.d.mts`, and types the `<ClerkProvider>` children that
+`apps/diaz-ondemand-web/components/auth-provider.tsx` passes as React 19 `ReactNode`.
+`skipLibCheck` covers none of it, because the mismatch is at the usage site rather than inside
+the declaration file. The hoist choice varies between installs, so it looked intermittent.
 
-The `pnpm.packageExtensions` block in the root `package.json` declares the peer next omits,
-so next resolves `@types/react` from its consumer and never consults the hoisted store. Do
-not replace it with a workspace-wide `pnpm.overrides` pin of `@types/react`. That is green
-on build, lint, typecheck and test today, but it types mobile's react 18.3.1 runtime with
-React 19 types, after which mobile's `tsc` accepts `use` and `useActionState`, neither of
+The `pnpm.packageExtensions` block in the root `package.json` declares that missing peer for
+all four, so each resolves `@types/react` from its consumer and never consults the hoisted
+store. Treat those entries as instances of a rule, not a fixed list: any dependency whose
+shipped `.d.ts` imports React types but omits the `@types/react` peer belongs in the same
+block, including a transitive one like `@clerk/shared` that no workspace manifest names. A
+dependency that resolves `@types/react` correctly carries an `(@types/react@...)` suffix on
+its `pnpm-lock.yaml` snapshot key, whether it declares the peer itself the way
+`@mux/mux-player-react` does or gets it from this block; a missing suffix is the signal to
+extend the block.
+
+Test the block rather than the current hoist. Point
+`node_modules/.pnpm/node_modules/@types/react` at the 18 copy, then confirm
+`pnpm --filter diaz-ondemand-web exec tsc --noEmit --explainFiles` still names no
+`@types+react@18`, and `pnpm install` to restore. A green build proves nothing on its own
+while the 19 copy happens to be the hoisted one; that is what hid `@clerk/shared`.
+
+Do not replace the block with a workspace-wide `pnpm.overrides` pin of `@types/react`. That
+is green on build, lint, typecheck and test today, but it types mobile's react 18.3.1 runtime
+with React 19 types, after which mobile's `tsc` accepts `use` and `useActionState`, neither of
 which exists at runtime there. Both approaches were verified end to end before choosing.
 
 Turbo's cache is keyed on the lockfile, not on resolved `node_modules`, and is shared across
