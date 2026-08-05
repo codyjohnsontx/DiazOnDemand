@@ -481,9 +481,14 @@ is green on build, lint, typecheck and test today, but it types mobile's react 1
 with React 19 types, after which mobile's `tsc` accepts `use` and `useActionState`, neither of
 which exists at runtime there. Both approaches were verified end to end before choosing.
 
-Turbo's cache is keyed on the lockfile, not on resolved `node_modules`, and is shared across
-git worktrees. A build that passed in one worktree replays as a cache hit in another where
-the same lockfile installed differently, which is how this reached `main` green. Verify any
+Turbo's cache is keyed on the lockfile, not on resolved `node_modules`, so a build can replay
+from cache after an install that changed resolved `node_modules` without changing the
+lockfile. Turbo also shares one cache across git worktrees. Measured on turbo 2.8.10, which
+reports `Remote caching disabled, using shared worktree cache`: a worktree holding no
+`.turbo/cache` of its own replayed hash `00a2e301a6b5cf13` from an artifact present only in
+the primary checkout's `.turbo/cache`. Re-check that after a turbo upgrade, because it
+differs from pre-2.8 behaviour and a claim that silently stops being true is worse than none.
+The exact route by which the broken state reached `main` was not established. Verify any
 dependency-resolution change with `pnpm exec turbo run build --force`. Run `build` and
 `typecheck` in separate turbo invocations as CI does: the web `tsconfig.json` includes
 `.next/types/**`, which `next build` generates, so one combined invocation races.
