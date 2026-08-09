@@ -5,6 +5,10 @@ node_modules
 dist
 build
 coverage
+# TypeScript incremental build state. Only the web app sets `incremental: true`,
+# so `pnpm typecheck` regenerates its copy while `pnpm build` does not. Tracking
+# it only produces meaningless diffs and cross-branch conflicts.
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
