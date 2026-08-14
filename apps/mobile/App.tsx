@@ -2,7 +2,12 @@ import 'react-native-gesture-handler';
 import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
 import * as SecureStore from 'expo-secure-store';
 import type React from 'react';
-import { ActivityIndicator, SafeAreaView, Text } from 'react-native';
+import { ActivityIndicator, Text } from 'react-native';
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  initialWindowMetrics,
+} from 'react-native-safe-area-context';
 import { AuthTokenProvider, StaticAuthTokenProvider } from './src/auth-provider';
 import { MobileApp } from './src/mobile-app';
 import { SignInScreen } from './src/sign-in-screen';
@@ -23,14 +28,20 @@ export default function App() {
 
   if (devBypassEnabled) {
     return (
-      <StaticAuthTokenProvider>
-        <MobileApp />
-      </StaticAuthTokenProvider>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        <StaticAuthTokenProvider>
+          <MobileApp />
+        </StaticAuthTokenProvider>
+      </SafeAreaProvider>
     );
   }
 
   if (!clerkPublishableKey) {
-    return <MissingClerkConfigScreen />;
+    return (
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        <MissingClerkConfigScreen />
+      </SafeAreaProvider>
+    );
   }
 
   const Provider = ClerkProvider as unknown as (props: {
@@ -39,11 +50,17 @@ export default function App() {
     children?: React.ReactNode;
   }) => React.ReactNode;
 
-  return Provider({
-    tokenCache,
-    publishableKey: clerkPublishableKey,
-    children: <ClerkAppGate />,
-  }) as React.JSX.Element;
+  return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      {
+        Provider({
+          tokenCache,
+          publishableKey: clerkPublishableKey,
+          children: <ClerkAppGate />,
+        }) as React.JSX.Element
+      }
+    </SafeAreaProvider>
+  );
 }
 
 function ClerkAppGate() {

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": ["esnext"],
-    "types": ["react", "react-native", "node"],
+    "types": ["react", "node"],
     "baseUrl": "."
   },
   "include": ["App.tsx", "src"]
