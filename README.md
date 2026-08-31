@@ -544,6 +544,28 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   asset still carries whatever playback policy it was created with, and a playback id that
   has already been served cannot be retracted. See the audit list at the end of "Video Notes" -
   that part is the account owner's job in the Mux dashboard.
+- **Before this change deploys, confirm three values on the host**, not one. Three startup
+  checks widened from `NODE_ENV === 'production'` to `isDeployment`, so any of them can now
+  refuse a deployment that booted yesterday: `DIAZ_INTERNAL_API_KEY`, `MUX_WEBHOOK_SECRET`,
+  and `STRIPE_WEBHOOK_SECRET` when `STRIPE_SECRET_KEY` is set. Confirm all three are present
+  on the API host before deploying.
+
+  Assume all three are new refusals there, because this repository holds two records that
+  contradict each other and cannot settle which one describes the live service. The "API
+  deploy" bullet above says the API is started with `pnpm start`, which sets
+  `NODE_ENV=production` itself; on that reading two of the three already fired and the only
+  new refusal is `MUX_WEBHOOK_SECRET`, which additionally dropped its `MUX_TOKEN_ID`
+  condition. The `DEV_BYPASS_AUTH` entry under "Security Invariants" in `AGENTS.md` records
+  the opposite as observed fact: on 2026-08-02 the project owner confirmed the deployed API
+  running with `NODE_ENV=development`, and a run that went through `pnpm start` cannot carry
+  that value. If that is still how it starts, its `DATABASE_URL` is not loopback,
+  `isDeployment` is therefore true, and all three widened checks are live on that deployment
+  for the first time. Only the host can say which record is current.
+
+  This is written for the worse case on purpose, because the costs are not symmetric.
+  Overstating it costs three environment-variable checks. Understating it means an API that
+  refuses to boot after a deploy, with nothing said beforehand. The answer is confirming the
+  values on the host, never relaxing a check to get the deploy green.
 - Prefer real host environment variables for those production values, with the monorepo-root
   `.env` as the local fallback. That is ordinary good practice for a deployed service, not a
   workaround for a load-ordering bug. `apps/api/.env` is **not** a blind spot: `app.module.ts`
