@@ -515,12 +515,14 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   port, and each refusal names the variable and what breaks without it.
 
   `MUX_WEBHOOK_SECRET` used to carry an `MUX_TOKEN_ID` condition. That drifted, for the same
-  reason the signing-key rule's did: nothing in the API runtime reads `MUX_TOKEN_ID`, so a
-  deployment serving Mux video without ever setting it skipped the check. The condition is
-  gone rather than replaced - a deployment cannot ingest a Mux asset without this secret, so
-  there is no configuration in which requiring it is wrong. `STRIPE_SECRET_KEY` stays as a
-  condition on `STRIPE_WEBHOOK_SECRET` because it cannot drift the same way: it is exactly
-  what `BillingService` and `WebhooksService` construct the Stripe client from.
+  reason the signing-key rule's did: `MUX_TOKEN_ID` is read only by the env schema's own
+  pairing rule with `MUX_TOKEN_SECRET`, never by a serving path, so it is not a reliable
+  signal that Mux webhooks are wired, and a deployment serving Mux video without ever setting
+  it skipped the check. The condition is gone rather than replaced - a deployment cannot
+  ingest a Mux asset without this secret, so there is no configuration in which requiring it
+  is wrong. `STRIPE_SECRET_KEY` stays as a condition on `STRIPE_WEBHOOK_SECRET` because it
+  cannot drift the same way: it is exactly what `BillingService` and `WebhooksService`
+  construct the Stripe client from.
 
   This refusal is deliberate. The webhook and internal-API paths already fail closed at
   request time - `verifyStripeSignature`/`verifyMuxSignature` throw when the secret is
@@ -550,17 +552,21 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   and `STRIPE_WEBHOOK_SECRET` when `STRIPE_SECRET_KEY` is set. Confirm all three are present
   on the API host before deploying.
 
-  Assume all three are new refusals there, because this repository holds two records that
-  contradict each other and cannot settle which one describes the live service. The "API
-  deploy" bullet above says the API is started with `pnpm start`, which sets
-  `NODE_ENV=production` itself; on that reading two of the three already fired and the only
-  new refusal is `MUX_WEBHOOK_SECRET`, which additionally dropped its `MUX_TOKEN_ID`
-  condition. The `DEV_BYPASS_AUTH` entry under "Security Invariants" in `AGENTS.md` records
-  the opposite as observed fact: on 2026-08-02 the project owner confirmed the deployed API
-  running with `NODE_ENV=development`, and a run that went through `pnpm start` cannot carry
-  that value. If that is still how it starts, its `DATABASE_URL` is not loopback,
-  `isDeployment` is therefore true, and all three widened checks are live on that deployment
-  for the first time. Only the host can say which record is current.
+  Assume all three are new refusals there. Two of them are unconditional on any deployment;
+  `STRIPE_WEBHOOK_SECRET` is required only where `STRIPE_SECRET_KEY` is set, which on this
+  product it is, because Stripe billing is live. Assume the worse case because this
+  repository holds two records that contradict each other and cannot settle which one
+  describes the live service. The "API deploy" bullet above says the API is started with
+  `pnpm start`, which sets `NODE_ENV=production` itself; on that reading two of the three
+  already fired and the only new refusal is `MUX_WEBHOOK_SECRET`, which additionally dropped
+  its `MUX_TOKEN_ID` condition. The `DEV_BYPASS_AUTH` entry under "Security Invariants" in
+  `AGENTS.md` records the opposite as observed fact: on 2026-08-02 the project owner
+  confirmed the deployed API running with `NODE_ENV=development`, and a run that went through
+  `pnpm start` cannot carry that value. If that is still how it starts, its `DATABASE_URL` is
+  not loopback, `isDeployment` is therefore true, and the widened checks are live on that
+  deployment for the first time: `MUX_WEBHOOK_SECRET` and `DIAZ_INTERNAL_API_KEY`
+  unconditionally, and `STRIPE_WEBHOOK_SECRET` wherever `STRIPE_SECRET_KEY` is set. Only the
+  host can say which record is current.
 
   This is written for the worse case on purpose, because the costs are not symmetric.
   Overstating it costs three environment-variable checks. Understating it means an API that

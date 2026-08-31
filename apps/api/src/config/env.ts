@@ -204,9 +204,11 @@ const apiEnvSchema = z
     }
 
     // The same deployment predicate, and the "is Mux enabled" proxy dropped for
-    // the same reason it was dropped from the signing key rule below: nothing
-    // in the API runtime reads MUX_TOKEN_ID, so a deployment serving Mux video
-    // without ever setting it skipped this check. What the runtime does read is
+    // the same reason it was dropped from the signing key rule below:
+    // MUX_TOKEN_ID is read only by the pairing rule directly above, never by a
+    // serving path, so it is not a reliable signal that Mux webhooks are wired,
+    // and a deployment serving Mux video without ever setting it skipped this
+    // check. What the runtime does read is
     // MUX_WEBHOOK_SECRET itself, in verifyMuxSignature, and without it every
     // delivery is rejected with a 400. That silently removes the only path by
     // which a Mux playback id reaches the database, and with it the signed-only
@@ -239,9 +241,10 @@ const apiEnvSchema = z
     // started without NODE_ENV set - the same reasoning as the bypass above.
     //
     // Deliberately keyed on the deployment alone, with no "is Mux enabled"
-    // proxy. This used to be gated on MUX_TOKEN_ID, which drifted: no runtime
-    // code reads that variable, so a deployment that serves Mux video without
-    // ever setting it skipped the check entirely and every PAID lesson answered
+    // proxy. This used to be gated on MUX_TOKEN_ID, which drifted: nothing but
+    // the pairing rule above reads that variable, so it is not a reliable signal
+    // that Mux is in use, and a deployment that serves Mux video without ever
+    // setting it skipped the check entirely and every PAID lesson answered
     // 500 with no boot-time signal. Any proxy can drift the same way. The
     // signing key pair cannot, because what is required here is exactly what
     // createMuxPlaybackToken reads, and it is the only thing standing between a

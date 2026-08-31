@@ -287,17 +287,20 @@ the reason it exists is stated with it.
   pair `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE`, all unconditionally, plus
   `STRIPE_WEBHOOK_SECRET` when `STRIPE_SECRET_KEY` is set. The refusal is deliberate - do
   not relax a check to get a deploy green, and do not reintroduce a `NODE_ENV` spelling.
-  `pnpm start` setting `NODE_ENV=production` is no longer what makes any of them live, and
-  relying on it was the defect: measured against the built API with `NODE_ENV` never set and
-  a non-loopback `DATABASE_URL`, it booted, answered `/health` 200, and rejected every Mux
-  delivery, every Stripe delivery and every internal entitlement lookup. It now exits
-  without opening a port.
-  Two conditions were removed rather than rewritten, and the distinction is the point. A
-  condition may only stay if the runtime itself is what defines it. `MUX_TOKEN_ID` did not:
-  nothing in the API reads it, so gating the webhook secret on it let a deployment serving
-  Mux video skip the check - the same drift the signing-key rule was rescued from.
-  `STRIPE_SECRET_KEY` does: it is exactly what `BillingService` and `WebhooksService`
-  construct the Stripe client from, so it stays.
+  `pnpm start` setting `NODE_ENV=production` is no longer the only condition that makes any
+  of them live, and relying on it alone was the defect: `NODE_ENV=production` still activates
+  every one of them; the non-loopback `DATABASE_URL` is an additional trigger rather than a
+  replacement. Measured against the built API with `NODE_ENV` never set and a non-loopback
+  `DATABASE_URL`, it booted, answered `/health` 200, and rejected every Mux delivery, every
+  Stripe delivery and every internal entitlement lookup. It now exits without opening a port.
+  One condition was removed and one kept, and the distinction is the point. A condition may
+  only stay if it is a reliable signal that the thing it gates is actually in use.
+  `MUX_TOKEN_ID` is not: the only code that reads it is the env schema's own
+  MUX_TOKEN_ID/MUX_TOKEN_SECRET pairing rule, never a serving path, so it says nothing about
+  whether Mux webhooks are wired, and gating the webhook secret on it let a deployment
+  serving Mux video skip the check - the same drift the signing-key rule was rescued from.
+  `STRIPE_SECRET_KEY` is: it is exactly what `BillingService` and `WebhooksService` construct
+  the Stripe client from, so it stays.
 - Every `.env.example` in the repo - root, `apps/api`, `apps/diaz-ondemand-web`,
   `apps/mobile` - ships its bypass flag as `false`. Keep all four copy-safe; the
   `apps/api` one sits inside the deployed service and is the likeliest to be copied
