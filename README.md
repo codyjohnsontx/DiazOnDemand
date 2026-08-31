@@ -74,9 +74,11 @@ Stripe:
   it unset for log-only alerts - an empty value is rejected as an invalid URL, not treated as unset,
   which is why it is documented here and deliberately kept out of `.env.example`)
 
-Mux (optional now):
+Mux (optional locally; the webhook secret and the signing key pair are required on any
+deployment):
 - `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` (API access token, from Settings > Access Tokens)
-- `MUX_WEBHOOK_SECRET` (webhook signing secret; required in production when `MUX_TOKEN_ID` is set)
+- `MUX_WEBHOOK_SECRET` (webhook signing secret; **required on any deployment**, with no "is Mux
+  enabled" condition attached - see "Vercel Deployment Notes")
 - `MUX_SIGNING_KEY_ID` / `MUX_SIGNING_KEY_PRIVATE` (signing key, from Settings > Signing Keys - a
   separate credential from the access token; signs the RS256 playback JWTs for `PAID` lessons.
   Optional locally, **required on any deployment** - see "Vercel Deployment Notes")
@@ -496,16 +498,29 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   (root) or `pnpm --filter api start`, which sets `NODE_ENV=production` itself rather than
   relying on the host to export it.
 - Pre-deploy checklist. The API **exits instead of starting** if any of these is missing:
-  - `DIAZ_INTERNAL_API_KEY` - always required in production.
-  - `STRIPE_WEBHOOK_SECRET` - required when Stripe is enabled (`STRIPE_SECRET_KEY` set).
-  - `MUX_WEBHOOK_SECRET` - required in production when Mux is enabled (`MUX_TOKEN_ID` set).
-  - The signing key pair `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` - required on any
-    deployment, unconditionally, with no "is Mux enabled" condition attached.
+  - `DIAZ_INTERNAL_API_KEY` - always.
+  - `MUX_WEBHOOK_SECRET` - always, with no "is Mux enabled" condition attached.
+  - The signing key pair `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` - always,
+    unconditionally, with no "is Mux enabled" condition attached.
+  - `STRIPE_WEBHOOK_SECRET` - when Stripe is enabled (`STRIPE_SECRET_KEY` set).
 
-  The first three are live because `pnpm start` sets `NODE_ENV=production`. The signing key
-  pair does not depend on that: it is refused whenever `NODE_ENV=production` **or**
-  `DATABASE_URL` points anywhere but loopback, so a run started as `node dist/main.js`,
-  a Dockerfile `CMD` or a Procfile - none of which export `NODE_ENV` - is refused too.
+  "Deployment" means the same thing for all four: `NODE_ENV=production` **or** a
+  `DATABASE_URL` that is not loopback. They ask one predicate, `isDeployment` in
+  `apps/api/src/config/env.ts`, so they cannot disagree. `NODE_ENV` alone was never enough -
+  `pnpm start` is the only thing in this repository that sets it, so a run started as
+  `node dist/main.js`, a Dockerfile `CMD` or a Procfile left every `NODE_ENV === 'production'`
+  check inert. Measured against the built API with `NODE_ENV` never set and a non-loopback
+  `DATABASE_URL`: it booted, answered `/health` with 200, and rejected every Mux delivery,
+  every Stripe delivery and every internal entitlement lookup. It now exits without opening a
+  port, and each refusal names the variable and what breaks without it.
+
+  `MUX_WEBHOOK_SECRET` used to carry an `MUX_TOKEN_ID` condition. That drifted, for the same
+  reason the signing-key rule's did: nothing in the API runtime reads `MUX_TOKEN_ID`, so a
+  deployment serving Mux video without ever setting it skipped the check. The condition is
+  gone rather than replaced - a deployment cannot ingest a Mux asset without this secret, so
+  there is no configuration in which requiring it is wrong. `STRIPE_SECRET_KEY` stays as a
+  condition on `STRIPE_WEBHOOK_SECRET` because it cannot drift the same way: it is exactly
+  what `BillingService` and `WebhooksService` construct the Stripe client from.
 
   This refusal is deliberate. The webhook and internal-API paths already fail closed at
   request time - `verifyStripeSignature`/`verifyMuxSignature` throw when the secret is

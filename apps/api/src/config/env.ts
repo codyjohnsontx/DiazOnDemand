@@ -57,6 +57,13 @@ export function isDevAuthBypassEnabled(source: NodeJS.ProcessEnv): boolean {
  * deployed service and serving unsigned paid video. `isDevAuthBypassEnabled`
  * asks the same question of the same function, for the same reason.
  *
+ * Every startup requirement that is meant to hold on a server asks this too,
+ * rather than `NODE_ENV === 'production'`. That spelling was inert on any run
+ * that did not go through `pnpm start`, which is how a deployment launched as
+ * `node dist/main.js`, a Dockerfile `CMD` or a Procfile booted and served
+ * traffic with no Mux webhook secret, no Stripe webhook secret and no internal
+ * API key - every one of those integrations dead, and nothing said so.
+ *
  * Takes the two values rather than a whole environment so the startup site can
  * pass its parsed fields directly without the coerced numeric `PORT` having to
  * fit `NodeJS.ProcessEnv`. Anything unparseable or non-loopback counts as a
@@ -156,15 +163,27 @@ const apiEnvSchema = z
       });
     }
 
+    // Keyed on the deployment rather than on NODE_ENV, for the reason given on
+    // isDeployment: `pnpm start` is the only thing in this repository that sets
+    // NODE_ENV, so a deployment started as `node dist/main.js`, a Dockerfile
+    // CMD or a Procfile skipped this check entirely and booted looking healthy.
+    // verifyStripeSignature then rejects every delivery with a 400, so a
+    // customer pays and no entitlement is ever written.
+    //
+    // The STRIPE_SECRET_KEY condition stays. Unlike the MUX_TOKEN_ID gate
+    // removed below it cannot drift, because it is exactly what BillingService
+    // and WebhooksService read to construct the Stripe client: "Stripe billing
+    // is enabled" is defined here by the variable the runtime actually uses.
     if (
-      value.NODE_ENV === 'production' &&
+      isDeployment(value.NODE_ENV, value.DATABASE_URL) &&
       value.STRIPE_SECRET_KEY &&
       !value.STRIPE_WEBHOOK_SECRET
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['STRIPE_WEBHOOK_SECRET'],
-        message: 'required in production when Stripe billing is enabled',
+        message:
+          'required on a deployment when Stripe billing is enabled - a deployment being NODE_ENV=production, or a DATABASE_URL that is not loopback - because without it every Stripe webhook delivery is rejected and a paying member is never granted access',
       });
     }
 
@@ -184,11 +203,22 @@ const apiEnvSchema = z
       });
     }
 
-    if (value.NODE_ENV === 'production' && value.MUX_TOKEN_ID && !value.MUX_WEBHOOK_SECRET) {
+    // The same deployment predicate, and the "is Mux enabled" proxy dropped for
+    // the same reason it was dropped from the signing key rule below: nothing
+    // in the API runtime reads MUX_TOKEN_ID, so a deployment serving Mux video
+    // without ever setting it skipped this check. What the runtime does read is
+    // MUX_WEBHOOK_SECRET itself, in verifyMuxSignature, and without it every
+    // delivery is rejected with a 400. That silently removes the only path by
+    // which a Mux playback id reaches the database, and with it the signed-only
+    // policy check syncMuxAsset performs on a PAID asset. A deployment cannot
+    // ingest Mux video without this, so as with the signing key pair there is
+    // no configuration in which requiring it is wrong.
+    if (isDeployment(value.NODE_ENV, value.DATABASE_URL) && !value.MUX_WEBHOOK_SECRET) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['MUX_WEBHOOK_SECRET'],
-        message: 'required in production when Mux is enabled',
+        message:
+          'required on a deployment - a deployment being NODE_ENV=production, or a DATABASE_URL that is not loopback - because without it every Mux webhook delivery is rejected, so no asset is ever ingested and the signed-only playback policy check never runs',
       });
     }
 
@@ -231,11 +261,18 @@ const apiEnvSchema = z
       });
     }
 
-    if (value.NODE_ENV === 'production' && !value.DIAZ_INTERNAL_API_KEY) {
+    // Deployment rather than NODE_ENV, one last time, and unconditional for the
+    // same reason the signing key pair is: GET /users/:clerkUserId/entitlements
+    // compares the caller's header against this variable directly, so on a
+    // deployment without it the marketing site's redirect logic - the only
+    // consumer, and server-to-server only - is answered 401 every time. There is
+    // no deployment on which that is the intended configuration.
+    if (isDeployment(value.NODE_ENV, value.DATABASE_URL) && !value.DIAZ_INTERNAL_API_KEY) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['DIAZ_INTERNAL_API_KEY'],
-        message: 'required in production for server-to-server entitlement checks',
+        message:
+          'required on a deployment for server-to-server entitlement checks - a deployment being NODE_ENV=production, or a DATABASE_URL that is not loopback - because without it every caller of GET /users/:clerkUserId/entitlements is rejected',
       });
     }
   });
