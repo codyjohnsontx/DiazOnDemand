@@ -248,7 +248,7 @@ const apiEnvSchema = z
     // PAID lesson and either a 500 or an unsigned url. A deployed API can never
     // serve paid Mux video without it, so there is no configuration in which
     // the requirement is wrong - the same unconditional shape as the
-    // DIAZ_INTERNAL_API_KEY production requirement below.
+    // DIAZ_INTERNAL_API_KEY deployment requirement below.
     if (
       isDeployment(value.NODE_ENV, value.DATABASE_URL) &&
       (!value.MUX_SIGNING_KEY_ID || !value.MUX_SIGNING_KEY_PRIVATE)
