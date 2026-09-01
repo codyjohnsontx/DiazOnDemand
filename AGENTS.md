@@ -308,8 +308,9 @@ the reason it exists is stated with it.
 - Prefer host env vars or the monorepo-root `.env` for production API values - ordinary good
   practice, not a workaround. `apps/api/.env` is still covered by startup validation:
   `ConfigModule.forRoot` sits in the `@Module` decorator argument in `app.module.ts`, evaluated
-  when `main.ts` statically imports `AppModule`, and it writes the cwd `.env` into `process.env`
-  synchronously - both before `bootstrap()` calls `validateApiEnv`. This entry previously
+  when `create-app.ts` statically imports `AppModule`, and it writes the cwd `.env` into
+  `process.env` synchronously - both before `createApiApp()` calls `validateApiEnv`, on either
+  entrypoint, since both reach `AppModule` through `create-app.ts`. This entry previously
   claimed the opposite and called the load ordering unfixed; there is no defect and nothing
   to fix. It is also why the bypass refusal fires for a flag set in `apps/api/.env`.
 - Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so a

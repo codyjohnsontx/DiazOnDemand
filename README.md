@@ -94,7 +94,7 @@ pnpm install
 ```
 
 2. Configure env. Each app reads its own `.env`, and turbo forwards nothing between them:
-the API loads the monorepo-root `.env` (see `apps/api/src/main.ts`), Next.js loads
+the API loads the monorepo-root `.env` (see `apps/api/src/create-app.ts`), Next.js loads
 `apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy the root and mobile
 ones:
 
@@ -557,7 +557,7 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   `STRIPE_WEBHOOK_SECRET` is required only where `STRIPE_SECRET_KEY` is set, which on this
   product it is, because Stripe billing is live. Assume the worse case because this
   repository holds two records that contradict each other and cannot settle which one
-  describes the live service. The "API deploy" bullet above says the API is started with
+  describes the live service. This repository used to record the API as started by
   `pnpm start`, which sets `NODE_ENV=production` itself; on that reading two of the three
   already fired and the only new refusal is `MUX_WEBHOOK_SECRET`, which additionally dropped
   its `MUX_TOKEN_ID` condition. The `DEV_BYPASS_AUTH` entry under "Security Invariants" in
@@ -567,7 +567,10 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   not loopback, `isDeployment` is therefore true, and the widened checks are live on that
   deployment for the first time: `MUX_WEBHOOK_SECRET` and `DIAZ_INTERNAL_API_KEY`
   unconditionally, and `STRIPE_WEBHOOK_SECRET` wherever `STRIPE_SECRET_KEY` is set. Only the
-  host can say which record is current.
+  host can say which record is current. On the Vercel API project the question does not
+  arise: nothing there runs `pnpm start` and step 3 of the runbook says not to set `NODE_ENV`
+  at all, so `isDeployment` is true through the non-loopback `DATABASE_URL` and all three are
+  live from the first deploy.
 
   This is written for the worse case on purpose, because the costs are not symmetric.
   Overstating it costs three environment-variable checks. Understating it means an API that
@@ -577,9 +580,11 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   `.env` as the local fallback. That is ordinary good practice for a deployed service, not a
   workaround for a load-ordering bug. `apps/api/.env` is **not** a blind spot: `app.module.ts`
   calls `ConfigModule.forRoot` inside its `@Module({ ... })` decorator argument, which is
-  evaluated when `main.ts` statically imports `AppModule`, and `forRoot` writes the
-  working-directory `.env` into `process.env` synchronously - both before `bootstrap()` calls
-  `validateApiEnv`. So values placed in `apps/api/.env` **are** seen by startup validation.
+  evaluated when `create-app.ts` statically imports `AppModule`, and `forRoot` writes the
+  working-directory `.env` into `process.env` synchronously - both before `createApiApp()`
+  calls `validateApiEnv`. That holds for either entrypoint, since both reach `AppModule`
+  through `create-app.ts`. So values placed in `apps/api/.env` **are** seen by startup
+  validation.
   That is also why the dev-bypass startup refusal fires for a `DEV_BYPASS_AUTH=true` that
   arrives from `apps/api/.env`, not only for one exported by the host.
 - Web project environment: `NEXT_PUBLIC_API_URL` pointing at the deployed API, plus **both**
