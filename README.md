@@ -600,8 +600,9 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 
 ## API Deploy Runbook (Vercel serverless)
 
-The API has never been deployed. Nothing below has run against a real Vercel project - see
-"What is proven, and what is not" at the end of this section before trusting any of it.
+No Vercel project exists and no live URL is recorded in this repository. Nothing below has run
+against a real Vercel project - see "What is proven, and what is not" at the end of this
+section before trusting any of it.
 
 **Decision, 2026-09-01 (project owner): two Vercel projects.** The API is its own project rooted
 at `apps/api`, alongside the existing web project. Folding the API into the web project so it
