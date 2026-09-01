@@ -3,6 +3,8 @@ import { VideoProvider } from './enums.js';
 import {
   hasPlayableVideo,
   hasUnplayableVideoIdentifier,
+  isAwaitingMuxPlayback,
+  isStoredIdentifierAbsent,
   isValidMuxPlaybackId,
   isValidYouTubeVideoId,
 } from './video-source.js';
@@ -172,5 +174,161 @@ describe('hasUnplayableVideoIdentifier', () => {
         muxPlaybackId: 'seedgrddef101',
       }),
     ).toBe(false);
+  });
+});
+
+describe('isAwaitingMuxPlayback', () => {
+  const ASSET_ID = 'PS02Wt6ZFsample00Asset00Id00000001';
+
+  it('is true for a mux lesson holding the asset id and no playback id', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: ASSET_ID,
+        muxPlaybackId: null,
+      }),
+    ).toBe(true);
+  });
+
+  // A lesson nobody has pointed at an asset is not waiting for anything - it is
+  // a lesson that has not been filmed, and telling staff to check Mux for it
+  // would send them looking for an upload that never happened.
+  it('is false for a mux lesson with no asset id at all', () => {
+    expect(isAwaitingMuxPlayback({ videoProvider: VideoProvider.MUX })).toBe(false);
+    expect(isAwaitingMuxPlayback({ videoProvider: VideoProvider.MUX, muxAssetId: '   ' })).toBe(
+      false,
+    );
+  });
+
+  // The webhook has already completed this one. Re-delivery must not put it
+  // back into a waiting state, and neither should a second look at the row.
+  it('is false once the playback id has arrived', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: ASSET_ID,
+        muxPlaybackId: 'DS00Spx1CV902MCtPj5WknGlR102V5HFkDe',
+      }),
+    ).toBe(false);
+  });
+
+  // Distinct from broken: a stored playback id the read path refuses is a
+  // mistake somebody has to correct, not an asset anybody is waiting on.
+  // `hasUnplayableVideoIdentifier` owns that one.
+  it('is false for a lesson whose stored playback id will not play', () => {
+    const lesson = {
+      videoProvider: VideoProvider.MUX,
+      muxAssetId: ASSET_ID,
+      muxPlaybackId: 'seedgrddef101',
+    };
+
+    expect(isAwaitingMuxPlayback(lesson)).toBe(false);
+    expect(hasUnplayableVideoIdentifier(lesson)).toBe(true);
+  });
+
+  // `syncMuxAsset` finds the lesson by asset id alone and sets the provider
+  // itself, so a row that lost its provider is still a row the webhook will
+  // complete. Re-running the seed writes exactly this shape: the provider goes
+  // back to the seeded value and the playback id to null, while the asset id
+  // stays. If this answered false the badge and the webhook would disagree
+  // about what "waiting" means.
+  it('is true whatever the stored provider says', () => {
+    expect(isAwaitingMuxPlayback({ videoProvider: VideoProvider.NONE, muxAssetId: ASSET_ID })).toBe(
+      true,
+    );
+    expect(isAwaitingMuxPlayback({ muxAssetId: ASSET_ID })).toBe(true);
+  });
+
+  // A YouTube video id is a competing claim on the row: the webhook refuses
+  // such a lesson rather than completing it, so nothing here is waiting on Mux.
+  it('is false for a lesson that still holds a youtube video id', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        videoProvider: VideoProvider.YOUTUBE,
+        muxAssetId: ASSET_ID,
+        youtubeVideoId: 'M7lc1UVf-VE',
+      }),
+    ).toBe(false);
+    expect(
+      isAwaitingMuxPlayback({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: ASSET_ID,
+        youtubeVideoId: 'M7lc1UVf-VE',
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('isStoredIdentifierAbsent', () => {
+  // The whole point of the rule. Postgres TRIM() strips U+0020 and nothing
+  // else, so `lesson_video_provider_consistency_chk` reads a tab-only or
+  // newline-only identifier as PRESENT. JavaScript's own trim() disagrees, and
+  // a test written with spaces passes under either definition and so proves
+  // nothing.
+  it('counts non-space whitespace as present, the way Postgres TRIM does', () => {
+    expect(isStoredIdentifierAbsent('\t')).toBe(false);
+    expect(isStoredIdentifierAbsent('\n')).toBe(false);
+    expect(isStoredIdentifierAbsent(' \t ')).toBe(false);
+  });
+
+  it('counts spaces, empty and missing as absent', () => {
+    expect(isStoredIdentifierAbsent('   ')).toBe(true);
+    expect(isStoredIdentifierAbsent('')).toBe(true);
+    expect(isStoredIdentifierAbsent(null)).toBe(true);
+    expect(isStoredIdentifierAbsent(undefined)).toBe(true);
+  });
+
+  it('leaves a real identifier alone, spaces around it or not', () => {
+    expect(isStoredIdentifierAbsent('DS00Spx1CV902MCtPj5WknGlR102V5HFkDe')).toBe(false);
+    expect(isStoredIdentifierAbsent('  DS00Spx1CV902MCtPj5WknGlR102V5HFkDe  ')).toBe(false);
+  });
+});
+
+describe('isAwaitingMuxPlayback and the database agree about blank', () => {
+  const ASSET_ID = 'PS02Wt6ZFsample00Asset00Id00000001';
+
+  // A tab-only youtubeVideoId is storable - the CHECK reads it as present, so
+  // the row satisfies the YOUTUBE branch - and it is a competing claim on the
+  // lesson. Calling it awaiting would badge the row and invite an admin to
+  // redeliver an event the webhook must refuse.
+  it('does not call a row awaiting when a tab-only YouTube id claims it', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        muxAssetId: ASSET_ID,
+        muxPlaybackId: null,
+        youtubeVideoId: '\t',
+      }),
+    ).toBe(false);
+  });
+
+  it('still calls it awaiting when the YouTube id is spaces only, which the database drops', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        muxAssetId: ASSET_ID,
+        muxPlaybackId: null,
+        youtubeVideoId: '   ',
+      }),
+    ).toBe(true);
+  });
+
+  // Same rule on the other two columns, so a tab-only playback id reads as a
+  // playback id that arrived rather than as a lesson still waiting.
+  it('does not call a row awaiting when a tab-only playback id is stored', () => {
+    expect(isAwaitingMuxPlayback({ muxAssetId: ASSET_ID, muxPlaybackId: '\t' })).toBe(false);
+  });
+
+  it('does not call a row awaiting when only spaces were typed into the asset id', () => {
+    expect(isAwaitingMuxPlayback({ muxAssetId: '   ', muxPlaybackId: null })).toBe(false);
+  });
+
+  // The tab inverts that answer, and the inversion is the correct reading
+  // rather than a typo in this expectation. A tab survives Postgres `TRIM()`,
+  // so the database holds this row as one that *has* an asset id and no
+  // playback id, which is exactly what awaiting means. The row will wait
+  // forever - no Mux asset id is a tab - but saying so is the honest answer,
+  // and it is the one the "Waiting for Mux" badge should give beside a value
+  // the database counts as present.
+  it('calls a row awaiting when a tab-only asset id is stored, which the database counts as present', () => {
+    expect(isAwaitingMuxPlayback({ muxAssetId: '\t', muxPlaybackId: null })).toBe(true);
   });
 });

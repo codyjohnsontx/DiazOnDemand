@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { EntitlementSource, StripeWebhookEventStatus } from '@diaz/db';
+import { EntitlementSource, StripeWebhookEventStatus, VideoProvider } from '@diaz/db';
+import { isStoredIdentifierAbsent } from '@diaz/shared';
 import Stripe from 'stripe';
 import {
   BILLING_ALERTER,
@@ -695,6 +696,38 @@ export class WebhooksService {
       return;
     }
 
+    if (!isStoredIdentifierAbsent(lesson.youtubeVideoId)) {
+      // A lesson cannot be served by two providers at once, and completing this
+      // one would write a Mux playback id onto a row still holding a YouTube
+      // video id - a combination the database refuses, which would turn every
+      // redelivery into an opaque 500 forever. Refused with the reason instead,
+      // in the Mux dashboard next to the asset, the way a wrong playback policy
+      // is.
+      //
+      // "Still holding" is `isStoredIdentifierAbsent`, the same rule
+      // `isAwaitingMuxPlayback` asks, because the two have to agree about which
+      // rows this handler completes. A local `.trim()` here looked equivalent
+      // and was not: it reads a tab as blank where Postgres does not, so the
+      // guard waved through exactly the write the constraint rejects.
+      //
+      // The remedy names the video-source switch rather than deleting the id,
+      // because deleting it is a save the editor refuses: a YOUTUBE row must
+      // hold a non-blank video id, there and in the constraint. Changing the
+      // source to Mux is what actually clears the column, and it keeps the
+      // asset id. An operator sent after a step the product blocks concludes
+      // the app is broken, so this has to name one that works.
+      this.logger.error(
+        `Refusing to sync Mux asset ${assetId} to lesson ${lesson.id}: the lesson still holds a ` +
+          `YouTube video id, so it is not a Mux lesson. Change the lesson's video source to Mux ` +
+          `in the lesson editor, then redeliver this webhook.`,
+      );
+
+      throw new Error(
+        `Mux asset ${assetId} points at lesson ${lesson.id}, which still holds a YouTube video ` +
+          `id - change its video source to Mux in the lesson editor`,
+      );
+    }
+
     const playbackIds = event.data?.playback_ids ?? [];
     const signedPlaybackId = playbackIds.find((entry) => entry.policy === 'signed')?.id ?? null;
     const publicPlaybackId = playbackIds.find((entry) => entry.policy === 'public')?.id ?? null;
@@ -709,7 +742,7 @@ export class WebhooksService {
       // asset was uploaded with the wrong playback policy, which is a mistake
       // only a human can correct in Mux - so this fails the delivery, which
       // puts it in the Mux dashboard as a failed webhook next to the asset that
-      // caused it. Answering 200 and silently leaving the lesson alone would
+      // caused it. Answering 201 and silently leaving the lesson alone would
       // hide the problem from everybody. Mux redelivers, so a correctly
       // configured asset in place of this one is all it takes to recover.
       const offered = playbackIds.map((entry) => entry.policy ?? 'unknown').join(', ') || 'none';
@@ -734,13 +767,28 @@ export class WebhooksService {
     const durationSeconds =
       typeof duration === 'number' && Number.isFinite(duration) ? Math.round(duration) : null;
 
-    await this.prisma.client.lesson.update({
-      where: { id: lesson.id },
-      data: {
-        ...(playbackId ? { muxPlaybackId: playbackId } : {}),
-        ...(durationSeconds !== null ? { durationSeconds } : {}),
-      },
-    });
+    // Completing the record rather than filling one column of it. A lesson can
+    // be saved as the asset alone, so the provider is written too: without it a
+    // lesson would end up holding a playback id that no read path consults,
+    // which is the same invisible dead end as holding no id at all.
+    //
+    // Every field is written only where it would actually change the row, so a
+    // redelivery - Mux retries, and the same asset arrives more than once - is a
+    // no-op rather than a write that merely lands on the values already there.
+    const data = {
+      ...(playbackId && playbackId !== lesson.muxPlaybackId ? { muxPlaybackId: playbackId } : {}),
+      ...(durationSeconds !== null && durationSeconds !== lesson.durationSeconds
+        ? { durationSeconds }
+        : {}),
+      ...(lesson.videoProvider === VideoProvider.MUX ? {} : { videoProvider: VideoProvider.MUX }),
+    };
+
+    if (Object.keys(data).length === 0) {
+      this.logger.log(`Mux asset ${assetId} already synced to lesson ${lesson.id}; nothing to do`);
+      return;
+    }
+
+    await this.prisma.client.lesson.update({ where: { id: lesson.id }, data });
 
     this.logger.log(`Synced Mux asset ${assetId} to lesson ${lesson.id}`);
   }

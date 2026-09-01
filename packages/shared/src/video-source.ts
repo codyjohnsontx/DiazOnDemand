@@ -103,6 +103,101 @@ export function hasPlayableVideo(lesson: { videoProvider?: VideoProvider | null 
 }
 
 /**
+ * Whether a stored identifier counts as absent - by the database's definition
+ * of absent, which is the only one that decides anything.
+ *
+ * `lesson_video_provider_consistency_chk` asks `NULLIF(TRIM(<column>), '')`, and
+ * Postgres `TRIM()` with no character set strips **U+0020 only**. JavaScript's
+ * `String.prototype.trim()` strips every Unicode whitespace character, so the
+ * two disagree on a tab or a newline: `'\t'.trim()` is empty and
+ * `TRIM(E'\t')` is not.
+ *
+ * That disagreement is not cosmetic, and it is why this rule exists in one
+ * place instead of being spelled out at each call site. A tab-only
+ * `youtubeVideoId` read as blank in JavaScript lets `syncMuxAsset` skip its
+ * refusal and write `videoProvider = MUX`, which the constraint then rejects -
+ * a failed delivery Mux retries forever, on a row whose badge had just told an
+ * admin to redeliver it. Every caller that asks "is this identifier there?"
+ * has to get the same answer the database would give, so every caller asks
+ * here.
+ *
+ * **Do not replace this with `.trim()`.** It looks like a hand-rolled version
+ * of the standard method sitting next to a perfectly good one, and it is not:
+ * `.trim()` is how this bug was introduced. The database is the authority here
+ * because it is the only layer that can refuse the write; everything above it
+ * is describing a rule it does not own.
+ *
+ * The anchored `test` is also deliberate, and a `replace(/^ +| +$/g, '')` that
+ * reads more like a trim is not an equivalent spelling of it. That form
+ * backtracks quadratically across an interior run of spaces - measured at 686ms
+ * for 20,000 of them, against 0.004ms here. Nothing bounds the length of these
+ * identifiers: `adminBaseLessonSchema` types them as plain strings and the
+ * Postgres columns are `text`, so an admin can store such a value and every
+ * later Mux delivery for that row would then block the API's single event loop
+ * inside this guard. `/^ *$/` is anchored at position 0 with no `m` flag, so it
+ * is linear.
+ *
+ * Wanting a stricter definition of blank is reasonable - a tab in an identifier
+ * column is nobody's intent. But it is a migration, and the order is fixed:
+ * change the CHECK constraint first, then this function to match. Never the
+ * reverse, because tightening the JavaScript alone re-creates exactly the gap
+ * described above, pointed the other way.
+ */
+export function isStoredIdentifierAbsent(value: string | null | undefined) {
+  return /^ *$/.test(value ?? '');
+}
+
+/**
+ * Whether a lesson holds a Mux asset that no playback id has arrived for: the
+ * asset id is stored, the playback id is not, and nothing else claims the row.
+ *
+ * Derived from the row, never stored beside it. `muxAssetId`, `muxPlaybackId`
+ * and `youtubeVideoId` already say all of it - this is the asset, it is not
+ * playable yet, and no other provider owns this lesson - so a status column
+ * would be a second record of one fact, free to disagree with the fields it
+ * describes and with nothing to arbitrate. A derived answer cannot drift.
+ *
+ * `videoProvider` is deliberately not consulted, and it is accepted here only so
+ * a whole lesson row can be passed. This predicate has to agree with what
+ * `syncMuxAsset` will actually complete, and that handler finds the lesson by
+ * asset id alone and sets the provider to MUX itself - so a row that lost its
+ * provider is still a row the webhook will finish. Re-seeding produces exactly
+ * that shape: `packages/db/prisma/seed.ts` writes `videoProvider` back to the
+ * seed value and `muxPlaybackId` to null while leaving `muxAssetId` in place.
+ * Reading the provider here would make the badge and the webhook disagree about
+ * what "waiting" means, which is the drift the derived state exists to avoid.
+ *
+ * A stored `youtubeVideoId` is the one thing that takes the row out of this
+ * state, because it is a competing claim the webhook refuses rather than
+ * completes.
+ *
+ * It is a third state, not a shade of the other two. A lesson with no
+ * identifier at all has not been filmed; one holding a playback id the read
+ * path refuses is broken - see `hasUnplayableVideoIdentifier` - and this one is
+ * simply not ready. The webhook may take minutes, it may already have been
+ * delivered before any lesson held the asset id, and it may never arrive at all
+ * (a failed upload, a lost delivery, a webhook that was never configured),
+ * which is exactly why the state has to be visible to staff rather than
+ * inferred from a lesson that never starts playing.
+ *
+ * Not the same question as `hasPlayableVideo`: nothing here plays yet, so the
+ * API still resolves such a lesson to NONE for members and they see the honest
+ * empty state rather than a player that fails.
+ */
+export function isAwaitingMuxPlayback(lesson: {
+  videoProvider?: VideoProvider | null;
+  muxAssetId?: string | null;
+  muxPlaybackId?: string | null;
+  youtubeVideoId?: string | null;
+}) {
+  return (
+    !isStoredIdentifierAbsent(lesson.muxAssetId) &&
+    isStoredIdentifierAbsent(lesson.muxPlaybackId) &&
+    isStoredIdentifierAbsent(lesson.youtubeVideoId)
+  );
+}
+
+/**
  * Whether a lesson holds a stored identifier the read path will refuse.
  *
  * This is the staff-side view of the same rule. Members are shown the honest
@@ -119,12 +214,12 @@ export function hasUnplayableVideoIdentifier(lesson: {
 }) {
   if (lesson.videoProvider === VideoProvider.MUX) {
     const stored = lesson.muxPlaybackId ?? '';
-    return stored.trim().length > 0 && !isValidMuxPlaybackId(stored);
+    return !isStoredIdentifierAbsent(stored) && !isValidMuxPlaybackId(stored);
   }
 
   if (lesson.videoProvider === VideoProvider.YOUTUBE) {
     const stored = lesson.youtubeVideoId ?? '';
-    return stored.trim().length > 0 && !isValidYouTubeVideoId(stored);
+    return !isStoredIdentifierAbsent(stored) && !isValidYouTubeVideoId(stored);
   }
 
   return false;
