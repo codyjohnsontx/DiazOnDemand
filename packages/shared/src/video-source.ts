@@ -103,6 +103,42 @@ export function hasPlayableVideo(lesson: { videoProvider?: VideoProvider | null 
 }
 
 /**
+ * Whether a lesson is a Mux video whose asset is still being encoded: the asset
+ * id is stored and the playback id has not arrived yet.
+ *
+ * Derived from the row, never stored beside it. `videoProvider`, `muxAssetId`
+ * and `muxPlaybackId` already say all three things - this is a Mux video, this
+ * is the asset, it is not playable yet - so a status column would be a second
+ * record of one fact, free to disagree with the fields it describes and with
+ * nothing to arbitrate. A derived answer cannot drift.
+ *
+ * It is a third state, not a shade of the other two. A lesson with no
+ * identifier at all has not been filmed; one holding a playback id the read
+ * path refuses is broken - see `hasUnplayableVideoIdentifier` - and this one is
+ * simply not ready. The webhook may take minutes, and it may never arrive at
+ * all (a failed upload, a lost delivery, a webhook that was never configured),
+ * which is exactly why the state has to be visible to staff rather than
+ * inferred from a lesson that never starts playing.
+ *
+ * Not the same question as `hasPlayableVideo`: nothing here plays yet, so the
+ * API still resolves such a lesson to NONE for members and they see the honest
+ * empty state rather than a player that fails.
+ */
+export function isAwaitingMuxPlayback(lesson: {
+  videoProvider?: VideoProvider | null;
+  muxAssetId?: string | null;
+  muxPlaybackId?: string | null;
+}) {
+  if (lesson.videoProvider !== VideoProvider.MUX) {
+    return false;
+  }
+
+  return (
+    (lesson.muxAssetId ?? '').trim().length > 0 && (lesson.muxPlaybackId ?? '').trim().length === 0
+  );
+}
+
+/**
  * Whether a lesson holds a stored identifier the read path will refuse.
  *
  * This is the staff-side view of the same rule. Members are shown the honest

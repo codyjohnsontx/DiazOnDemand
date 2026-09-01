@@ -1243,6 +1243,58 @@ describe('published lessons never resolve to an unplayable identifier', () => {
     expect(youtube.video.embedUrl).toContain('/embed/M7lc1UVf-VE');
   });
 
+  // A lesson whose asset is still encoding is not filmed *yet*, not broken. The
+  // member sees the honest empty state - never a player that loads and fails,
+  // and never a 500 for a paid lesson with no playback id to sign.
+  it('presents a lesson awaiting its playback id as no video rather than a broken one', async () => {
+    for (const accessLevel of ['FREE', 'PAID'] as const) {
+      const lesson = {
+        ...publishedLesson,
+        accessLevel,
+        videoProvider: 'MUX',
+        muxAssetId: 'ihzWtvsLJ9QBT00jogcYeV7QKY700xzc72dFqpMLT5p34',
+        muxPlaybackId: null,
+      };
+      const detail = await withDatabaseUrl(DEPLOYED_DB, () => mapLessonDetail(lesson));
+
+      expect(detail.video.provider).toBe(VideoProvider.NONE);
+      expect(detail.video.playbackUrl).toBeNull();
+      expect(mapLessonSummary(lesson).videoProvider).toBe(VideoProvider.NONE);
+    }
+  });
+
+  // The asset id is the webhook's join key, not a handle on a video: it plays
+  // nothing without the Mux API credentials. It still stays off the public
+  // summary, which is what /programs answers to anonymous callers.
+  it('keeps the mux asset id off the public summary of an awaiting lesson', () => {
+    const summary = mapLessonSummary({
+      ...publishedLesson,
+      videoProvider: 'MUX',
+      muxAssetId: 'ihzWtvsLJ9QBT00jogcYeV7QKY700xzc72dFqpMLT5p34',
+      muxPlaybackId: null,
+    });
+
+    expect(summary).not.toHaveProperty('muxAssetId');
+  });
+
+  // The one place the awaiting state has to be visible: staff. It is derived
+  // from the three stored fields, so the admin payload needs no extra field and
+  // nothing can fall out of step with the row.
+  it('shows staff the asset a lesson is waiting on', () => {
+    expect(
+      mapAdminLessonSummary({
+        ...publishedLesson,
+        videoProvider: 'MUX',
+        muxAssetId: 'ihzWtvsLJ9QBT00jogcYeV7QKY700xzc72dFqpMLT5p34',
+        muxPlaybackId: null,
+      }),
+    ).toMatchObject({
+      videoProvider: VideoProvider.MUX,
+      muxAssetId: 'ihzWtvsLJ9QBT00jogcYeV7QKY700xzc72dFqpMLT5p34',
+      muxPlaybackId: null,
+    });
+  });
+
   // Members get what plays; staff get what is stored. The lesson editor loads
   // this payload straight into its form, so hiding the provider would blank the
   // identifier an admin had typed on their next save.
@@ -1266,7 +1318,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1296,7 +1350,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1317,7 +1373,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1338,7 +1396,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1356,7 +1416,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'FREE', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1383,7 +1445,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1415,7 +1479,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1449,7 +1515,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1474,7 +1542,9 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi.fn().mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID' }),
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID', videoProvider: 'MUX' }),
           update,
         },
       }),
@@ -1495,9 +1565,12 @@ describe('WebhooksService Mux asset sync', () => {
     const service = new WebhooksService(
       createPrismaService({
         lesson: {
-          findFirst: vi
-            .fn()
-            .mockResolvedValue({ id: 'lesson-1', accessLevel: 'PAID', muxPlaybackId: 'old' }),
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'lesson-1',
+            accessLevel: 'PAID',
+            videoProvider: 'MUX',
+            muxPlaybackId: 'old',
+          }),
           update,
         },
       }),
@@ -1512,6 +1585,112 @@ describe('WebhooksService Mux asset sync', () => {
         },
       }),
     ).rejects.toThrow(/has a public playback id/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  // The lesson was saved as the asset alone, which is what an upload leaves
+  // behind. Completing it means the provider as well as the playback id -
+  // otherwise the id lands on a row no read path treats as a Mux lesson.
+  it('sets the provider when completing a lesson that was not marked as Mux yet', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'lesson-1',
+            accessLevel: 'FREE',
+            videoProvider: 'NONE',
+            muxAssetId: 'asset-1',
+            muxPlaybackId: null,
+          }),
+          update,
+        },
+      }),
+    );
+
+    await service.handleMuxWebhook({
+      type: 'video.asset.ready',
+      data: {
+        id: 'asset-1',
+        duration: 723.4,
+        playback_ids: [{ id: 'publicPlayback00000000000000000001', policy: 'public' }],
+      },
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'lesson-1' },
+      data: {
+        muxPlaybackId: 'publicPlayback00000000000000000001',
+        durationSeconds: 723,
+        videoProvider: 'MUX',
+      },
+    });
+  });
+
+  // Mux retries, so the same event arrives more than once. The second delivery
+  // has to be a no-op rather than a write that happens to land on the values
+  // already stored - a lesson that is already correct is left alone.
+  it('writes nothing when the lesson already holds everything the event carries', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'lesson-1',
+            accessLevel: 'FREE',
+            videoProvider: 'MUX',
+            muxAssetId: 'asset-1',
+            muxPlaybackId: 'publicPlayback00000000000000000001',
+            durationSeconds: 723,
+          }),
+          update,
+        },
+      }),
+    );
+
+    await service.handleMuxWebhook({
+      type: 'video.asset.ready',
+      data: {
+        id: 'asset-1',
+        duration: 723.4,
+        playback_ids: [{ id: 'publicPlayback00000000000000000001', policy: 'public' }],
+      },
+    });
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  // A row cannot be served by two providers at once, and the database says so.
+  // Writing a Mux playback id next to a YouTube video id would violate
+  // `lesson_video_provider_consistency_chk`, turning every redelivery into an
+  // opaque 500 forever - so it is refused with the reason instead.
+  it('refuses a lesson that still holds a YouTube video id', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'lesson-1',
+            accessLevel: 'FREE',
+            videoProvider: 'YOUTUBE',
+            muxAssetId: 'asset-1',
+            youtubeVideoId: 'M7lc1UVf-VE',
+          }),
+          update,
+        },
+      }),
+    );
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: {
+          id: 'asset-1',
+          playback_ids: [{ id: 'publicPlayback00000000000000000001', policy: 'public' }],
+        },
+      }),
+    ).rejects.toThrow(/still holds a YouTube video id/);
 
     expect(update).not.toHaveBeenCalled();
   });

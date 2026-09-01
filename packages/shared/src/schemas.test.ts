@@ -152,9 +152,40 @@ describe('videoSchema', () => {
       videoSchema.parse({
         provider: VideoProvider.MUX,
         playbackUrl: null,
+        muxAssetId: null,
         muxPlaybackId: null,
       }),
     ).toThrow();
+  });
+
+  // The entrance to Mux ingestion. Mux issues the playback id later, on
+  // `video.asset.ready`, so a lesson has to be storable as the asset alone or
+  // the webhook has no lesson to complete.
+  it('accepts a mux video payload holding only an asset id', () => {
+    const parsed = videoSchema.parse({
+      provider: VideoProvider.MUX,
+      playbackUrl: null,
+      muxAssetId: 'PS02Wt6ZFsample00Asset00Id00000001',
+      muxPlaybackId: null,
+    });
+
+    expect(parsed.muxAssetId).toBe('PS02Wt6ZFsample00Asset00Id00000001');
+  });
+
+  // The read path resolves a lesson awaiting its playback id to NONE, and that
+  // lesson still holds the asset id it is waiting on. An asset id addresses no
+  // video, so it is not one of the identifiers NONE forbids.
+  it('accepts a NONE video payload carrying only a mux asset id', () => {
+    const parsed = videoSchema.parse({
+      provider: VideoProvider.NONE,
+      playbackUrl: null,
+      muxAssetId: 'PS02Wt6ZFsample00Asset00Id00000001',
+      muxPlaybackId: null,
+      youtubeVideoId: null,
+      embedUrl: null,
+    });
+
+    expect(parsed.provider).toBe(VideoProvider.NONE);
   });
 
   it('accepts NONE video payloads without playback identifiers', () => {

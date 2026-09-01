@@ -3,23 +3,40 @@ import { curriculumMetadataSchema } from './curriculum.js';
 import { AccessLevel, Discipline, EntitlementTier, Role, VideoProvider } from './enums.js';
 
 export const curriculumSchema = curriculumMetadataSchema;
+/**
+ * What a lesson's video may look like, including while Mux is still encoding it.
+ *
+ * `muxAssetId` counts as a Mux source, and that is the whole entrance to
+ * ingestion: Mux issues the playback id later, on `video.asset.ready`, so a
+ * rule that demanded one up front made "uploaded, still processing"
+ * unrepresentable - and a lesson that cannot be saved holding the asset id is a
+ * lesson the webhook can never find. See `isAwaitingMuxPlayback`.
+ *
+ * The NONE rule still rejects every *playback* identifier and deliberately says
+ * nothing about `muxAssetId`. An asset id addresses no video - it is an
+ * ingestion handle, useless without the Mux API credentials - and the read path
+ * resolves a lesson awaiting its playback id to NONE, so forbidding it here
+ * would reject the very state this schema was widened to accept.
+ */
 export const videoSchema = z
   .object({
     provider: z.nativeEnum(VideoProvider),
     playbackUrl: z.string().url().nullable().optional(),
+    muxAssetId: z.string().nullable().optional(),
     muxPlaybackId: z.string().nullable().optional(),
     youtubeVideoId: z.string().nullable().optional(),
     embedUrl: z.string().url().nullable().optional(),
   })
   .superRefine((video, ctx) => {
-    const hasMuxSource = Boolean(video.muxPlaybackId || video.playbackUrl);
+    const hasMuxPlaybackSource = Boolean(video.muxPlaybackId || video.playbackUrl);
+    const hasMuxSource = hasMuxPlaybackSource || Boolean(video.muxAssetId);
     const hasYoutubeSource = Boolean(video.youtubeVideoId || video.embedUrl);
 
     if (video.provider === VideoProvider.MUX && !hasMuxSource) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['muxPlaybackId'],
-        message: 'Mux videos must include a playback identifier or playback URL.',
+        message: 'Mux videos must include an asset identifier, a playback identifier or a playback URL.',
       });
     }
 
@@ -31,7 +48,7 @@ export const videoSchema = z
       });
     }
 
-    if (video.provider === VideoProvider.NONE && (hasMuxSource || hasYoutubeSource)) {
+    if (video.provider === VideoProvider.NONE && (hasMuxPlaybackSource || hasYoutubeSource)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['provider'],

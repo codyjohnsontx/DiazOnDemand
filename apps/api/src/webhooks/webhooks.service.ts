@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { EntitlementSource, StripeWebhookEventStatus } from '@diaz/db';
+import { EntitlementSource, StripeWebhookEventStatus, VideoProvider } from '@diaz/db';
 import Stripe from 'stripe';
 import {
   BILLING_ALERTER,
@@ -695,6 +695,25 @@ export class WebhooksService {
       return;
     }
 
+    if (lesson.youtubeVideoId) {
+      // A lesson cannot be served by two providers at once, and completing this
+      // one would write a Mux playback id onto a row still holding a YouTube
+      // video id - a combination the database refuses, which would turn every
+      // redelivery into an opaque 500 forever. Refused with the reason instead,
+      // in the Mux dashboard next to the asset, the way a wrong playback policy
+      // is.
+      this.logger.error(
+        `Refusing to sync Mux asset ${assetId} to lesson ${lesson.id}: the lesson still holds a ` +
+          `YouTube video id, so it is not a Mux lesson. Clear the YouTube video id in the lesson ` +
+          `editor, then redeliver this webhook.`,
+      );
+
+      throw new Error(
+        `Mux asset ${assetId} points at lesson ${lesson.id}, which still holds a YouTube video ` +
+          `id - clear it in the lesson editor`,
+      );
+    }
+
     const playbackIds = event.data?.playback_ids ?? [];
     const signedPlaybackId = playbackIds.find((entry) => entry.policy === 'signed')?.id ?? null;
     const publicPlaybackId = playbackIds.find((entry) => entry.policy === 'public')?.id ?? null;
@@ -734,13 +753,30 @@ export class WebhooksService {
     const durationSeconds =
       typeof duration === 'number' && Number.isFinite(duration) ? Math.round(duration) : null;
 
-    await this.prisma.client.lesson.update({
-      where: { id: lesson.id },
-      data: {
-        ...(playbackId ? { muxPlaybackId: playbackId } : {}),
-        ...(durationSeconds !== null ? { durationSeconds } : {}),
-      },
-    });
+    // Completing the record rather than filling one column of it. A lesson can
+    // be saved as the asset alone, so the provider is written too: without it a
+    // lesson would end up holding a playback id that no read path consults,
+    // which is the same invisible dead end as holding no id at all.
+    //
+    // Every field is written only where it would actually change the row, so a
+    // redelivery - Mux retries, and the same asset arrives more than once - is a
+    // no-op rather than a write that merely lands on the values already there.
+    const data = {
+      ...(playbackId && playbackId !== lesson.muxPlaybackId ? { muxPlaybackId: playbackId } : {}),
+      ...(durationSeconds !== null && durationSeconds !== lesson.durationSeconds
+        ? { durationSeconds }
+        : {}),
+      ...(lesson.videoProvider === VideoProvider.MUX
+        ? {}
+        : { videoProvider: VideoProvider.MUX }),
+    };
+
+    if (Object.keys(data).length === 0) {
+      this.logger.log(`Mux asset ${assetId} already synced to lesson ${lesson.id}; nothing to do`);
+      return;
+    }
+
+    await this.prisma.client.lesson.update({ where: { id: lesson.id }, data });
 
     this.logger.log(`Synced Mux asset ${assetId} to lesson ${lesson.id}`);
   }

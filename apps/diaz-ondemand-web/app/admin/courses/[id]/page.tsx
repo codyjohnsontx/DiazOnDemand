@@ -9,8 +9,9 @@ import {
   formatCurriculumLabel,
   getDisciplineLabel,
   hasUnplayableVideoIdentifier,
+  isAwaitingMuxPlayback,
   programDisciplineToCurriculumDiscipline,
-  type ProgramWithContentDto,
+  type AdminProgramWithContentDto,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
@@ -24,8 +25,8 @@ const VIDEO_PROVIDER_LABELS: Record<VideoProvider, string> = {
 };
 
 function getDefaultCurriculum(
-  course: ProgramWithContentDto['courses'][number] | null,
-  program: ProgramWithContentDto | null,
+  course: AdminProgramWithContentDto['courses'][number] | null,
+  program: AdminProgramWithContentDto | null,
 ) {
   return (
     course?.lessons[0]?.curriculum ??
@@ -39,7 +40,7 @@ export default function AdminCourseDetailPage() {
   const params = useParams<{ id: string }>();
   const courseId = params.id;
   const apiFetch = useApiClient();
-  const [programs, setPrograms] = useState<ProgramWithContentDto[]>([]);
+  const [programs, setPrograms] = useState<AdminProgramWithContentDto[]>([]);
   const [newLessonTitle, setNewLessonTitle] = useState('');
   const [status, setStatus] = useState<string | null>(null);
 
@@ -56,7 +57,7 @@ export default function AdminCourseDetailPage() {
   const program = courseContext?.program ?? null;
 
   const load = useCallback(async () => {
-    const data = await apiFetch<ProgramWithContentDto[]>('/admin/programs');
+    const data = await apiFetch<AdminProgramWithContentDto[]>('/admin/programs');
     setPrograms(data);
   }, [apiFetch]);
 
@@ -201,6 +202,9 @@ export default function AdminCourseDetailPage() {
                       {hasUnplayableVideoIdentifier(lesson) ? (
                         <PremiumBadge label="Video ID will not play" tone="premium" />
                       ) : null}
+                      {isAwaitingMuxPlayback(lesson) ? (
+                        <PremiumBadge label="Waiting for Mux" />
+                      ) : null}
                       <PremiumBadge label={lesson.accessLevel === 'PAID' ? 'Premium' : 'Free'} tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'} />
                       <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
                     </div>
@@ -213,6 +217,17 @@ export default function AdminCourseDetailPage() {
                       <p className="text-sm text-[var(--danger)]">
                         The stored video ID will not play. A published lesson with it shows the
                         not-filmed state.
+                      </p>
+                    ) : null}
+                    {/*
+                      The Mux asset is saved and the playback ID has not arrived.
+                      That is normally a few minutes of encoding, but a lesson can
+                      sit here forever on a failed upload or a lost delivery, and
+                      this row is the only place anyone would see it.
+                    */}
+                    {isAwaitingMuxPlayback(lesson) ? (
+                      <p className="text-sm text-[var(--text-muted)]">
+                        Waiting for Mux to finish encoding this asset and send its playback ID.
                       </p>
                     ) : null}
                   </div>

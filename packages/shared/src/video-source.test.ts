@@ -3,6 +3,7 @@ import { VideoProvider } from './enums.js';
 import {
   hasPlayableVideo,
   hasUnplayableVideoIdentifier,
+  isAwaitingMuxPlayback,
   isValidMuxPlaybackId,
   isValidYouTubeVideoId,
 } from './video-source.js';
@@ -171,6 +172,69 @@ describe('hasUnplayableVideoIdentifier', () => {
         videoProvider: VideoProvider.NONE,
         muxPlaybackId: 'seedgrddef101',
       }),
+    ).toBe(false);
+  });
+});
+
+describe('isAwaitingMuxPlayback', () => {
+  const ASSET_ID = 'PS02Wt6ZFsample00Asset00Id00000001';
+
+  it('is true for a mux lesson holding the asset id and no playback id', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: ASSET_ID,
+        muxPlaybackId: null,
+      }),
+    ).toBe(true);
+  });
+
+  // A lesson nobody has pointed at an asset is not waiting for anything - it is
+  // a lesson that has not been filmed, and telling staff to check Mux for it
+  // would send them looking for an upload that never happened.
+  it('is false for a mux lesson with no asset id at all', () => {
+    expect(isAwaitingMuxPlayback({ videoProvider: VideoProvider.MUX })).toBe(false);
+    expect(
+      isAwaitingMuxPlayback({ videoProvider: VideoProvider.MUX, muxAssetId: '   ' }),
+    ).toBe(false);
+  });
+
+  // The webhook has already completed this one. Re-delivery must not put it
+  // back into a waiting state, and neither should a second look at the row.
+  it('is false once the playback id has arrived', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: ASSET_ID,
+        muxPlaybackId: 'DS00Spx1CV902MCtPj5WknGlR102V5HFkDe',
+      }),
+    ).toBe(false);
+  });
+
+  // Distinct from broken: a stored playback id the read path refuses is a
+  // mistake somebody has to correct, not an asset anybody is waiting on.
+  // `hasUnplayableVideoIdentifier` owns that one.
+  it('is false for a lesson whose stored playback id will not play', () => {
+    const lesson = {
+      videoProvider: VideoProvider.MUX,
+      muxAssetId: ASSET_ID,
+      muxPlaybackId: 'seedgrddef101',
+    };
+
+    expect(isAwaitingMuxPlayback(lesson)).toBe(false);
+    expect(hasUnplayableVideoIdentifier(lesson)).toBe(true);
+  });
+
+  it('says nothing about lessons served by another provider', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        videoProvider: VideoProvider.YOUTUBE,
+        muxAssetId: ASSET_ID,
+        youtubeVideoId: 'M7lc1UVf-VE',
+      } as Parameters<typeof isAwaitingMuxPlayback>[0]),
+    ).toBe(false);
+    expect(
+      isAwaitingMuxPlayback({ videoProvider: VideoProvider.NONE, muxAssetId: ASSET_ID }),
     ).toBe(false);
   });
 });

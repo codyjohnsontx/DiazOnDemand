@@ -490,6 +490,28 @@ direction: a mistyped-but-URL-safe id is accepted and fails in the player. Only 
 could settle that, agents must not ask it, and catching a newly typed placeholder needs
 provider validation at a write boundary rather than a shape rule.
 
+A fourth state sits alongside those three and is derived, never stored: a lesson whose
+`videoProvider` is MUX and which holds a `muxAssetId` with no `muxPlaybackId` is waiting for
+Mux to finish encoding. `isAwaitingMuxPlayback` in `@diaz/shared` is the only place that
+decides it, and the three fields already say everything a status column would - so there is
+nothing to fall out of step with them, and `where: { videoProvider: MUX, muxAssetId: { not:
+null }, muxPlaybackId: null }` is the whole answer to "which uploads never completed". Members
+see NONE, because nothing plays yet; staff see a "Waiting for Mux" badge on the admin course
+rows and in the lesson editor. The webhook may be late, may repeat, or may never arrive, and
+none of those are error paths - `syncMuxAsset` writes only fields that would actually change,
+so a redelivery does not even bump `updatedAt`.
+
+What made that state unstorable was `lesson_video_provider_consistency_chk`, a CHECK
+constraint added in `20260307235900_three_discipline_demo` and widened in
+`20260901090000_lesson_mux_awaiting_playback`. Nothing in `schema.prisma` mentions it, because
+Prisma does not model CHECK constraints - and the API suite mocks Prisma, so **no mocked test
+can see it**: against the mocks the ingestion chain looked like it worked while every real save
+answered 500. That is what `apps/api/src/tests/mux-ingestion.db.test.ts` is for; it needs
+`TEST_DATABASE_URL` like the billing one. A MUX row must still hold one of the two identifiers
+and must not hold a YouTube id, so the webhook refuses a lesson that still has one rather than
+letting a constraint violation become an endless Mux retry. Blank is stored as NULL and never
+as an empty string, or a query for the waiting lessons misses exactly the ones the editor saved.
+
 `mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
 one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would
 hide the playback-id field and blank the identifier on the next save.

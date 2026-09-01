@@ -21,6 +21,7 @@ import {
   getCurriculumTrackKeys,
   getDisciplineLabel,
   hasUnplayableVideoIdentifier,
+  isAwaitingMuxPlayback,
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
@@ -134,8 +135,16 @@ export default function AdminLessonDetailPage() {
     const normalizedMuxPlaybackId = form.muxPlaybackId.trim();
     const normalizedYoutubeVideoId = form.youtubeVideoId.trim();
 
-    if (form.videoProvider === VideoProvider.MUX && !normalizedMuxPlaybackId) {
-      setStatus('Mux playback ID is required when the lesson uses Mux.');
+    // An asset id on its own is a complete Mux lesson that is not playable yet:
+    // Mux issues the playback id later, on `video.asset.ready`, and the webhook
+    // finds the lesson by exactly this asset id. Demanding a playback id here
+    // was what left ingestion with no entrance at all.
+    if (
+      form.videoProvider === VideoProvider.MUX &&
+      !normalizedMuxPlaybackId &&
+      !normalizedMuxAssetId
+    ) {
+      setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
       return;
     }
 
@@ -154,7 +163,11 @@ export default function AdminLessonDetailPage() {
           videoProvider: form.videoProvider,
           muxAssetId:
             form.videoProvider === VideoProvider.MUX ? normalizedMuxAssetId || null : null,
-          muxPlaybackId: form.videoProvider === VideoProvider.MUX ? normalizedMuxPlaybackId : null,
+          // Blank is stored as NULL, never as an empty string: "no playback id
+          // yet" needs one spelling, or a query for the lessons still waiting
+          // on Mux misses exactly the ones saved here.
+          muxPlaybackId:
+            form.videoProvider === VideoProvider.MUX ? normalizedMuxPlaybackId || null : null,
           youtubeVideoId:
             form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
           durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
@@ -215,6 +228,10 @@ export default function AdminLessonDetailPage() {
     videoProvider: form.videoProvider,
     muxPlaybackId: form.muxPlaybackId,
   });
+  // Derived from the saved row, not from the form: the point is to show which
+  // lessons the webhook has not completed, including the ones where it never
+  // will because the upload failed or the delivery was lost.
+  const awaitingMuxPlayback = isAwaitingMuxPlayback(lesson);
   const showYoutubeVideoIdHint = hasUnplayableVideoIdentifier({
     videoProvider: form.videoProvider,
     youtubeVideoId: form.youtubeVideoId,
@@ -236,6 +253,7 @@ export default function AdminLessonDetailPage() {
             <div className="flex flex-wrap items-center gap-2">
               {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
               {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
+              {awaitingMuxPlayback ? <PremiumBadge label="Waiting for Mux" /> : null}
               <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
             </div>
           </div>
@@ -348,6 +366,12 @@ export default function AdminLessonDetailPage() {
                 <p className="type-meta text-[var(--danger)]">
                   This playback ID will not play. A published lesson with it shows the not-filmed
                   state.
+                </p>
+              ) : null}
+              {awaitingMuxPlayback ? (
+                <p className="type-meta text-[var(--text-muted)]">
+                  Waiting for Mux. The asset is saved and the playback ID arrives when encoding
+                  finishes. If it never does, check the asset and the webhook in Mux.
                 </p>
               ) : null}
             </div>
