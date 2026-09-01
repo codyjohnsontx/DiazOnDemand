@@ -319,7 +319,18 @@ describe('isAwaitingMuxPlayback and the database agree about blank', () => {
     ).toBe(false);
   });
 
-  it('does not call a row awaiting when only a tab was typed into the asset id', () => {
+  it('does not call a row awaiting when only spaces were typed into the asset id', () => {
     expect(isAwaitingMuxPlayback({ muxAssetId: '   ', muxPlaybackId: null })).toBe(false);
+  });
+
+  // The tab inverts that answer, and the inversion is the correct reading
+  // rather than a typo in this expectation. A tab survives Postgres `TRIM()`,
+  // so the database holds this row as one that *has* an asset id and no
+  // playback id, which is exactly what awaiting means. The row will wait
+  // forever - no Mux asset id is a tab - but saying so is the honest answer,
+  // and it is the one the "Waiting for Mux" badge should give beside a value
+  // the database counts as present.
+  it('calls a row awaiting when a tab-only asset id is stored, which the database counts as present', () => {
+    expect(isAwaitingMuxPlayback({ muxAssetId: '\t', muxPlaybackId: null })).toBe(true);
   });
 });

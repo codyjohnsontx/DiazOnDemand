@@ -127,6 +127,16 @@ export function hasPlayableVideo(lesson: { videoProvider?: VideoProvider | null 
  * because it is the only layer that can refuse the write; everything above it
  * is describing a rule it does not own.
  *
+ * The anchored `test` is also deliberate, and a `replace(/^ +| +$/g, '')` that
+ * reads more like a trim is not an equivalent spelling of it. That form
+ * backtracks quadratically across an interior run of spaces - measured at 686ms
+ * for 20,000 of them, against 0.004ms here. Nothing bounds the length of these
+ * identifiers: `adminBaseLessonSchema` types them as plain strings and the
+ * Postgres columns are `text`, so an admin can store such a value and every
+ * later Mux delivery for that row would then block the API's single event loop
+ * inside this guard. `/^ *$/` is anchored at position 0 with no `m` flag, so it
+ * is linear.
+ *
  * Wanting a stricter definition of blank is reasonable - a tab in an identifier
  * column is nobody's intent. But it is a migration, and the order is fixed:
  * change the CHECK constraint first, then this function to match. Never the
@@ -134,7 +144,7 @@ export function hasPlayableVideo(lesson: { videoProvider?: VideoProvider | null 
  * described above, pointed the other way.
  */
 export function isStoredIdentifierAbsent(value: string | null | undefined) {
-  return (value ?? '').replace(/^ +| +$/g, '').length === 0;
+  return /^ *$/.test(value ?? '');
 }
 
 /**

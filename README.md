@@ -483,8 +483,9 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   The sync **refuses** a lesson that still holds a `youtubeVideoId`: one lesson cannot be served
   by two providers, and completing it would violate `lesson_video_provider_consistency_chk` and
   turn every redelivery into an opaque 500. It logs the reason and throws, so it shows up as a
-  failed delivery in the Mux dashboard next to the asset. To recover, clear the YouTube video ID
-  in the lesson editor, then redeliver the event.
+  failed delivery in the Mux dashboard next to the asset. To recover, change the lesson's video
+  source to Mux in the lesson editor - that is what clears the YouTube video ID while keeping the
+  asset ID, and deleting the ID by hand is a save the editor refuses - then redeliver the event.
   A lesson holding the asset id with no playback id yet is the **waiting-for-Mux** state - see
   "Catalogue Video States" above. It is normal: Mux issues the playback id later. It is also
   where a lesson lands when `video.asset.ready` was delivered *before* the asset id was pasted

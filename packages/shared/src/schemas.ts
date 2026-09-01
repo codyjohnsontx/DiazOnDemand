@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { curriculumMetadataSchema } from './curriculum.js';
 import { AccessLevel, Discipline, EntitlementTier, Role, VideoProvider } from './enums.js';
+import { isStoredIdentifierAbsent } from './video-source.js';
 
 export const curriculumSchema = curriculumMetadataSchema;
 /**
@@ -126,8 +127,19 @@ export const programWithContentSchema = programSchema.extend({
 });
 
 // Admin-only projections. `muxAssetId` is the join key the Mux `video.asset.ready`
-// webhook matches on, so admins need to set it - but it stays off the public
-// content payloads, which are built from lessonSummarySchema.
+// webhook matches on, so admins need to set it - and it stays off the public
+// *summary* payloads, which are built from lessonSummarySchema and are what
+// `/programs`, `/programs/:id` and `/courses/:id` answer.
+//
+// The lesson *detail* payload does carry it: `mapLessonDetail` emits `muxAssetId`
+// at the top level, `GET /lessons/:id` resolves with `getOptionalUser`, and
+// `ContentService.getLesson` only throws 402 for PAID - so a FREE published
+// lesson's asset id reaches an unauthenticated caller. That is deliberate for
+// now rather than overlooked. An asset id is an ingestion handle and addresses
+// no video: it plays nothing without Mux API credentials, unlike a playback id,
+// which is the whole address of a stream. So the PAID provider-identifier
+// invariant in AGENTS.md is not weakened by it. Whether the detail payload
+// should withhold it too is tracked separately.
 export const adminLessonSummarySchema = lessonSummarySchema.extend({
   muxAssetId: z.string().nullable().optional(),
 });
@@ -183,6 +195,40 @@ const adminBaseCourseSchema = z.object({
   isPublished: z.boolean().default(false),
 });
 
+/**
+ * A stored video identifier on an admin write, with blank normalised to NULL.
+ *
+ * "No identifier yet" needs one spelling in the database, because that is what
+ * the query for stalled uploads asks for:
+ * `where: { muxAssetId: { not: null }, muxPlaybackId: null, youtubeVideoId: null }`.
+ * An empty string is a second spelling of the same fact, and it makes that query
+ * miss exactly the rows an operator is looking for. The admin lesson editor
+ * already sends `|| null`, but it is one writer of three columns behind one
+ * PATCH route - `adminUpdateLessonSchema` is the boundary every writer passes,
+ * so the rule lives here rather than in the browser.
+ *
+ * Blank is `isStoredIdentifierAbsent`, the repository's single definition of it,
+ * mirroring Postgres `TRIM()`. Do not spell a second one out here: a tab-only
+ * value is *present* to the CHECK constraint, so it is kept verbatim, and a
+ * local `.trim()` that disagreed about that is the bug the branch this sits on
+ * exists to fix.
+ *
+ * The `undefined` case is the one that has to be exactly right.
+ * `adminUpdateLessonSchema` is this schema `.partial()`, so a PATCH that does
+ * not mention a column must leave it alone: `undefined` stays `undefined`, which
+ * Prisma reads as "do not update". Mapping it to null instead would blank every
+ * unmentioned identifier on every partial save - data loss far worse than the
+ * empty string this exists to prevent.
+ */
+const adminStoredVideoIdentifier = z
+  .string()
+  .optional()
+  .nullable()
+  .transform((value) => {
+    if (value === undefined) return undefined;
+    return isStoredIdentifierAbsent(value) ? null : value;
+  });
+
 const adminBaseLessonSchema = z.object({
   courseId: z.string().uuid(),
   title: z.string().min(1),
@@ -191,9 +237,9 @@ const adminBaseLessonSchema = z.object({
   isPublished: z.boolean().default(false),
   accessLevel: z.nativeEnum(AccessLevel).default(AccessLevel.FREE),
   videoProvider: z.nativeEnum(VideoProvider).default(VideoProvider.MUX),
-  muxAssetId: z.string().optional().nullable(),
-  muxPlaybackId: z.string().optional().nullable(),
-  youtubeVideoId: z.string().optional().nullable(),
+  muxAssetId: adminStoredVideoIdentifier,
+  muxPlaybackId: adminStoredVideoIdentifier,
+  youtubeVideoId: adminStoredVideoIdentifier,
   durationSeconds: z.number().int().nonnegative().optional().nullable(),
   curriculum: curriculumSchema.optional().nullable(),
 });

@@ -709,15 +709,22 @@ export class WebhooksService {
       // rows this handler completes. A local `.trim()` here looked equivalent
       // and was not: it reads a tab as blank where Postgres does not, so the
       // guard waved through exactly the write the constraint rejects.
+      //
+      // The remedy names the video-source switch rather than deleting the id,
+      // because deleting it is a save the editor refuses: a YOUTUBE row must
+      // hold a non-blank video id, there and in the constraint. Changing the
+      // source to Mux is what actually clears the column, and it keeps the
+      // asset id. An operator sent after a step the product blocks concludes
+      // the app is broken, so this has to name one that works.
       this.logger.error(
         `Refusing to sync Mux asset ${assetId} to lesson ${lesson.id}: the lesson still holds a ` +
-          `YouTube video id, so it is not a Mux lesson. Clear the YouTube video id in the lesson ` +
-          `editor, then redeliver this webhook.`,
+          `YouTube video id, so it is not a Mux lesson. Change the lesson's video source to Mux ` +
+          `in the lesson editor, then redeliver this webhook.`,
       );
 
       throw new Error(
         `Mux asset ${assetId} points at lesson ${lesson.id}, which still holds a YouTube video ` +
-          `id - clear it in the lesson editor`,
+          `id - change its video source to Mux in the lesson editor`,
       );
     }
 
