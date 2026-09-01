@@ -766,9 +766,7 @@ export class WebhooksService {
       ...(durationSeconds !== null && durationSeconds !== lesson.durationSeconds
         ? { durationSeconds }
         : {}),
-      ...(lesson.videoProvider === VideoProvider.MUX
-        ? {}
-        : { videoProvider: VideoProvider.MUX }),
+      ...(lesson.videoProvider === VideoProvider.MUX ? {} : { videoProvider: VideoProvider.MUX }),
     };
 
     if (Object.keys(data).length === 0) {
