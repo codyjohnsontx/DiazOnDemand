@@ -94,7 +94,7 @@ pnpm install
 ```
 
 2. Configure env. Each app reads its own `.env`, and turbo forwards nothing between them:
-the API loads the monorepo-root `.env` (see `apps/api/src/main.ts`), Next.js loads
+the API loads the monorepo-root `.env` (see `apps/api/src/create-app.ts`), Next.js loads
 `apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy the root and mobile
 ones:
 
@@ -494,9 +494,10 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 
 ## Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
-- API deploy: deploy `apps/api` as a separate service/project. Start it with `pnpm start`
-  (root) or `pnpm --filter api start`, which sets `NODE_ENV=production` itself rather than
-  relying on the host to export it.
+- API deploy: its own Vercel project, rooted at `apps/api`, running as serverless functions.
+  Step-by-step in [API Deploy Runbook (Vercel serverless)](#api-deploy-runbook-vercel-serverless)
+  below. `pnpm start` still runs the same application as a long-running server and is what
+  local and any non-Vercel host use.
 - Pre-deploy checklist. The API **exits instead of starting** if any of these is missing:
   - `DIAZ_INTERNAL_API_KEY` - always.
   - `MUX_WEBHOOK_SECRET` - always, with no "is Mux enabled" condition attached.
@@ -556,7 +557,7 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   `STRIPE_WEBHOOK_SECRET` is required only where `STRIPE_SECRET_KEY` is set, which on this
   product it is, because Stripe billing is live. Assume the worse case because this
   repository holds two records that contradict each other and cannot settle which one
-  describes the live service. The "API deploy" bullet above says the API is started with
+  describes the live service. This repository used to record the API as started by
   `pnpm start`, which sets `NODE_ENV=production` itself; on that reading two of the three
   already fired and the only new refusal is `MUX_WEBHOOK_SECRET`, which additionally dropped
   its `MUX_TOKEN_ID` condition. The `DEV_BYPASS_AUTH` entry under "Security Invariants" in
@@ -566,7 +567,10 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   not loopback, `isDeployment` is therefore true, and the widened checks are live on that
   deployment for the first time: `MUX_WEBHOOK_SECRET` and `DIAZ_INTERNAL_API_KEY`
   unconditionally, and `STRIPE_WEBHOOK_SECRET` wherever `STRIPE_SECRET_KEY` is set. Only the
-  host can say which record is current.
+  host can say which record is current. On the Vercel API project the question does not
+  arise: nothing there runs `pnpm start` and step 3 of the runbook says not to set `NODE_ENV`
+  at all, so `isDeployment` is true through the non-loopback `DATABASE_URL` and all three are
+  live from the first deploy.
 
   This is written for the worse case on purpose, because the costs are not symmetric.
   Overstating it costs three environment-variable checks. Understating it means an API that
@@ -576,9 +580,11 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   `.env` as the local fallback. That is ordinary good practice for a deployed service, not a
   workaround for a load-ordering bug. `apps/api/.env` is **not** a blind spot: `app.module.ts`
   calls `ConfigModule.forRoot` inside its `@Module({ ... })` decorator argument, which is
-  evaluated when `main.ts` statically imports `AppModule`, and `forRoot` writes the
-  working-directory `.env` into `process.env` synchronously - both before `bootstrap()` calls
-  `validateApiEnv`. So values placed in `apps/api/.env` **are** seen by startup validation.
+  evaluated when `create-app.ts` statically imports `AppModule`, and `forRoot` writes the
+  working-directory `.env` into `process.env` synchronously - both before `createApiApp()`
+  calls `validateApiEnv`. That holds for either entrypoint, since both reach `AppModule`
+  through `create-app.ts`. So values placed in `apps/api/.env` **are** seen by startup
+  validation.
   That is also why the dev-bypass startup refusal fires for a `DEV_BYPASS_AUTH=true` that
   arrives from `apps/api/.env`, not only for one exported by the host.
 - Web project environment: `NEXT_PUBLIC_API_URL` pointing at the deployed API, plus **both**
@@ -592,10 +598,277 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
   `NEXT_PUBLIC_VOD_COMING_SOON=true` on production web/API deployments. Leave both unset or
   `false` for local and preview deployments so development routes stay usable.
 
+## API Deploy Runbook (Vercel serverless)
+
+No Vercel project exists and no live URL is recorded in this repository. Nothing below has run
+against a real Vercel project - see "What is proven, and what is not" at the end of this
+section before trusting any of it.
+
+**Decision, 2026-09-01 (project owner): two Vercel projects.** The API is its own project rooted
+at `apps/api`, alongside the existing web project. Folding the API into the web project so it
+served under `/api/*` on the same domain was offered and declined, because it couples them: a
+broken web build would take webhook delivery down with it, and webhook delivery is the whole
+reason the API is being deployed. Do not revisit this without that reason in hand.
+
+### How it runs
+
+`apps/api` is the same NestJS application either way. What changes is who starts it:
+
+- `pnpm start` builds nothing new and runs `dist/main.js`, which calls `app.listen(PORT)`.
+- Vercel imports `apps/api/api/index.js`, which re-exports `dist/serverless.js`, which calls
+  `app.init()` and exports the underlying Express instance. `apps/api/vercel.json` rewrites every
+  path to that one function, so `/health`, `/programs` and `/webhooks/*` all reach the same
+  router they do locally.
+
+Both entrypoints build the application through `createApiApp` in `src/create-app.ts` - CORS, the
+coming-soon wall, the global validation pipe, Swagger - so routes and behaviour cannot drift
+between them. Three details there are load-bearing and should not be "tidied":
+
+- `api/index.js` is hand-written JavaScript that only forwards to `dist/`. Vercel compiles a
+  function entrypoint with esbuild, and esbuild cannot emit the decorator metadata Nest's
+  dependency injection reads, so nothing Nest has to understand may go through it. `nest build`
+  (tsc) produces `dist/`; the entrypoint just points at it.
+- `dist/serverless.js` exports the Express instance, not an `(req, res)` wrapper. Vercel skips
+  its request helpers for a listener that has a `listen` method, which keeps the request stream
+  unread so webhook signatures verify against the real bytes.
+- `restoreReadableBody` (`src/serverless-raw-body.ts`) is the backstop for when that does not
+  happen. If the runtime reads the body first, `req.readable` goes false, `on-finished` reports
+  the request finished, body-parser returns without calling the `verify` callback that sets
+  `rawBody`, and **every webhook answers 400**. It is registered only by the serverless
+  entrypoint and returns immediately when the stream is untouched.
+
+### 1. Create the project
+
+- New Vercel project from this repository, separate from the web one.
+- **Root Directory: `apps/api`.** Leave "Include source files outside of the Root Directory in
+  the Build Step" enabled - the install has to happen at the workspace root or `@diaz/shared`
+  and `@diaz/db` will not resolve.
+- **Framework Preset: Other.** `apps/api/vercel.json` already sets the build command
+  (`pnpm exec turbo run build --filter=api`, which also runs `prisma generate` via `@diaz/db`),
+  the output directory (`public`) and the catch-all rewrite. Do not also set them in the
+  dashboard; the dashboard wins and they will disagree.
+- **`apps/api/public/` is empty on purpose, and `outputDirectory` points at it.** With no output
+  directory set and no `public/` directory present, Vercel's documented fallback is to serve the
+  Root Directory itself as static output, and static files are matched before `rewrites`. That
+  would publish `apps/api/src/**`, `dist/**`, `tsconfig.json` and `package.json` on the API's
+  public domain. It is source disclosure, not a breach and not a secret leak: `.env` is
+  gitignored, only `.env.example` is committed and it carries placeholders, and no API route
+  collides with those filenames, so routes and webhook delivery are unaffected either way.
+  Whether that fallback actually applies to this project is unverified - it cannot be measured
+  from this repository, and nobody has been able to test it without the Vercel account - so an
+  empty static root is cheap insurance: it costs nothing, changes no request behaviour, and is
+  correct whether the fallback applies or not. Keep the `.gitkeep` that holds the directory in
+  git. Not a `.vercelignore`: that also removes files from the build source, and the build needs
+  `src/`. Step 7 checks the deployed answer; the mitigation and the check are belt and braces,
+  not alternatives.
+- Leave the Install Command on its default. If the build cannot find the workspace packages,
+  that is the setting to look at first.
+- Node.js version 22.x, to match local.
+- **Region: the same one as the database.** Every request opens or borrows a database
+  connection; a function in `iad1` talking to a database in Frankfurt pays that latency twice on
+  every call.
+
+### 2. Database: use the pooled connection string
+
+This is the one setting that will not announce itself when it is wrong. Each function instance
+runs its own Prisma client with its own connection pool, and instances come and go with traffic.
+
+Measured locally against Postgres 17, on this repository's own code:
+
+| Configuration | Instances | Postgres backends |
+| --- | --- | --- |
+| Direct URL, no `connection_limit` | 1 | **21** (`cpus x 2 + 1`) |
+| PgBouncer, `?pgbouncer=true&connection_limit=1` | 3 (90 concurrent requests) | **3** |
+
+So `DATABASE_URL` on the Vercel project must be the **pooled** endpoint, with both parameters:
+
+```
+postgresql://USER:PASSWORD@POOLED-HOST:PORT/DB?schema=public&pgbouncer=true&connection_limit=1
+```
+
+- Supabase: the pooler host on port `6543` (transaction mode), not `5432`.
+- Neon: the `-pooler` hostname.
+- Anything else: PgBouncer or RDS Proxy in transaction pooling mode.
+
+`connection_limit=1` caps each instance; the pooler is what stops the number of instances from
+becoming the number of database connections. Neither alone is enough. No application code
+depends on this - it is entirely the connection string.
+
+**Migrations do not go through the pooler.** Run them yourself, before the deploy, against the
+direct `5432` endpoint:
+
+```bash
+DATABASE_URL='postgresql://USER:PASSWORD@DIRECT-HOST:5432/DB?schema=public' \
+  pnpm --filter @diaz/db exec prisma migrate deploy --schema prisma/schema.prisma
+```
+
+### 3. Environment variables
+
+Set these on the API project (Production, and Preview if you use it). The API **refuses to
+start** without the first group, and names the one it is missing in the build log - see the
+pre-deploy checklist above for why each exists.
+
+| Variable | Notes |
+| --- | --- |
+| `DATABASE_URL` | The pooled URL from step 2. |
+| `DIAZ_INTERNAL_API_KEY` | Required on any deployment. |
+| `MUX_WEBHOOK_SECRET` | Required on any deployment. From the Mux webhook you create in step 6. |
+| `MUX_SIGNING_KEY_ID`, `MUX_SIGNING_KEY_PRIVATE` | Required on any deployment, as a pair. |
+| `STRIPE_WEBHOOK_SECRET` | Required whenever `STRIPE_SECRET_KEY` is set, which it is. |
+| `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` | Required whenever `DEV_BYPASS_AUTH` is false. |
+| `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_MONTHLY` | Billing is live, so both. |
+| `CORS_ORIGIN` | See step 4. |
+| `WEB_APP_URL` | Where Stripe checkout returns the member to. |
+| `VOD_COMING_SOON` | `true` on production until launch. |
+| `DEV_BYPASS_AUTH` | `false`. It cannot be anything else against a non-loopback database. |
+| `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET` | Only as a pair, or not at all. |
+
+Do not set `NODE_ENV`. Every deployment check keys on `isDeployment`, which is already true
+because `DATABASE_URL` is not loopback.
+
+### 4. CORS - the most likely first failure
+
+`CORS_ORIGIN` is a comma-separated list, matched exactly. It must contain the web project's
+origin, scheme included and with no trailing slash:
+
+```
+CORS_ORIGIN=https://your-web-domain.com,https://www.your-web-domain.com
+```
+
+Getting this wrong is invisible from the API side - `curl` keeps working, `/health` is green,
+and only a browser fails, in the console rather than on the page. If the web app suddenly cannot
+reach the API after a deploy, check this before anything else. Add the Vercel preview domain too
+if you test against previews. The Expo app is not a browser and is unaffected.
+
+### 5. Point the clients at the new URL
+
+- Web project: `NEXT_PUBLIC_API_URL` = the API project's URL.
+- Mobile: `EXPO_PUBLIC_API_URL` = the same URL. **This one is baked into the built app.**
+  Changing it later means rebuilding and redistributing the mobile app, so choose a URL you
+  intend to keep - a custom domain on the API project rather than a generated `*.vercel.app`
+  hostname.
+
+### 6. Wire the webhooks
+
+- Mux: Settings > Webhooks, new webhook to `https://YOUR-API/webhooks/mux`. Copy the signing
+  secret into `MUX_WEBHOOK_SECRET` and redeploy.
+- Stripe: Developers > Webhooks, new endpoint at `https://YOUR-API/webhooks/stripe`. Copy the
+  signing secret into `STRIPE_WEBHOOK_SECRET` and redeploy. Events are listed under
+  "Stripe + Webhooks" above.
+
+Both secrets are read at request time, but the API refuses to boot without them, so set them
+before the first deploy or expect the first one to fail loudly.
+
+### 7. After deploying, confirm it actually works
+
+In order, because each step rules out the next one's causes:
+
+```bash
+# 1. The function boots and routing reaches Nest. Answers even behind the coming-soon wall.
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/health            # 200
+
+# 2. The wall is up (production only).
+curl -s https://YOUR-API/programs                                            # coming soon 503
+
+# 3. Webhook routes exist, and the secrets are loaded. A deliberately wrong signature
+#    must be REJECTED - a 404 means routing, a 500 means the secret is missing.
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://YOUR-API/webhooks/mux \
+  -H 'content-type: application/json' -H 'mux-signature: t=1,v1=deadbeef' -d '{}'   # 400
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://YOUR-API/webhooks/stripe \
+  -H 'content-type: application/json' -H 'stripe-signature: t=1,v1=deadbeef' -d '{}' # 400
+
+# 4. The project root is not being served as static output. Any non-200 passes - it means
+#    the path reached Nest rather than matching a file. 503 is the coming-soon wall
+#    (production, while VOD_COMING_SOON=true), 404 once the wall is off. A 200 is the failure.
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/package.json    # 503, or 404
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/tsconfig.json   # 503, or 404
+```
+
+A 200 on either of those, carrying the file's actual contents, is the only failing outcome, and
+it means Vercel is serving the project root as static output after all - publishing this app's
+TypeScript source on a public domain. That is source disclosure rather than a breach: no secrets
+are involved, since `.env` is gitignored and only `.env.example` is committed with placeholders,
+and no API route collides with those filenames, so routes and webhook delivery are unaffected
+either way. The empty `public/` directory from step 1 is meant to prevent it and is unverified,
+so the two stand together as belt and braces rather than as alternatives - tell the owner the
+moment a 200 comes back rather than eventually.
+
+Then the part that actually matters, which `curl` cannot do because you cannot forge a
+signature:
+
+5. **Mux**: in the Mux dashboard, redeliver a `video.asset.ready` event to the new webhook (or
+   upload a short test asset). The delivery must show **200** in Mux's own webhook log. A 400
+   there means the signature did not verify - `MUX_WEBHOOK_SECRET` does not match the webhook
+   you copied it from. A 500 means it verified and then something failed server-side; the
+   reason is in the Vercel function logs.
+6. **Stripe**: `stripe trigger checkout.session.completed` with the CLI pointed at the deployed
+   endpoint, or "Resend" an existing event from the dashboard. Same rule: 200 in Stripe's own
+   log, not just a 200 from `curl`.
+7. **Confirm a row changed.** A 200 only says the request was accepted. For Mux, the lesson
+   matching the asset should now hold the playback id the event carried.
+
+Read the Vercel function logs alongside all of this. Startup refusals name the missing variable
+verbatim.
+
+### Troubleshooting
+
+- **Every webhook answers 400 "Missing signature or raw body".** The runtime read the request
+  body before Express and did not replay it, so the signed bytes are gone.
+  `restoreReadableBody` covers the replayed case; if this still happens, set `NODEJS_HELPERS=0`
+  as a project environment variable, which turns Vercel's request helpers off at build time.
+- **Build fails resolving `@diaz/shared` or `@diaz/db`.** The install did not run at the
+  workspace root - check "Include source files outside of the Root Directory".
+- **Runtime error about the Prisma query engine.** `prisma generate` runs during the Vercel
+  build, on the same platform the function runs on, so the right engine should be produced and
+  traced. If it is not, add `binaryTargets = ["native", "rhel-openssl-3.0.x"]` to the `generator
+  client` block in `packages/db/prisma/schema.prisma`.
+- **Cold starts time out.** Nest initialises the whole application on the first request to a new
+  instance. Raise the function's max duration.
+
+### What is proven, and what is not
+
+Everything below was measured on this branch, against the built API, driven through a local
+stand-in for Vercel's launcher transcribed from `@vercel/node`'s own source, with `NODE_ENV`
+unset throughout and a non-loopback `DATABASE_URL` so every deployment check was live.
+
+**Proven locally:**
+
+- Nest boots inside the function entrypoint and maps every route.
+- A signed Mux `video.asset.ready` round trip returns 201 and writes the playback id and
+  duration to the lesson row; a signed Stripe event returns 201; a tampered signature is
+  rejected with 400. All of it holds both when the runtime leaves the body stream alone and when
+  it reads it first.
+- Pooled connections behave as the table in step 2 says.
+- Startup validation survives the conversion: a missing `MUX_WEBHOOK_SECRET`,
+  `DIAZ_INTERNAL_API_KEY` or Mux signing key, or `DEV_BYPASS_AUTH=true` against a non-loopback
+  database, makes the module fail to load with the same named error, and no request is served.
+- `pnpm dev` and `pnpm start` are unchanged and still serve.
+- Swagger at `/docs` renders and `/docs-json` returns the spec.
+
+**Not proven, because it needs the Vercel account:**
+
+- That a real deployment builds, boots and serves at all. Nothing here has run on Vercel.
+- Whether Vercel's production launcher skips its request helpers the way its dev server does.
+  The `restoreReadableBody` middleware exists so the answer does not matter, and both answers
+  were tested locally - but which one is live is unverified.
+- Cold start duration, and whether the plan's default function timeout accommodates it.
+- Whether Vercel would have served the Root Directory as static output with no `outputDirectory`
+  set. `outputDirectory` now points at an empty committed `public/`, which settles it either way,
+  but the fallback itself has never been observed on this project. Step 7's `/package.json` and
+  `/tsconfig.json` checks are what confirm it on the real deployment.
+- **Swagger UI's static assets.** Run against `@vercel/nft` 1.10.0 - the tracer Vercel uses -
+  `swagger-ui-dist` contributes only `absolute-path.js` and `package.json` to the traced file
+  list; `swagger-ui.css` and `swagger-ui-bundle.js` are resolved at runtime and are not
+  followed. Expect `/docs` to return its HTML and then fail to style or script itself. The
+  OpenAPI document at `/docs-json` is generated in-process and is unaffected, so point any
+  Swagger viewer at that. This is not worked around in code, because the fix is an
+  `includeFiles` glob into a pnpm store path that cannot be verified without deploying.
+
 ## Scripts
 - `pnpm dev` -> API + web
 - `pnpm dev:mobile` -> Expo mobile
-- `pnpm start` -> built API with `NODE_ENV=production` (deployed runs)
+- `pnpm start` -> built API as a long-running server, with `NODE_ENV=production`. Not what
+  Vercel runs - see [API Deploy Runbook](#api-deploy-runbook-vercel-serverless).
 - `pnpm lint`
 - `pnpm typecheck`
 - `pnpm test` (see [Tests](#tests))

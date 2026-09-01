@@ -308,8 +308,9 @@ the reason it exists is stated with it.
 - Prefer host env vars or the monorepo-root `.env` for production API values - ordinary good
   practice, not a workaround. `apps/api/.env` is still covered by startup validation:
   `ConfigModule.forRoot` sits in the `@Module` decorator argument in `app.module.ts`, evaluated
-  when `main.ts` statically imports `AppModule`, and it writes the cwd `.env` into `process.env`
-  synchronously - both before `bootstrap()` calls `validateApiEnv`. This entry previously
+  when `create-app.ts` statically imports `AppModule`, and it writes the cwd `.env` into
+  `process.env` synchronously - both before `createApiApp()` calls `validateApiEnv`, on either
+  entrypoint, since both reach `AppModule` through `create-app.ts`. This entry previously
   claimed the opposite and called the load ordering unfixed; there is no defect and nothing
   to fix. It is also why the bypass refusal fires for a flag set in `apps/api/.env`.
 - Acknowledged residual risk: `isLoopbackDatabaseUrl` inspects the `DATABASE_URL` host, so a
@@ -603,6 +604,63 @@ The exact route by which the broken state reached `main` was not established. Ve
 dependency-resolution change with `pnpm exec turbo run build --force`. Run `build` and
 `typecheck` in separate turbo invocations as CI does: the web `tsconfig.json` includes
 `.next/types/**`, which `next build` generates, so one combined invocation races.
+
+## The API on Vercel serverless
+
+`apps/api` serves from two entrypoints and one wiring function. `createApiApp` in
+`src/create-app.ts` builds the whole application - CORS, coming-soon wall, validation pipe,
+Swagger - and neither entrypoint configures anything itself: `main.ts` calls `listen()`,
+`serverless.ts` calls `init()` and exports the Express instance underneath. Add anything
+application-wide to `create-app.ts`, never to one entrypoint, or the deployed API and the one
+you tested locally stop being the same program. The deploy steps, the pooled `DATABASE_URL`
+and the post-deploy checks are in "API Deploy Runbook (Vercel serverless)" in README.md.
+
+Five things here are load-bearing and each looks like tidy-up bait:
+
+- `apps/api/api/index.js` is hand-written JavaScript that only re-exports `dist/serverless.js`.
+  Vercel compiles the function entrypoint with esbuild, which cannot emit the decorator metadata
+  Nest's DI reads, so nothing Nest must understand may pass through it - `nest build` (tsc)
+  produces `dist/`. It also stays outside `src/`, and so outside `tsconfig.json`'s `include`,
+  because adding it would move the emitted tree to `dist/api/` + `dist/src/` and break
+  `pnpm start`'s `dist/main.js` path.
+- `serverless.ts` uses top-level await and exports the Express instance rather than an
+  `(req, res)` wrapper. The runtime awaits the entrypoint import, so Nest is initialised before
+  the first request instead of racing it, and an invalid environment throws there - the module
+  never loads and every invocation fails naming the variable, which is as close as a function
+  gets to refusing to open a port. Exporting the Express instance matters because Vercel skips
+  its request helpers for a listener with a `listen` method.
+- `restoreReadableBody` in `src/serverless-raw-body.ts` is the reason that last point is an
+  optimisation and not a dependency. When a runtime reads the request body first, `req.readable`
+  goes false; `on-finished` then reports the request finished, body-parser returns without
+  calling the `verify` callback that populates `rawBody`, and **every Stripe and Mux delivery
+  answers 400** - total failure of the only job the deployment exists for, looking exactly like
+  "webhooks just don't work". Reproduced and pinned in `src/tests/serverless-raw-body.test.ts`,
+  which drives a real Nest app created with `rawBody: true` through Vercel's own `restoreBody`
+  logic and asserts the failure without the middleware and byte-identical recovery with it.
+  Vercel's production launcher is injected at deploy time and is in no package installed here,
+  so which branch is live cannot be verified from this repository - which is why the middleware
+  exists rather than a comment saying it is fine. The `readable` flag it sets tracks the replayed
+  stream rather than being pinned true: it goes back to false when the replay ends, or
+  `isFinished(req)` stays false forever and body-parser's error branch (`dump()` ->
+  `onFinished(req, ...)` -> `next(400)`) waits on a socket close instead of answering.
+- `apps/api/public/` is an empty directory held in git by a `.gitkeep`, and `vercel.json` sets
+  `outputDirectory` to it. Without both, Vercel's documented fallback serves the Root Directory
+  as static output, ahead of `rewrites`, publishing `src/**` and `dist/**` on the API domain.
+  That is source disclosure, not a secret leak, and it is unverified - it cannot be measured
+  without the owner's Vercel account, which is why an empty static root is preferred over a
+  `.vercelignore` that would also strip `src/` from the build source. README's step 7 has the
+  `curl` check that settles it on the real deployment.
+- Nothing in the code pools database connections; the connection string does. Measured on
+  Postgres 17: one instance on a direct URL opens 21 backends (`cpus x 2 + 1`), three instances
+  through PgBouncer with `?pgbouncer=true&connection_limit=1` open three. `connection_limit`
+  caps one instance, the pooler caps how many instances cost, and neither alone is enough.
+  `packages/db/src/client.ts` needs no change for this and did not get one.
+
+Known and deliberately not worked around: `swagger-ui-dist` contributes only `absolute-path.js`
+and `package.json` to a `@vercel/nft` 1.10.0 trace of the entrypoint, so `/docs` will serve its
+HTML on Vercel and then fail to load its own CSS and JS. `/docs-json` is generated in-process
+and is unaffected. The fix would be an `includeFiles` glob into a pnpm store path that cannot be
+verified without deploying, so it is written down instead of guessed at.
 
 ## Maintaining this file
 
