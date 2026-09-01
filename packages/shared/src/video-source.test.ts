@@ -4,6 +4,7 @@ import {
   hasPlayableVideo,
   hasUnplayableVideoIdentifier,
   isAwaitingMuxPlayback,
+  isStoredIdentifierAbsent,
   isValidMuxPlaybackId,
   isValidYouTubeVideoId,
 } from './video-source.js';
@@ -255,5 +256,70 @@ describe('isAwaitingMuxPlayback', () => {
         youtubeVideoId: 'M7lc1UVf-VE',
       }),
     ).toBe(false);
+  });
+});
+
+describe('isStoredIdentifierAbsent', () => {
+  // The whole point of the rule. Postgres TRIM() strips U+0020 and nothing
+  // else, so `lesson_video_provider_consistency_chk` reads a tab-only or
+  // newline-only identifier as PRESENT. JavaScript's own trim() disagrees, and
+  // a test written with spaces passes under either definition and so proves
+  // nothing.
+  it('counts non-space whitespace as present, the way Postgres TRIM does', () => {
+    expect(isStoredIdentifierAbsent('\t')).toBe(false);
+    expect(isStoredIdentifierAbsent('\n')).toBe(false);
+    expect(isStoredIdentifierAbsent(' \t ')).toBe(false);
+  });
+
+  it('counts spaces, empty and missing as absent', () => {
+    expect(isStoredIdentifierAbsent('   ')).toBe(true);
+    expect(isStoredIdentifierAbsent('')).toBe(true);
+    expect(isStoredIdentifierAbsent(null)).toBe(true);
+    expect(isStoredIdentifierAbsent(undefined)).toBe(true);
+  });
+
+  it('leaves a real identifier alone, spaces around it or not', () => {
+    expect(isStoredIdentifierAbsent('DS00Spx1CV902MCtPj5WknGlR102V5HFkDe')).toBe(false);
+    expect(isStoredIdentifierAbsent('  DS00Spx1CV902MCtPj5WknGlR102V5HFkDe  ')).toBe(false);
+  });
+});
+
+describe('isAwaitingMuxPlayback and the database agree about blank', () => {
+  const ASSET_ID = 'PS02Wt6ZFsample00Asset00Id00000001';
+
+  // A tab-only youtubeVideoId is storable - the CHECK reads it as present, so
+  // the row satisfies the YOUTUBE branch - and it is a competing claim on the
+  // lesson. Calling it awaiting would badge the row and invite an admin to
+  // redeliver an event the webhook must refuse.
+  it('does not call a row awaiting when a tab-only YouTube id claims it', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        muxAssetId: ASSET_ID,
+        muxPlaybackId: null,
+        youtubeVideoId: '\t',
+      }),
+    ).toBe(false);
+  });
+
+  it('still calls it awaiting when the YouTube id is spaces only, which the database drops', () => {
+    expect(
+      isAwaitingMuxPlayback({
+        muxAssetId: ASSET_ID,
+        muxPlaybackId: null,
+        youtubeVideoId: '   ',
+      }),
+    ).toBe(true);
+  });
+
+  // Same rule on the other two columns, so a tab-only playback id reads as a
+  // playback id that arrived rather than as a lesson still waiting.
+  it('does not call a row awaiting when a tab-only playback id is stored', () => {
+    expect(
+      isAwaitingMuxPlayback({ muxAssetId: ASSET_ID, muxPlaybackId: '\t' }),
+    ).toBe(false);
+  });
+
+  it('does not call a row awaiting when only a tab was typed into the asset id', () => {
+    expect(isAwaitingMuxPlayback({ muxAssetId: '   ', muxPlaybackId: null })).toBe(false);
   });
 });

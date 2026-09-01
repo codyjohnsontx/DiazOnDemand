@@ -103,6 +103,41 @@ export function hasPlayableVideo(lesson: { videoProvider?: VideoProvider | null 
 }
 
 /**
+ * Whether a stored identifier counts as absent - by the database's definition
+ * of absent, which is the only one that decides anything.
+ *
+ * `lesson_video_provider_consistency_chk` asks `NULLIF(TRIM(<column>), '')`, and
+ * Postgres `TRIM()` with no character set strips **U+0020 only**. JavaScript's
+ * `String.prototype.trim()` strips every Unicode whitespace character, so the
+ * two disagree on a tab or a newline: `'\t'.trim()` is empty and
+ * `TRIM(E'\t')` is not.
+ *
+ * That disagreement is not cosmetic, and it is why this rule exists in one
+ * place instead of being spelled out at each call site. A tab-only
+ * `youtubeVideoId` read as blank in JavaScript lets `syncMuxAsset` skip its
+ * refusal and write `videoProvider = MUX`, which the constraint then rejects -
+ * a failed delivery Mux retries forever, on a row whose badge had just told an
+ * admin to redeliver it. Every caller that asks "is this identifier there?"
+ * has to get the same answer the database would give, so every caller asks
+ * here.
+ *
+ * **Do not replace this with `.trim()`.** It looks like a hand-rolled version
+ * of the standard method sitting next to a perfectly good one, and it is not:
+ * `.trim()` is how this bug was introduced. The database is the authority here
+ * because it is the only layer that can refuse the write; everything above it
+ * is describing a rule it does not own.
+ *
+ * Wanting a stricter definition of blank is reasonable - a tab in an identifier
+ * column is nobody's intent. But it is a migration, and the order is fixed:
+ * change the CHECK constraint first, then this function to match. Never the
+ * reverse, because tightening the JavaScript alone re-creates exactly the gap
+ * described above, pointed the other way.
+ */
+export function isStoredIdentifierAbsent(value: string | null | undefined) {
+  return (value ?? '').replace(/^ +| +$/g, '').length === 0;
+}
+
+/**
  * Whether a lesson holds a Mux asset that no playback id has arrived for: the
  * asset id is stored, the playback id is not, and nothing else claims the row.
  *
@@ -146,9 +181,9 @@ export function isAwaitingMuxPlayback(lesson: {
   youtubeVideoId?: string | null;
 }) {
   return (
-    (lesson.muxAssetId ?? '').trim().length > 0 &&
-    (lesson.muxPlaybackId ?? '').trim().length === 0 &&
-    (lesson.youtubeVideoId ?? '').trim().length === 0
+    !isStoredIdentifierAbsent(lesson.muxAssetId) &&
+    isStoredIdentifierAbsent(lesson.muxPlaybackId) &&
+    isStoredIdentifierAbsent(lesson.youtubeVideoId)
   );
 }
 
@@ -169,12 +204,12 @@ export function hasUnplayableVideoIdentifier(lesson: {
 }) {
   if (lesson.videoProvider === VideoProvider.MUX) {
     const stored = lesson.muxPlaybackId ?? '';
-    return stored.trim().length > 0 && !isValidMuxPlaybackId(stored);
+    return !isStoredIdentifierAbsent(stored) && !isValidMuxPlaybackId(stored);
   }
 
   if (lesson.videoProvider === VideoProvider.YOUTUBE) {
     const stored = lesson.youtubeVideoId ?? '';
-    return stored.trim().length > 0 && !isValidYouTubeVideoId(stored);
+    return !isStoredIdentifierAbsent(stored) && !isValidYouTubeVideoId(stored);
   }
 
   return false;

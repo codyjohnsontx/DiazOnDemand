@@ -15,6 +15,7 @@
  * only coverage this constraint has.
  */
 import { PrismaClient, VideoProvider } from '@diaz/db';
+import { isAwaitingMuxPlayback } from '@diaz/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
@@ -170,6 +171,56 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
     const afterSecond = await prismaClient!.lesson.findUniqueOrThrow({ where: { id: lesson.id } });
 
     expect(afterSecond).toEqual(afterFirst);
+  });
+
+  // The reason `isStoredIdentifierAbsent` exists, proved against the real
+  // constraint rather than argued. Postgres TRIM() strips U+0020 only, so a
+  // tab-only youtubeVideoId is PRESENT to
+  // `lesson_video_provider_consistency_chk` - the row stores as YOUTUBE, and
+  // setting videoProvider to MUX beside it is rejected. JavaScript's own trim()
+  // reads that same tab as blank, and the guard that used it waved the write
+  // straight into the violation, which Mux then retries forever.
+  it('refuses a tab-only YouTube id rather than letting the constraint reject the write', async () => {
+    const course = await createCourse();
+    const assetId = nextAssetId();
+    const lesson = await prismaClient!.lesson.create({
+      data: {
+        courseId: course.id,
+        title: 'mux-ingestion-test lesson',
+        orderIndex: 0,
+        videoProvider: VideoProvider.YOUTUBE,
+        youtubeVideoId: '\t',
+        muxAssetId: assetId,
+      },
+    });
+
+    // The database accepted the tab as a real YouTube id, which is the whole
+    // premise: this row exists.
+    expect(lesson.youtubeVideoId).toBe('\t');
+    // Field by field rather than the whole row: Prisma's VideoProvider and the
+    // one in @diaz/shared are distinct types to TypeScript, and this predicate
+    // does not read the provider anyway.
+    expect(
+      isAwaitingMuxPlayback({
+        muxAssetId: lesson.muxAssetId,
+        muxPlaybackId: lesson.muxPlaybackId,
+        youtubeVideoId: lesson.youtubeVideoId,
+      }),
+    ).toBe(false);
+
+    await expect(service.handleMuxWebhook(assetReady(assetId))).rejects.toThrow(
+      /still holds a YouTube video id/,
+    );
+
+    // And the refusal is not merely tidy - the write it prevented is one the
+    // constraint rejects, so without it the delivery fails on a database error
+    // and Mux retries it forever.
+    await expect(
+      prismaClient!.lesson.update({
+        where: { id: lesson.id },
+        data: { videoProvider: VideoProvider.MUX, muxPlaybackId: PUBLIC_PLAYBACK_ID },
+      }),
+    ).rejects.toThrow(/lesson_video_provider_consistency_chk/);
   });
 
   // The "never arrives" case: an upload that failed at Mux, an event delivered

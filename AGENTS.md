@@ -518,6 +518,19 @@ afterwards. Nothing re-reconciles that, on purpose - resolving the asset from Mu
 is the separately tracked `diaz-mux-id-write-validation`. Both admin surfaces name the remedy
 instead: redeliver `video.asset.ready` from the Mux dashboard.
 
+"Blank" means what the database means by it, and that is narrower than JavaScript's.
+`lesson_video_provider_consistency_chk` asks `NULLIF(TRIM(<column>), '')`, and Postgres `TRIM()`
+strips U+0020 only, while `String.prototype.trim()` strips every Unicode whitespace character.
+So a tab-only `youtubeVideoId` is *present* to the constraint and *blank* to `.trim()`.
+`isStoredIdentifierAbsent` in `@diaz/shared` is the single rule both `isAwaitingMuxPlayback` and
+`syncMuxAsset` ask, and it deliberately strips spaces only. Do not "simplify" it to `.trim()`:
+that is how the bug was written. A guard that read a tab as blank waved through the very
+`videoProvider = MUX` write the constraint rejects, on a row whose "Waiting for Mux" badge had
+just told an admin to redeliver the event - a 500 Mux then retries forever. The database is the
+authority because it is the only layer that can refuse the write. Tightening the definition is
+fine and is a migration: change the CHECK constraint first, the JavaScript second, never the
+reverse.
+
 What made that state unstorable was `lesson_video_provider_consistency_chk`, a CHECK
 constraint added in `20260307235900_three_discipline_demo` and widened in
 `20260901090000_lesson_mux_awaiting_playback`, together with the client-side guard in the admin

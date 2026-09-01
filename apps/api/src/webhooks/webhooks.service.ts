@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { EntitlementSource, StripeWebhookEventStatus, VideoProvider } from '@diaz/db';
+import { isStoredIdentifierAbsent } from '@diaz/shared';
 import Stripe from 'stripe';
 import {
   BILLING_ALERTER,
@@ -695,13 +696,19 @@ export class WebhooksService {
       return;
     }
 
-    if ((lesson.youtubeVideoId ?? '').trim().length > 0) {
+    if (!isStoredIdentifierAbsent(lesson.youtubeVideoId)) {
       // A lesson cannot be served by two providers at once, and completing this
       // one would write a Mux playback id onto a row still holding a YouTube
       // video id - a combination the database refuses, which would turn every
       // redelivery into an opaque 500 forever. Refused with the reason instead,
       // in the Mux dashboard next to the asset, the way a wrong playback policy
       // is.
+      //
+      // "Still holding" is `isStoredIdentifierAbsent`, the same rule
+      // `isAwaitingMuxPlayback` asks, because the two have to agree about which
+      // rows this handler completes. A local `.trim()` here looked equivalent
+      // and was not: it reads a tab as blank where Postgres does not, so the
+      // guard waved through exactly the write the constraint rejects.
       this.logger.error(
         `Refusing to sync Mux asset ${assetId} to lesson ${lesson.id}: the lesson still holds a ` +
           `YouTube video id, so it is not a Mux lesson. Clear the YouTube video id in the lesson ` +

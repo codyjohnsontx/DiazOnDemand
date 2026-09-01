@@ -1732,6 +1732,46 @@ describe('WebhooksService Mux asset sync', () => {
     });
   });
 
+  // The mirror of the case above, and the one that matters: Postgres TRIM()
+  // strips U+0020 only, so a tab-only youtubeVideoId is PRESENT to
+  // `lesson_video_provider_consistency_chk`. Completing this row would set
+  // videoProvider to MUX beside it, the constraint would reject the write, and
+  // Mux would retry the failed delivery forever. A version of this test written
+  // with spaces passes whichever definition of blank the guard uses, and proves
+  // nothing.
+  it('refuses a lesson whose YouTube video id is a tab, which the database counts as present', async () => {
+    const lesson = {
+      id: 'lesson-1',
+      accessLevel: 'FREE',
+      videoProvider: VideoProvider.MUX,
+      muxAssetId: 'asset-1',
+      muxPlaybackId: null,
+      youtubeVideoId: '\t',
+    };
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: { findFirst: vi.fn().mockResolvedValue(lesson), update },
+      }),
+    );
+
+    // The badge and the handler have to agree about this row, or the product
+    // invites an admin to redeliver an event it then refuses.
+    expect(isAwaitingMuxPlayback(lesson)).toBe(false);
+
+    await expect(
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: {
+          id: 'asset-1',
+          playback_ids: [{ id: 'publicPlayback00000000000000000001', policy: 'public' }],
+        },
+      }),
+    ).rejects.toThrow(/still holds a YouTube video id/);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('ignores assets that do not belong to any lesson', async () => {
     const update = vi.fn().mockResolvedValue({});
     const service = new WebhooksService(
