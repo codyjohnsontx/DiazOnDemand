@@ -522,31 +522,34 @@ instead: redeliver `video.asset.ready` from the Mux dashboard.
 `lesson_video_provider_consistency_chk` asks `NULLIF(TRIM(<column>), '')`, and Postgres `TRIM()`
 strips U+0020 only, while `String.prototype.trim()` strips every Unicode whitespace character.
 So a tab-only `youtubeVideoId` is *present* to the constraint and *blank* to `.trim()`.
-`isStoredIdentifierAbsent` in `@diaz/shared` is the single rule both `isAwaitingMuxPlayback` and
-`syncMuxAsset` ask, and it deliberately strips spaces only. Do not "simplify" it to `.trim()`:
-that is how the bug was written. A guard that read a tab as blank waved through the very
-`videoProvider = MUX` write the constraint rejects, on a row whose "Waiting for Mux" badge had
-just told an admin to redeliver the event - a 500 Mux then retries forever. The database is the
-authority because it is the only layer that can refuse the write. Tightening the definition is
-fine and is a migration: change the CHECK constraint first, the JavaScript second, never the
-reverse.
+`isStoredIdentifierAbsent` in `@diaz/shared` is the single rule every layer asks -
+`isAwaitingMuxPlayback`, `hasUnplayableVideoIdentifier`, the `syncMuxAsset` guard and the admin
+write boundary `adminUpdateLessonSchema` - and it deliberately strips spaces only. Do not
+"simplify" it to `.trim()`: that is how the bug was written. A guard that read a tab as blank
+waved through the very `videoProvider = MUX` write the constraint rejects, on a row whose
+"Waiting for Mux" badge had just told an admin to redeliver the event - a 500 Mux then retries
+forever. The database is the authority because it is the only layer that can refuse the write.
+Tightening the definition is fine and is a migration: change the CHECK constraint first, the
+JavaScript second, never the reverse.
 
 What made that state unstorable was `lesson_video_provider_consistency_chk`, a CHECK
 constraint added in `20260307235900_three_discipline_demo` and widened in
 `20260901090000_lesson_mux_awaiting_playback`, together with the client-side guard in the admin
-lesson editor. Those two are the whole list. The Zod rule in `packages/shared/src/schemas.ts`
-was **not** on the write path and never refused a save - `videoSchema` types
-`lessonDetailSchema`, which exists only for the `LessonDetailDto` type, nothing parses either,
-and the admin PATCH validates with `adminUpdateLessonSchema`. An earlier account named that rule
-as the blocker; it was wrong, and this is the correction, not a further version of it. Nothing
-in `schema.prisma` mentions the constraint, because Prisma does not model CHECK constraints -
-and the API suite mocks Prisma, so **no mocked test can see it**: against the mocks the
-ingestion chain looked like it worked while every real save answered 500. That is what
+lesson editor. Those two are the whole list. The `videoSchema` rule in
+`packages/shared/src/schemas.ts` was **not** on the write path and never refused a save - it
+types `lessonDetailSchema`, which exists only for the `LessonDetailDto` type, nothing parses
+either, and the admin PATCH validates with `adminUpdateLessonSchema`. An earlier account named
+that rule as the blocker; it was wrong, and this is the correction, not a further version of it.
+Nothing in `schema.prisma` mentions the constraint, because Prisma does not model CHECK
+constraints - and the API suite mocks Prisma, so **no mocked test can see it**: against the
+mocks the ingestion chain looked like it worked while every real save answered 500. That is what
 `apps/api/src/tests/mux-ingestion.db.test.ts` is for; it needs `TEST_DATABASE_URL` like the
 billing one. A MUX row must still hold one of the two identifiers and must not hold a YouTube
 id, so the webhook refuses a lesson that still has one rather than letting a constraint
 violation become an endless Mux retry. Blank is stored as NULL and never as an empty string, or
-a query for the waiting lessons misses exactly the ones the editor saved.
+a query for the waiting lessons misses exactly the rows it is looking for -
+`adminUpdateLessonSchema` normalises it at the admin PATCH boundary, so that holds for every
+writer rather than only for the lesson editor.
 
 `mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
 one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would

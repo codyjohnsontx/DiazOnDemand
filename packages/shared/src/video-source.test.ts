@@ -314,9 +314,7 @@ describe('isAwaitingMuxPlayback and the database agree about blank', () => {
   // Same rule on the other two columns, so a tab-only playback id reads as a
   // playback id that arrived rather than as a lesson still waiting.
   it('does not call a row awaiting when a tab-only playback id is stored', () => {
-    expect(
-      isAwaitingMuxPlayback({ muxAssetId: ASSET_ID, muxPlaybackId: '\t' }),
-    ).toBe(false);
+    expect(isAwaitingMuxPlayback({ muxAssetId: ASSET_ID, muxPlaybackId: '\t' })).toBe(false);
   });
 
   it('does not call a row awaiting when only spaces were typed into the asset id', () => {
