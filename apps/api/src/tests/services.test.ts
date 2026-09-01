@@ -1,7 +1,7 @@
 import { createHmac, createVerify, generateKeyPairSync } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { EntitlementTier, Role, VideoProvider } from '@diaz/shared';
+import { EntitlementTier, isAwaitingMuxPlayback, Role, VideoProvider } from '@diaz/shared';
 import { EntitlementTier as DbEntitlementTier } from '@diaz/db';
 import {
   REVOKE_REASON_CHARGEBACK,
@@ -1693,6 +1693,43 @@ describe('WebhooksService Mux asset sync', () => {
     ).rejects.toThrow(/still holds a YouTube video id/);
 
     expect(update).not.toHaveBeenCalled();
+  });
+
+  // `isAwaitingMuxPlayback` reads a whitespace-only YouTube video id as absent,
+  // and so does `lesson_video_provider_consistency_chk` through
+  // NULLIF(TRIM("youtubeVideoId"), ''). A row shaped like this therefore carries
+  // the "Waiting for Mux" badge and the redeliver remedy, so the webhook has to
+  // complete it rather than refuse the redelivery the badge asked for.
+  it('completes a lesson whose YouTube video id is only whitespace', async () => {
+    const lesson = {
+      id: 'lesson-1',
+      accessLevel: 'FREE',
+      videoProvider: VideoProvider.MUX,
+      muxAssetId: 'asset-1',
+      muxPlaybackId: null,
+      youtubeVideoId: '   ',
+    };
+    const update = vi.fn().mockResolvedValue({});
+    const service = new WebhooksService(
+      createPrismaService({
+        lesson: { findFirst: vi.fn().mockResolvedValue(lesson), update },
+      }),
+    );
+
+    expect(isAwaitingMuxPlayback(lesson)).toBe(true);
+
+    await service.handleMuxWebhook({
+      type: 'video.asset.ready',
+      data: {
+        id: 'asset-1',
+        playback_ids: [{ id: 'publicPlayback00000000000000000001', policy: 'public' }],
+      },
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'lesson-1' },
+      data: { muxPlaybackId: 'publicPlayback00000000000000000001' },
+    });
   });
 
   it('ignores assets that do not belong to any lesson', async () => {

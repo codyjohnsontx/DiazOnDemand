@@ -513,7 +513,7 @@ asset id, and may never arrive at all - none of those are error paths. `syncMuxA
 only fields that would actually change, so a redelivery does not even bump `updatedAt`. The
 early-delivery case is the likely default, because there is no in-app upload UI: the admin
 uploads in Mux, `video.asset.ready` is delivered while no lesson holds the asset id, the handler
-logs "No lesson matches" and answers 200 so Mux never retries, and the id is pasted in
+logs "No lesson matches" and answers 201 so Mux never retries, and the id is pasted in
 afterwards. Nothing re-reconciles that, on purpose - resolving the asset from Mux at save time
 is the separately tracked `diaz-mux-id-write-validation`. Both admin surfaces name the remedy
 instead: redeliver `video.asset.ready` from the Mux dashboard.

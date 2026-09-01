@@ -695,7 +695,7 @@ export class WebhooksService {
       return;
     }
 
-    if (lesson.youtubeVideoId) {
+    if ((lesson.youtubeVideoId ?? '').trim().length > 0) {
       // A lesson cannot be served by two providers at once, and completing this
       // one would write a Mux playback id onto a row still holding a YouTube
       // video id - a combination the database refuses, which would turn every
@@ -728,7 +728,7 @@ export class WebhooksService {
       // asset was uploaded with the wrong playback policy, which is a mistake
       // only a human can correct in Mux - so this fails the delivery, which
       // puts it in the Mux dashboard as a failed webhook next to the asset that
-      // caused it. Answering 200 and silently leaving the lesson alone would
+      // caused it. Answering 201 and silently leaving the lesson alone would
       // hide the problem from everybody. Mux redelivers, so a correctly
       // configured asset in place of this one is all it takes to recover.
       const offered = playbackIds.map((entry) => entry.policy ?? 'unknown').join(', ') || 'none';
