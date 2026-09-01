@@ -90,6 +90,18 @@ export default function AdminLessonDetailPage() {
   }, [lessonId, programs]);
   const lesson = lessonContext?.lesson;
   const program = lessonContext?.program;
+  // Derived from the saved row, not from the form: the point is to show which
+  // lessons the webhook has not completed, including the ones where it never
+  // will because the upload failed or the delivery was lost.
+  const awaitingMuxPlayback = isAwaitingMuxPlayback(lesson ?? {});
+  // The asset ID is not a playback identifier: the webhook matches on it
+  // whatever the stored provider says, and the database allows it on any row.
+  // Gating the field on the form provider hid it on exactly the rows the
+  // "Waiting for Mux" badge points at, and the next save then blanked the id the
+  // badge was about.
+  const showMuxAssetIdField =
+    form.videoProvider === VideoProvider.MUX ||
+    (awaitingMuxPlayback && form.videoProvider !== VideoProvider.YOUTUBE);
 
   const load = async () => {
     try {
@@ -161,8 +173,7 @@ export default function AdminLessonDetailPage() {
           description: form.description,
           accessLevel: form.accessLevel,
           videoProvider: form.videoProvider,
-          muxAssetId:
-            form.videoProvider === VideoProvider.MUX ? normalizedMuxAssetId || null : null,
+          muxAssetId: showMuxAssetIdField ? normalizedMuxAssetId || null : null,
           // Blank is stored as NULL, never as an empty string: "no playback id
           // yet" needs one spelling, or a query for the lessons still waiting
           // on Mux misses exactly the ones saved here.
@@ -228,10 +239,6 @@ export default function AdminLessonDetailPage() {
     videoProvider: form.videoProvider,
     muxPlaybackId: form.muxPlaybackId,
   });
-  // Derived from the saved row, not from the form: the point is to show which
-  // lessons the webhook has not completed, including the ones where it never
-  // will because the upload failed or the delivery was lost.
-  const awaitingMuxPlayback = isAwaitingMuxPlayback(lesson);
   const showYoutubeVideoIdHint = hasUnplayableVideoIdentifier({
     videoProvider: form.videoProvider,
     youtubeVideoId: form.youtubeVideoId,
@@ -328,7 +335,7 @@ export default function AdminLessonDetailPage() {
               <option value={VideoProvider.YOUTUBE}>YouTube demo video</option>
             </select>
           </div>
-          {form.videoProvider === VideoProvider.MUX ? (
+          {showMuxAssetIdField ? (
             <div className="space-y-2">
               <label className="type-kicker text-[var(--text-muted)]" htmlFor={muxAssetInputId}>
                 Mux asset ID
@@ -346,6 +353,20 @@ export default function AdminLessonDetailPage() {
                 Optional. Set this to let the Mux webhook fill in the playback ID and duration
                 automatically once the asset finishes encoding.
               </p>
+              {/*
+                The asset ID is saved and the playback ID has not arrived.
+                Encoding may still be running, the event may have been delivered
+                before this lesson held the asset ID, the upload may have failed,
+                or the webhook may never have been configured - so this says what
+                is true of all four and what to do about the one an admin can fix.
+              */}
+              {awaitingMuxPlayback ? (
+                <p className="type-meta text-[var(--text-muted)]">
+                  No playback ID yet. Mux sends it with the video.asset.ready event, and only a
+                  lesson that already holds the asset ID receives it. If the asset is already Ready
+                  in Mux, redeliver that event from the Mux dashboard.
+                </p>
+              ) : null}
             </div>
           ) : null}
           {form.videoProvider === VideoProvider.MUX ? (
@@ -366,12 +387,6 @@ export default function AdminLessonDetailPage() {
                 <p className="type-meta text-[var(--danger)]">
                   This playback ID will not play. A published lesson with it shows the not-filmed
                   state.
-                </p>
-              ) : null}
-              {awaitingMuxPlayback ? (
-                <p className="type-meta text-[var(--text-muted)]">
-                  Waiting for Mux. The asset is saved and the playback ID arrives when encoding
-                  finishes. If it never does, check the asset and the webhook in Mux.
                 </p>
               ) : null}
             </div>

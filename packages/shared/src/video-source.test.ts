@@ -225,16 +225,35 @@ describe('isAwaitingMuxPlayback', () => {
     expect(hasUnplayableVideoIdentifier(lesson)).toBe(true);
   });
 
-  it('says nothing about lessons served by another provider', () => {
+  // `syncMuxAsset` finds the lesson by asset id alone and sets the provider
+  // itself, so a row that lost its provider is still a row the webhook will
+  // complete. Re-running the seed writes exactly this shape: the provider goes
+  // back to the seeded value and the playback id to null, while the asset id
+  // stays. If this answered false the badge and the webhook would disagree
+  // about what "waiting" means.
+  it('is true whatever the stored provider says', () => {
+    expect(
+      isAwaitingMuxPlayback({ videoProvider: VideoProvider.NONE, muxAssetId: ASSET_ID }),
+    ).toBe(true);
+    expect(isAwaitingMuxPlayback({ muxAssetId: ASSET_ID })).toBe(true);
+  });
+
+  // A YouTube video id is a competing claim on the row: the webhook refuses
+  // such a lesson rather than completing it, so nothing here is waiting on Mux.
+  it('is false for a lesson that still holds a youtube video id', () => {
     expect(
       isAwaitingMuxPlayback({
         videoProvider: VideoProvider.YOUTUBE,
         muxAssetId: ASSET_ID,
         youtubeVideoId: 'M7lc1UVf-VE',
-      } as Parameters<typeof isAwaitingMuxPlayback>[0]),
+      }),
     ).toBe(false);
     expect(
-      isAwaitingMuxPlayback({ videoProvider: VideoProvider.NONE, muxAssetId: ASSET_ID }),
+      isAwaitingMuxPlayback({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: ASSET_ID,
+        youtubeVideoId: 'M7lc1UVf-VE',
+      }),
     ).toBe(false);
   });
 });

@@ -103,20 +103,35 @@ export function hasPlayableVideo(lesson: { videoProvider?: VideoProvider | null 
 }
 
 /**
- * Whether a lesson is a Mux video whose asset is still being encoded: the asset
- * id is stored and the playback id has not arrived yet.
+ * Whether a lesson holds a Mux asset that no playback id has arrived for: the
+ * asset id is stored, the playback id is not, and nothing else claims the row.
  *
- * Derived from the row, never stored beside it. `videoProvider`, `muxAssetId`
- * and `muxPlaybackId` already say all three things - this is a Mux video, this
- * is the asset, it is not playable yet - so a status column would be a second
- * record of one fact, free to disagree with the fields it describes and with
- * nothing to arbitrate. A derived answer cannot drift.
+ * Derived from the row, never stored beside it. `muxAssetId`, `muxPlaybackId`
+ * and `youtubeVideoId` already say all of it - this is the asset, it is not
+ * playable yet, and no other provider owns this lesson - so a status column
+ * would be a second record of one fact, free to disagree with the fields it
+ * describes and with nothing to arbitrate. A derived answer cannot drift.
+ *
+ * `videoProvider` is deliberately not consulted, and it is accepted here only so
+ * a whole lesson row can be passed. This predicate has to agree with what
+ * `syncMuxAsset` will actually complete, and that handler finds the lesson by
+ * asset id alone and sets the provider to MUX itself - so a row that lost its
+ * provider is still a row the webhook will finish. Re-seeding produces exactly
+ * that shape: `packages/db/prisma/seed.ts` writes `videoProvider` back to the
+ * seed value and `muxPlaybackId` to null while leaving `muxAssetId` in place.
+ * Reading the provider here would make the badge and the webhook disagree about
+ * what "waiting" means, which is the drift the derived state exists to avoid.
+ *
+ * A stored `youtubeVideoId` is the one thing that takes the row out of this
+ * state, because it is a competing claim the webhook refuses rather than
+ * completes.
  *
  * It is a third state, not a shade of the other two. A lesson with no
  * identifier at all has not been filmed; one holding a playback id the read
  * path refuses is broken - see `hasUnplayableVideoIdentifier` - and this one is
- * simply not ready. The webhook may take minutes, and it may never arrive at
- * all (a failed upload, a lost delivery, a webhook that was never configured),
+ * simply not ready. The webhook may take minutes, it may already have been
+ * delivered before any lesson held the asset id, and it may never arrive at all
+ * (a failed upload, a lost delivery, a webhook that was never configured),
  * which is exactly why the state has to be visible to staff rather than
  * inferred from a lesson that never starts playing.
  *
@@ -128,13 +143,12 @@ export function isAwaitingMuxPlayback(lesson: {
   videoProvider?: VideoProvider | null;
   muxAssetId?: string | null;
   muxPlaybackId?: string | null;
+  youtubeVideoId?: string | null;
 }) {
-  if (lesson.videoProvider !== VideoProvider.MUX) {
-    return false;
-  }
-
   return (
-    (lesson.muxAssetId ?? '').trim().length > 0 && (lesson.muxPlaybackId ?? '').trim().length === 0
+    (lesson.muxAssetId ?? '').trim().length > 0 &&
+    (lesson.muxPlaybackId ?? '').trim().length === 0 &&
+    (lesson.youtubeVideoId ?? '').trim().length === 0
   );
 }
 

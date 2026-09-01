@@ -221,13 +221,17 @@ export default function AdminCourseDetailPage() {
                     ) : null}
                     {/*
                       The Mux asset is saved and the playback ID has not arrived.
-                      That is normally a few minutes of encoding, but a lesson can
-                      sit here forever on a failed upload or a lost delivery, and
-                      this row is the only place anyone would see it.
+                      Encoding may still be running, the event may have been
+                      delivered before this lesson held the asset ID, the upload
+                      may have failed, or the webhook may never have been
+                      configured - so this says what is true of all four and what
+                      to do about the one an admin can fix.
                     */}
                     {isAwaitingMuxPlayback(lesson) ? (
                       <p className="text-sm text-[var(--text-muted)]">
-                        Waiting for Mux to finish encoding this asset and send its playback ID.
+                        No playback ID yet. Mux sends it with the video.asset.ready event, and only
+                        a lesson that already holds the asset ID receives it. If the asset is
+                        already Ready in Mux, redeliver that event from the Mux dashboard.
                       </p>
                     ) : null}
                   </div>

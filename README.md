@@ -229,6 +229,26 @@ in the editor and on the admin course lesson rows. A not-yet-filmed lesson also 
 runtime to a member - the seeded `durationSeconds` stays as a planned length and still counts
 towards course totals. Whether unfilmed lessons stay published is an open product decision.
 
+### Waiting for Mux
+A fourth state exists for staff only, and it is derived from the row rather than stored: a
+lesson holding a `muxAssetId` with no `muxPlaybackId` and no `youtubeVideoId` is waiting for a
+playback id. `isAwaitingMuxPlayback` in `packages/shared` is the only place that decides it, and
+`where: { muxAssetId: { not: null }, muxPlaybackId: null, youtubeVideoId: null }` finds every
+one of them - no status column, so nothing can fall out of step. Members see the not-yet-filmed
+state, because nothing plays yet. Staff see a **Waiting for Mux** badge in the lesson editor and
+on the admin course lesson rows. The stored `videoProvider` is deliberately not part of the
+test: `syncMuxAsset` matches on the asset id alone and sets the provider itself, so a row that
+lost its provider (re-running `pnpm db:seed` does exactly that) is still one the webhook will
+complete.
+
+A lesson can sit there indefinitely, and nothing alerts or times out. The four causes are
+encoding still running, an upload that failed at Mux, a webhook that was never configured, and
+- most likely of all, since uploads happen in the Mux dashboard and there is no in-app upload
+UI - a `video.asset.ready` that was delivered *before* any lesson held the asset ID. The
+webhook answers 200 for an asset no lesson matches, so Mux never retries it. **Remedy:** if the
+asset is already Ready in Mux, redeliver its `video.asset.ready` event from the Mux dashboard
+now that the lesson holds the asset ID. Both admin surfaces say so.
+
 ## Clerk Setup Notes (Web + Expo)
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
   seeded admin, so it is local-only. The API refuses to start with it enabled unless
@@ -452,9 +472,27 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   to drop, and the mobile player prefers `playbackUrl`, but they deploy separately from the
   API, so neither substitutes for withholding the id.
 - `POST /webhooks/mux` verifies the `mux-signature` HMAC (rejecting timestamps older than
-  300s) and, on `video.asset.ready`, writes `muxPlaybackId` and `durationSeconds` onto the
-  lesson whose `muxAssetId` matches. Set `muxAssetId` in the admin lesson editor to opt a
-  lesson into that sync.
+  300s) and, on `video.asset.ready`, writes `muxPlaybackId`, `durationSeconds` and
+  `videoProvider` onto the lesson whose `muxAssetId` matches. Set `muxAssetId` in the admin
+  lesson editor to opt a lesson into that sync. `videoProvider` is written too because a lesson
+  can be saved holding the asset id alone, and a playback id on a row no read path treats as
+  Mux is the same dead end as no id at all. Every field is written only where it would actually
+  change the row, so a redelivery is a no-op rather than a write landing on the values already
+  there.
+  The sync **refuses** a lesson that still holds a `youtubeVideoId`: one lesson cannot be served
+  by two providers, and completing it would violate `lesson_video_provider_consistency_chk` and
+  turn every redelivery into an opaque 500. It logs the reason and throws, so it shows up as a
+  failed delivery in the Mux dashboard next to the asset. To recover, clear the YouTube video ID
+  in the lesson editor, then redeliver the event.
+  A lesson holding the asset id with no playback id yet is the **waiting-for-Mux** state - see
+  "Catalogue Video States" above. It is normal: Mux issues the playback id later. It is also
+  where a lesson lands when `video.asset.ready` was delivered *before* the asset id was pasted
+  into the editor, which is the likely order since uploads happen in the Mux dashboard. The
+  handler answers 200 for an asset no lesson matches (assets exist in the account this app never
+  created, and throwing would make Mux retry forever), so that event is gone. The remedy, named
+  on both admin surfaces, is to redeliver `video.asset.ready` from the Mux dashboard once the
+  lesson holds the asset ID. Nothing re-reconciles automatically on purpose; resolving the asset
+  from Mux at save time is separately tracked.
   For a `PAID` lesson the asset must be **signed-only**: the sync refuses an asset that
   carries no `signed` playback id, and equally refuses one that carries a `public` playback
   id even when a signed id sits beside it, because nothing stops a caller using the public
@@ -878,12 +916,18 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 
 ## Tests
 
-`pnpm test` runs everything. Most of the API suite mocks Prisma, but the Stripe billing lifecycle
-does not: the resubscribe and double-subscription defects were unique-constraint violations that a
-mocked client cannot raise, so `apps/api/src/tests/billing-lifecycle.db.test.ts` runs the real
-services against a real Postgres.
+`pnpm test` runs everything. Most of the API suite mocks Prisma. Two suites deliberately do not,
+because what they cover is invisible to a mocked client:
 
-Those tests **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
+- `apps/api/src/tests/billing-lifecycle.db.test.ts` - the resubscribe and double-subscription
+  defects were unique-constraint violations that a mocked client cannot raise.
+- `apps/api/src/tests/mux-ingestion.db.test.ts` - the state "uploaded, still encoding" was
+  refused by a CHECK constraint, `lesson_video_provider_consistency_chk`, which Prisma does not
+  model and mocks do not enforce. Against the mocks the ingestion chain looked like it worked
+  while every real save answered 500.
+
+Both run the real services against a real Postgres, and both have the same contract: they
+**skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
 around - except on CI, where a missing `TEST_DATABASE_URL` fails the run rather than silently
 dropping the coverage. CI provides a Postgres service container.
 

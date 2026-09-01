@@ -172,22 +172,30 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
     expect(afterSecond).toEqual(afterFirst);
   });
 
-  // The "never arrives" case: an upload that failed at Mux, a lost event, a
-  // webhook nobody configured. Nothing times out and nothing alerts, so the
-  // only thing that saves those lessons is being findable - which they are,
-  // from the same three fields, with no status column to fall out of step.
+  // The "never arrives" case: an upload that failed at Mux, an event delivered
+  // before any lesson held the asset id, a webhook nobody configured. Nothing
+  // times out and nothing alerts, so the only thing that saves those lessons is
+  // being findable - which they are, from the same fields `isAwaitingMuxPlayback`
+  // reads, with no status column to fall out of step.
+  //
+  // The query does not ask about the provider, because `syncMuxAsset` does not
+  // either: it matches on the asset id alone and writes MUX itself. A row that
+  // lost its provider - re-running the seed writes exactly that shape - is still
+  // a row the webhook will complete, so it is still one of these.
   it('leaves an uncompleted lesson findable by the fields alone', async () => {
     const lesson = await createAwaitingLesson();
+    const withoutProvider = await createAwaitingLesson({ videoProvider: VideoProvider.NONE });
 
     const awaiting = await prismaClient!.lesson.findMany({
       where: {
-        videoProvider: VideoProvider.MUX,
         muxAssetId: { not: null },
         muxPlaybackId: null,
+        youtubeVideoId: null,
       },
       select: { id: true },
     });
 
     expect(awaiting).toContainEqual({ id: lesson.id });
+    expect(awaiting).toContainEqual({ id: withoutProvider.id });
   });
 });

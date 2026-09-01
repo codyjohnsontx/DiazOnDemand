@@ -490,27 +490,49 @@ direction: a mistyped-but-URL-safe id is accepted and fails in the player. Only 
 could settle that, agents must not ask it, and catching a newly typed placeholder needs
 provider validation at a write boundary rather than a shape rule.
 
-A fourth state sits alongside those three and is derived, never stored: a lesson whose
-`videoProvider` is MUX and which holds a `muxAssetId` with no `muxPlaybackId` is waiting for
-Mux to finish encoding. `isAwaitingMuxPlayback` in `@diaz/shared` is the only place that
-decides it, and the three fields already say everything a status column would - so there is
-nothing to fall out of step with them, and `where: { videoProvider: MUX, muxAssetId: { not:
-null }, muxPlaybackId: null }` is the whole answer to "which uploads never completed". Members
-see NONE, because nothing plays yet; staff see a "Waiting for Mux" badge on the admin course
-rows and in the lesson editor. The webhook may be late, may repeat, or may never arrive, and
-none of those are error paths - `syncMuxAsset` writes only fields that would actually change,
-so a redelivery does not even bump `updatedAt`.
+A fourth state sits alongside those three and is derived, never stored: a lesson holding a
+`muxAssetId` with no `muxPlaybackId` and no `youtubeVideoId` is waiting for a playback id.
+`isAwaitingMuxPlayback` in `@diaz/shared` is the only place that decides it, and those fields
+already say everything a status column would - so there is nothing to fall out of step with
+them, and `where: { muxAssetId: { not: null }, muxPlaybackId: null, youtubeVideoId: null }` is
+the whole answer to "which uploads never completed". Members see NONE, because nothing plays
+yet; staff see a "Waiting for Mux" badge on the admin course rows and in the lesson editor.
+
+`videoProvider` is deliberately not part of that definition, and adding it back re-opens the
+drift the derived state exists to close. `syncMuxAsset` finds the lesson by asset id alone and
+writes MUX itself, so a row that lost its provider is still a row the webhook will complete -
+and re-running `pnpm db:seed` produces exactly that shape, because `packages/db/prisma/seed.ts`
+writes `videoProvider` back to the seeded value and `muxPlaybackId` to null while leaving
+`muxAssetId` in place. The lesson editor therefore shows the Mux asset ID field whenever the
+row is awaiting, not only when the form provider is MUX, or the field the badge points at would
+be invisible and the next save would blank it.
+
+The webhook may be late, may repeat, may already have been delivered before any lesson held the
+asset id, and may never arrive at all - none of those are error paths. `syncMuxAsset` writes
+only fields that would actually change, so a redelivery does not even bump `updatedAt`. The
+early-delivery case is the likely default, because there is no in-app upload UI: the admin
+uploads in Mux, `video.asset.ready` is delivered while no lesson holds the asset id, the handler
+logs "No lesson matches" and answers 200 so Mux never retries, and the id is pasted in
+afterwards. Nothing re-reconciles that, on purpose - resolving the asset from Mux at save time
+is the separately tracked `diaz-mux-id-write-validation`. Both admin surfaces name the remedy
+instead: redeliver `video.asset.ready` from the Mux dashboard.
 
 What made that state unstorable was `lesson_video_provider_consistency_chk`, a CHECK
 constraint added in `20260307235900_three_discipline_demo` and widened in
-`20260901090000_lesson_mux_awaiting_playback`. Nothing in `schema.prisma` mentions it, because
-Prisma does not model CHECK constraints - and the API suite mocks Prisma, so **no mocked test
-can see it**: against the mocks the ingestion chain looked like it worked while every real save
-answered 500. That is what `apps/api/src/tests/mux-ingestion.db.test.ts` is for; it needs
-`TEST_DATABASE_URL` like the billing one. A MUX row must still hold one of the two identifiers
-and must not hold a YouTube id, so the webhook refuses a lesson that still has one rather than
-letting a constraint violation become an endless Mux retry. Blank is stored as NULL and never
-as an empty string, or a query for the waiting lessons misses exactly the ones the editor saved.
+`20260901090000_lesson_mux_awaiting_playback`, together with the client-side guard in the admin
+lesson editor. Those two are the whole list. The Zod rule in `packages/shared/src/schemas.ts`
+was **not** on the write path and never refused a save - `videoSchema` types
+`lessonDetailSchema`, which exists only for the `LessonDetailDto` type, nothing parses either,
+and the admin PATCH validates with `adminUpdateLessonSchema`. An earlier account named that rule
+as the blocker; it was wrong, and this is the correction, not a further version of it. Nothing
+in `schema.prisma` mentions the constraint, because Prisma does not model CHECK constraints -
+and the API suite mocks Prisma, so **no mocked test can see it**: against the mocks the
+ingestion chain looked like it worked while every real save answered 500. That is what
+`apps/api/src/tests/mux-ingestion.db.test.ts` is for; it needs `TEST_DATABASE_URL` like the
+billing one. A MUX row must still hold one of the two identifiers and must not hold a YouTube
+id, so the webhook refuses a lesson that still has one rather than letting a constraint
+violation become an endless Mux retry. Blank is stored as NULL and never as an empty string, or
+a query for the waiting lessons misses exactly the ones the editor saved.
 
 `mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
 one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would

@@ -6,11 +6,21 @@ export const curriculumSchema = curriculumMetadataSchema;
 /**
  * What a lesson's video may look like, including while Mux is still encoding it.
  *
- * `muxAssetId` counts as a Mux source, and that is the whole entrance to
- * ingestion: Mux issues the playback id later, on `video.asset.ready`, so a
- * rule that demanded one up front made "uploaded, still processing"
- * unrepresentable - and a lesson that cannot be saved holding the asset id is a
- * lesson the webhook can never find. See `isAwaitingMuxPlayback`.
+ * `muxAssetId` counts as a Mux source, because Mux issues the playback id later,
+ * on `video.asset.ready`, and a lesson holding only the asset id is a complete
+ * description of "uploaded, not playable yet". See `isAwaitingMuxPlayback`.
+ *
+ * This rule is **not** on the write path and never refused a save. It types
+ * `lessonDetailSchema`, which exists only to produce the `LessonDetailDto` type;
+ * nothing parses either at runtime, and the admin PATCH validates with
+ * `adminUpdateLessonSchema`, which has never consulted this schema. Widening it
+ * keeps the DTO type honest about a state the API can now emit, and that is all
+ * it does. What actually refused the save was the client-side guard in
+ * `apps/diaz-ondemand-web/app/admin/lessons/[id]/page.tsx` and the Postgres
+ * CHECK constraint `lesson_video_provider_consistency_chk`, added in migration
+ * `20260307235900_three_discipline_demo`. An earlier framing called this Zod
+ * rule the blocker; that was wrong, and the record is corrected here rather than
+ * restated.
  *
  * The NONE rule still rejects every *playback* identifier and deliberately says
  * nothing about `muxAssetId`. An asset id addresses no video - it is an
