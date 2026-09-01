@@ -771,16 +771,21 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://YOUR-API/webhooks/mux \
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://YOUR-API/webhooks/stripe \
   -H 'content-type: application/json' -H 'stripe-signature: t=1,v1=deadbeef' -d '{}' # 400
 
-# 4. The project root is not being served as static output. BOTH must be 404.
-curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/package.json               # 404
-curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/tsconfig.json              # 404
+# 4. The project root is not being served as static output. Any non-200 passes - it means
+#    the path reached Nest rather than matching a file. 503 is the coming-soon wall
+#    (production, while VOD_COMING_SOON=true), 404 once the wall is off. A 200 is the failure.
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/package.json    # 503, or 404
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/tsconfig.json   # 503, or 404
 ```
 
-Content instead of a 404 on either of those means Vercel is serving the project root as static
-output after all, which would be publishing this app's TypeScript source on a public domain -
-source disclosure rather than a breach, since no secrets are involved and no route is affected,
-but the empty `public/` directory from step 1 is meant to prevent it and is unverified, so tell
-the owner the moment it happens rather than eventually.
+A 200 on either of those, carrying the file's actual contents, is the only failing outcome, and
+it means Vercel is serving the project root as static output after all - publishing this app's
+TypeScript source on a public domain. That is source disclosure rather than a breach: no secrets
+are involved, since `.env` is gitignored and only `.env.example` is committed with placeholders,
+and no API route collides with those filenames, so routes and webhook delivery are unaffected
+either way. The empty `public/` directory from step 1 is meant to prevent it and is unverified,
+so the two stand together as belt and braces rather than as alternatives - tell the owner the
+moment a 200 comes back rather than eventually.
 
 Then the part that actually matters, which `curl` cannot do because you cannot forge a
 signature:
