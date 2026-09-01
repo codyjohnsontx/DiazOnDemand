@@ -46,7 +46,8 @@ export const videoSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['muxPlaybackId'],
-        message: 'Mux videos must include an asset identifier, a playback identifier or a playback URL.',
+        message:
+          'Mux videos must include an asset identifier, a playback identifier or a playback URL.',
       });
     }
 

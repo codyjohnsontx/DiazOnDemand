@@ -252,10 +252,11 @@ Communicate clearly.
 
 ## Billing and tests
 
-Most of the API suite mocks Prisma. The Stripe billing lifecycle deliberately does not:
-`apps/api/src/tests/billing-lifecycle.db.test.ts` needs `TEST_DATABASE_URL` pointing at a
-migrated Postgres, and skips without it (but fails the run on CI). See the Tests section of
-README.md for the exact commands.
+Most of the API suite mocks Prisma. Two suites in `apps/api/src/tests` deliberately do not,
+because what they cover is invisible to a mocked client: `billing-lifecycle.db.test.ts`, for the
+unique-constraint violations below, and `mux-ingestion.db.test.ts`, for the `Lesson` CHECK
+constraint. Both need `TEST_DATABASE_URL` pointing at a migrated Postgres, and skip without it
+(but fail the run on CI). See the Tests section of README.md for the exact commands.
 
 Two billing invariants that are easy to break by accident:
 - A member has *many* `Subscription` rows over time, never one. Cancel-then-resubscribe issues a

@@ -194,9 +194,9 @@ describe('isAwaitingMuxPlayback', () => {
   // would send them looking for an upload that never happened.
   it('is false for a mux lesson with no asset id at all', () => {
     expect(isAwaitingMuxPlayback({ videoProvider: VideoProvider.MUX })).toBe(false);
-    expect(
-      isAwaitingMuxPlayback({ videoProvider: VideoProvider.MUX, muxAssetId: '   ' }),
-    ).toBe(false);
+    expect(isAwaitingMuxPlayback({ videoProvider: VideoProvider.MUX, muxAssetId: '   ' })).toBe(
+      false,
+    );
   });
 
   // The webhook has already completed this one. Re-delivery must not put it
@@ -232,9 +232,9 @@ describe('isAwaitingMuxPlayback', () => {
   // stays. If this answered false the badge and the webhook would disagree
   // about what "waiting" means.
   it('is true whatever the stored provider says', () => {
-    expect(
-      isAwaitingMuxPlayback({ videoProvider: VideoProvider.NONE, muxAssetId: ASSET_ID }),
-    ).toBe(true);
+    expect(isAwaitingMuxPlayback({ videoProvider: VideoProvider.NONE, muxAssetId: ASSET_ID })).toBe(
+      true,
+    );
     expect(isAwaitingMuxPlayback({ muxAssetId: ASSET_ID })).toBe(true);
   });
 
