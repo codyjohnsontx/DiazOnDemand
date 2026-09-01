@@ -638,9 +638,23 @@ between them. Three details there are load-bearing and should not be "tidied":
   the Build Step" enabled - the install has to happen at the workspace root or `@diaz/shared`
   and `@diaz/db` will not resolve.
 - **Framework Preset: Other.** `apps/api/vercel.json` already sets the build command
-  (`pnpm exec turbo run build --filter=api`, which also runs `prisma generate` via `@diaz/db`)
-  and the catch-all rewrite. Do not also set them in the dashboard; the dashboard wins and they
-  will disagree.
+  (`pnpm exec turbo run build --filter=api`, which also runs `prisma generate` via `@diaz/db`),
+  the output directory (`public`) and the catch-all rewrite. Do not also set them in the
+  dashboard; the dashboard wins and they will disagree.
+- **`apps/api/public/` is empty on purpose, and `outputDirectory` points at it.** With no output
+  directory set and no `public/` directory present, Vercel's documented fallback is to serve the
+  Root Directory itself as static output, and static files are matched before `rewrites`. That
+  would publish `apps/api/src/**`, `dist/**`, `tsconfig.json` and `package.json` on the API's
+  public domain. It is source disclosure, not a breach and not a secret leak: `.env` is
+  gitignored, only `.env.example` is committed and it carries placeholders, and no API route
+  collides with those filenames, so routes and webhook delivery are unaffected either way.
+  Whether that fallback actually applies to this project is unverified - it cannot be measured
+  from this repository, and nobody has been able to test it without the Vercel account - so an
+  empty static root is cheap insurance: it costs nothing, changes no request behaviour, and is
+  correct whether the fallback applies or not. Keep the `.gitkeep` that holds the directory in
+  git. Not a `.vercelignore`: that also removes files from the build source, and the build needs
+  `src/`. Step 7 checks the deployed answer; the mitigation and the check are belt and braces,
+  not alternatives.
 - Leave the Install Command on its default. If the build cannot find the workspace packages,
   that is the setting to look at first.
 - Node.js version 22.x, to match local.
@@ -756,20 +770,30 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://YOUR-API/webhooks/mux \
   -H 'content-type: application/json' -H 'mux-signature: t=1,v1=deadbeef' -d '{}'   # 400
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://YOUR-API/webhooks/stripe \
   -H 'content-type: application/json' -H 'stripe-signature: t=1,v1=deadbeef' -d '{}' # 400
+
+# 4. The project root is not being served as static output. BOTH must be 404.
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/package.json               # 404
+curl -s -o /dev/null -w '%{http_code}\n' https://YOUR-API/tsconfig.json              # 404
 ```
+
+Content instead of a 404 on either of those means Vercel is serving the project root as static
+output after all, which would be publishing this app's TypeScript source on a public domain -
+source disclosure rather than a breach, since no secrets are involved and no route is affected,
+but the empty `public/` directory from step 1 is meant to prevent it and is unverified, so tell
+the owner the moment it happens rather than eventually.
 
 Then the part that actually matters, which `curl` cannot do because you cannot forge a
 signature:
 
-4. **Mux**: in the Mux dashboard, redeliver a `video.asset.ready` event to the new webhook (or
+5. **Mux**: in the Mux dashboard, redeliver a `video.asset.ready` event to the new webhook (or
    upload a short test asset). The delivery must show **200** in Mux's own webhook log. A 400
    there means the signature did not verify - `MUX_WEBHOOK_SECRET` does not match the webhook
    you copied it from. A 500 means it verified and then something failed server-side; the
    reason is in the Vercel function logs.
-5. **Stripe**: `stripe trigger checkout.session.completed` with the CLI pointed at the deployed
+6. **Stripe**: `stripe trigger checkout.session.completed` with the CLI pointed at the deployed
    endpoint, or "Resend" an existing event from the dashboard. Same rule: 200 in Stripe's own
    log, not just a 200 from `curl`.
-6. **Confirm a row changed.** A 200 only says the request was accepted. For Mux, the lesson
+7. **Confirm a row changed.** A 200 only says the request was accepted. For Mux, the lesson
    matching the asset should now hold the playback id the event carried.
 
 Read the Vercel function logs alongside all of this. Startup refusals name the missing variable
@@ -817,6 +841,10 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
   The `restoreReadableBody` middleware exists so the answer does not matter, and both answers
   were tested locally - but which one is live is unverified.
 - Cold start duration, and whether the plan's default function timeout accommodates it.
+- Whether Vercel would have served the Root Directory as static output with no `outputDirectory`
+  set. `outputDirectory` now points at an empty committed `public/`, which settles it either way,
+  but the fallback itself has never been observed on this project. Step 7's `/package.json` and
+  `/tsconfig.json` checks are what confirm it on the real deployment.
 - **Swagger UI's static assets.** Run against `@vercel/nft` 1.10.0 - the tracer Vercel uses -
   `swagger-ui-dist` contributes only `absolute-path.js` and `package.json` to the traced file
   list; `swagger-ui.css` and `swagger-ui-bundle.js` are resolved at runtime and are not

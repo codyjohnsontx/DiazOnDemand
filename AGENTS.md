@@ -614,7 +614,7 @@ application-wide to `create-app.ts`, never to one entrypoint, or the deployed AP
 you tested locally stop being the same program. The deploy steps, the pooled `DATABASE_URL`
 and the post-deploy checks are in "API Deploy Runbook (Vercel serverless)" in README.md.
 
-Four things here are load-bearing and each looks like tidy-up bait:
+Five things here are load-bearing and each looks like tidy-up bait:
 
 - `apps/api/api/index.js` is hand-written JavaScript that only re-exports `dist/serverless.js`.
   Vercel compiles the function entrypoint with esbuild, which cannot emit the decorator metadata
@@ -638,7 +638,17 @@ Four things here are load-bearing and each looks like tidy-up bait:
   logic and asserts the failure without the middleware and byte-identical recovery with it.
   Vercel's production launcher is injected at deploy time and is in no package installed here,
   so which branch is live cannot be verified from this repository - which is why the middleware
-  exists rather than a comment saying it is fine.
+  exists rather than a comment saying it is fine. The `readable` flag it sets tracks the replayed
+  stream rather than being pinned true: it goes back to false when the replay ends, or
+  `isFinished(req)` stays false forever and body-parser's error branch (`dump()` ->
+  `onFinished(req, ...)` -> `next(400)`) waits on a socket close instead of answering.
+- `apps/api/public/` is an empty directory held in git by a `.gitkeep`, and `vercel.json` sets
+  `outputDirectory` to it. Without both, Vercel's documented fallback serves the Root Directory
+  as static output, ahead of `rewrites`, publishing `src/**` and `dist/**` on the API domain.
+  That is source disclosure, not a secret leak, and it is unverified - it cannot be measured
+  without the owner's Vercel account, which is why an empty static root is preferred over a
+  `.vercelignore` that would also strip `src/` from the build source. README's step 7 has the
+  `curl` check that settles it on the real deployment.
 - Nothing in the code pools database connections; the connection string does. Measured on
   Postgres 17: one instance on a direct URL opens 21 backends (`cpus x 2 + 1`), three instances
   through PgBouncer with `?pgbouncer=true&connection_limit=1` open three. `connection_limit`

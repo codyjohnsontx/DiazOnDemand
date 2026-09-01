@@ -85,13 +85,25 @@ export function restoreReadableBody(req: Request, _res: Response, next: NextFunc
  * `readable` has to be defined as an own property rather than assigned: the
  * accessor on `Readable.prototype` derives its answer from `endEmitted`, which
  * is already true here, so a plain assignment would be silently ignored.
+ *
+ * The flag tracks the replayed stream for its whole life, not just its start. It
+ * goes back to false when the replay ends, so `isFinished(req)` - `req.complete
+ * && !req.readable` - answers true again once the body has been consumed, as it
+ * does for an ordinary request. Left pinned true it never does, and body-parser's
+ * error branch waits on `onFinished(req, ...)` before sending its 400: a
+ * `request.size.invalid` or an aborted request would hang until the socket
+ * closed instead of answering.
  */
 function republishBody(req: Request, raw: Buffer): void {
   const replay = new PassThrough();
   const replayOn = replay.on.bind(replay);
   const originalOn = req.on.bind(req);
 
-  Object.defineProperty(req, 'readable', { value: true, configurable: true, writable: true });
+  const setReadable = (value: boolean) =>
+    Object.defineProperty(req, 'readable', { value, configurable: true, writable: true });
+
+  setReadable(true);
+  replayOn('end', () => setReadable(false));
 
   req.read = replay.read.bind(replay) as Request['read'];
   req.on = req.addListener = ((event: string, listener: (...args: unknown[]) => void) =>

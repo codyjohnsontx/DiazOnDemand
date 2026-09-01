@@ -29,6 +29,10 @@ class RawBodyEchoController {
       hasRawBody: Boolean(req.rawBody),
       raw: req.rawBody?.toString('utf8') ?? null,
       body: req.body,
+      readable: req.readable,
+      // on-finished's isFinished(req), which is what body-parser's error branch
+      // waits on before it is allowed to answer.
+      finished: Boolean(req.complete) && !req.readable,
     };
   }
 }
@@ -136,6 +140,10 @@ describe('restoreReadableBody', () => {
     expect(json.hasRawBody).toBe(true);
     expect(json.raw).toBe(PAYLOAD);
     expect(json.body).toMatchObject({ type: 'video.asset.ready' });
+    // The baseline the recovered request has to match, asserted here so the
+    // comparison in the next-but-one test is against a measured value.
+    expect(json.readable).toBe(false);
+    expect(json.finished).toBe(true);
   });
 
   it('recovers the raw body when the runtime read the stream first', async () => {
@@ -148,6 +156,19 @@ describe('restoreReadableBody', () => {
     // Byte-identical, not merely equivalent JSON - this is what gets signed.
     expect(json.raw).toBe(PAYLOAD);
     expect(json.body).toMatchObject({ type: 'video.asset.ready' });
+  });
+
+  it('stops reporting the request as readable once the replayed body is consumed', async () => {
+    harness = await startHarness({ withMiddleware: true, preReadBody: true });
+
+    const { json } = await post(harness.url);
+
+    // The same answers the untouched-stream case gives. Pinned readable, the
+    // request would report itself unfinished forever, and body-parser's error
+    // branch - dump() -> onFinished(req, ...) -> next(400) - would wait for a
+    // socket close instead of sending the 400.
+    expect(json.readable).toBe(false);
+    expect(json.finished).toBe(true);
   });
 
   it('reproduces the failure it exists to prevent when it is not installed', async () => {
