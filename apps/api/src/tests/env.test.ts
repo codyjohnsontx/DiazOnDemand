@@ -163,17 +163,67 @@ const DEPLOYMENT_MATRIX: { databaseUrl: string | undefined; deployedWhenNotProdu
 
 const NODE_ENVS = [undefined, 'development', 'test', 'production'] as const;
 
-/** True when validateApiEnv refuses specifically for the deployment signing-key rule. */
-function refusesForDeploymentSigningKey(env: NodeJS.ProcessEnv): boolean {
+/** True when validateApiEnv refuses for the rule whose message contains `reason`. */
+function refusesFor(env: NodeJS.ProcessEnv, reason: string): boolean {
   try {
     validateApiEnv(env);
     return false;
   } catch (error) {
-    return (error as Error).message.includes(
-      'required on a deployment together with MUX_SIGNING_KEY_PRIVATE',
-    );
+    return (error as Error).message.includes(reason);
   }
 }
+
+/** True when validateApiEnv refuses specifically for the deployment signing-key rule. */
+function refusesForDeploymentSigningKey(env: NodeJS.ProcessEnv): boolean {
+  return refusesFor(env, 'required on a deployment together with MUX_SIGNING_KEY_PRIVATE');
+}
+
+/**
+ * The startup requirements that used to read `NODE_ENV === 'production'` and now
+ * ask the deployment predicate instead. Each names the extra environment that
+ * has to be present for its own rule to be the one under test, so a row fails
+ * because of the variable it is about rather than because of a sibling rule.
+ */
+const DEPLOYMENT_REQUIREMENTS: {
+  name: string;
+  reason: string;
+  satisfy: NodeJS.ProcessEnv;
+  otherwiseComplete: NodeJS.ProcessEnv;
+}[] = [
+  {
+    name: 'MUX_WEBHOOK_SECRET',
+    reason: 'MUX_WEBHOOK_SECRET: required on a deployment',
+    satisfy: { MUX_WEBHOOK_SECRET: 'whsec_mux' },
+    otherwiseComplete: {
+      DIAZ_INTERNAL_API_KEY: 'internal',
+      MUX_SIGNING_KEY_ID: 'key',
+      MUX_SIGNING_KEY_PRIVATE: 'private',
+    },
+  },
+  {
+    name: 'STRIPE_WEBHOOK_SECRET',
+    reason: 'STRIPE_WEBHOOK_SECRET: required on a deployment when Stripe billing is enabled',
+    satisfy: { STRIPE_WEBHOOK_SECRET: 'whsec_stripe' },
+    otherwiseComplete: {
+      DIAZ_INTERNAL_API_KEY: 'internal',
+      MUX_WEBHOOK_SECRET: 'whsec_mux',
+      MUX_SIGNING_KEY_ID: 'key',
+      MUX_SIGNING_KEY_PRIVATE: 'private',
+      STRIPE_SECRET_KEY: 'sk_live',
+      STRIPE_PRICE_ID_MONTHLY: 'price_monthly',
+    },
+  },
+  {
+    name: 'DIAZ_INTERNAL_API_KEY',
+    reason: 'DIAZ_INTERNAL_API_KEY: required on a deployment',
+    satisfy: { DIAZ_INTERNAL_API_KEY: 'internal' },
+    otherwiseComplete: {
+      MUX_WEBHOOK_SECRET: 'whsec_mux',
+      MUX_SIGNING_KEY_ID: 'key',
+      MUX_SIGNING_KEY_PRIVATE: 'private',
+    },
+  },
+];
 
 describe('the deployment predicate, at every call site', () => {
   it('answers the whole matrix as the shared predicate', () => {
@@ -259,6 +309,34 @@ describe('the deployment predicate, at every call site', () => {
     }
   });
 
+  it.each(DEPLOYMENT_REQUIREMENTS)(
+    'answers the whole matrix identically at the $name startup requirement',
+    ({ reason, satisfy, otherwiseComplete }) => {
+      for (const nodeEnv of NODE_ENVS) {
+        for (const { databaseUrl, deployedWhenNotProduction } of DEPLOYMENT_MATRIX) {
+          const deployed = nodeEnv === 'production' || deployedWhenNotProduction;
+          const label = `NODE_ENV=${nodeEnv ?? '<unset>'} DATABASE_URL=${databaseUrl ?? '<unset>'}`;
+          const env = envWithoutBypass({
+            NODE_ENV: nodeEnv,
+            DATABASE_URL: databaseUrl,
+            ...otherwiseComplete,
+          });
+
+          // An absent DATABASE_URL is fatal at the field rule, so superRefine
+          // never runs and no deployment requirement is reachable - the same
+          // hole spelled out at the signing-key call site above.
+          if (databaseUrl === undefined) {
+            expect(refusesFor(env, reason), label).toBe(false);
+            continue;
+          }
+
+          expect(refusesFor(env, reason), label).toBe(deployed);
+          expect(refusesFor({ ...env, ...satisfy }, reason), `${label} satisfied`).toBe(false);
+        }
+      }
+    },
+  );
+
   it('leaves the two sites exact complements wherever both are reachable', () => {
     for (const nodeEnv of NODE_ENVS) {
       for (const { databaseUrl } of DEPLOYMENT_MATRIX) {
@@ -293,8 +371,9 @@ describe('Mux signing key startup refusal', () => {
   });
 
   // The refusal is keyed on the deployment, never on an "is Mux enabled" proxy:
-  // nothing in the runtime reads MUX_TOKEN_ID, so a deployment can serve Mux
-  // video without it and would otherwise slip past this check.
+  // MUX_TOKEN_ID is read only by the pairing rule, never by a serving path, so a
+  // deployment can serve Mux video without it and would otherwise slip past this
+  // check.
   it('refuses a deployed database with no Mux access token set at all', () => {
     expect(() =>
       validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB, MUX_WEBHOOK_SECRET: 'whsec' })),
@@ -314,6 +393,8 @@ describe('Mux signing key startup refusal', () => {
           DATABASE_URL: REMOTE_DB,
           MUX_SIGNING_KEY_ID: 'key',
           MUX_SIGNING_KEY_PRIVATE: 'private',
+          MUX_WEBHOOK_SECRET: 'whsec_mux',
+          DIAZ_INTERNAL_API_KEY: 'internal',
         }),
       ),
     ).not.toThrow();
@@ -346,7 +427,7 @@ describe('existing startup refusals', () => {
     );
   });
 
-  it('requires a Stripe webhook secret in production', () => {
+  it('requires a Stripe webhook secret on a deployment', () => {
     expect(() =>
       validateApiEnv(
         envWithoutBypass({
@@ -356,7 +437,23 @@ describe('existing startup refusals', () => {
           DIAZ_INTERNAL_API_KEY: 'internal',
         }),
       ),
-    ).toThrow(/STRIPE_WEBHOOK_SECRET: required in production/);
+    ).toThrow(/STRIPE_WEBHOOK_SECRET: required on a deployment when Stripe billing is enabled/);
+  });
+
+  it('does not require a Stripe webhook secret when Stripe billing is off', () => {
+    // STRIPE_SECRET_KEY is what BillingService and WebhooksService construct the
+    // Stripe client from, so it is a condition the runtime genuinely defines.
+    expect(() =>
+      validateApiEnv(
+        envWithoutBypass({
+          DATABASE_URL: REMOTE_DB,
+          MUX_WEBHOOK_SECRET: 'whsec_mux',
+          MUX_SIGNING_KEY_ID: 'key',
+          MUX_SIGNING_KEY_PRIVATE: 'private',
+          DIAZ_INTERNAL_API_KEY: 'internal',
+        }),
+      ),
+    ).not.toThrow();
   });
 
   it('requires Mux credentials and signing keys to be paired', () => {
@@ -368,7 +465,7 @@ describe('existing startup refusals', () => {
     );
   });
 
-  it('requires Mux webhook and signing configuration in production', () => {
+  it('requires Mux webhook and signing configuration on a deployment', () => {
     expect(() =>
       validateApiEnv(
         envWithoutBypass({
@@ -378,7 +475,7 @@ describe('existing startup refusals', () => {
           DIAZ_INTERNAL_API_KEY: 'internal',
         }),
       ),
-    ).toThrow(/MUX_WEBHOOK_SECRET: required in production/);
+    ).toThrow(/MUX_WEBHOOK_SECRET: required on a deployment/);
 
     expect(() =>
       validateApiEnv(
@@ -393,9 +490,68 @@ describe('existing startup refusals', () => {
     ).toThrow(/MUX_SIGNING_KEY_ID: required on a deployment together with MUX_SIGNING_KEY_PRIVATE/);
   });
 
-  it('requires the internal API key in production', () => {
+  // MUX_TOKEN_ID used to gate the webhook secret, and it is not a reliable signal
+  // that Mux webhooks are wired - only the pairing rule reads it - so a deployment
+  // that set neither passed. It is the same drift the signing key rule was rescued
+  // from, one rule over.
+  it('requires the Mux webhook secret on a deployment that sets no Mux access token', () => {
+    expect(() =>
+      validateApiEnv(
+        envWithoutBypass({
+          NODE_ENV: 'production',
+          MUX_SIGNING_KEY_ID: 'key',
+          MUX_SIGNING_KEY_PRIVATE: 'private',
+          DIAZ_INTERNAL_API_KEY: 'internal',
+        }),
+      ),
+    ).toThrow(/MUX_WEBHOOK_SECRET: required on a deployment/);
+  });
+
+  it('requires the internal API key on a deployment', () => {
     expect(() => validateApiEnv(envWithoutBypass({ NODE_ENV: 'production' }))).toThrow(
-      /DIAZ_INTERNAL_API_KEY: required in production/,
+      /DIAZ_INTERNAL_API_KEY: required on a deployment/,
     );
+  });
+});
+
+/**
+ * The reproduction, as a test. Against the built API this configuration - a
+ * deployed database with NODE_ENV never set, which is what `node dist/main.js`,
+ * a Dockerfile `CMD` and a Procfile all produce - booted, answered /health with
+ * 200, and rejected every Mux delivery, every Stripe delivery and every internal
+ * entitlement lookup. Nothing at startup said so.
+ */
+describe('a deployment started without NODE_ENV', () => {
+  const startedWithoutNodeEnv = envWithoutBypass({
+    DATABASE_URL: REMOTE_DB,
+    MUX_SIGNING_KEY_ID: 'key',
+    MUX_SIGNING_KEY_PRIVATE: 'private',
+    STRIPE_SECRET_KEY: 'sk_live',
+    STRIPE_PRICE_ID_MONTHLY: 'price_monthly',
+  });
+
+  it('is refused for each of the three requirements at once', () => {
+    let message = '';
+
+    try {
+      validateApiEnv(startedWithoutNodeEnv);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toMatch(/MUX_WEBHOOK_SECRET: required on a deployment/);
+    expect(message).toMatch(/STRIPE_WEBHOOK_SECRET: required on a deployment/);
+    expect(message).toMatch(/DIAZ_INTERNAL_API_KEY: required on a deployment/);
+  });
+
+  it('starts once all three are supplied', () => {
+    expect(() =>
+      validateApiEnv({
+        ...startedWithoutNodeEnv,
+        MUX_WEBHOOK_SECRET: 'whsec_mux',
+        STRIPE_WEBHOOK_SECRET: 'whsec_stripe',
+        DIAZ_INTERNAL_API_KEY: 'internal',
+      }),
+    ).not.toThrow();
   });
 });
