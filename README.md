@@ -230,6 +230,7 @@ runtime to a member - the seeded `durationSeconds` stays as a planned length and
 towards course totals. Whether unfilmed lessons stay published is an open product decision.
 
 ### Waiting for Mux
+
 A fourth state exists for staff only, and it is derived from the row rather than stored: a
 lesson holding a `muxAssetId` with no `muxPlaybackId` and no `youtubeVideoId` is waiting for a
 playback id. `isAwaitingMuxPlayback` in `packages/shared` is the only place that decides it, and
@@ -245,7 +246,7 @@ A lesson can sit there indefinitely, and nothing alerts or times out. The four c
 encoding still running, an upload that failed at Mux, a webhook that was never configured, and
 - most likely of all, since uploads happen in the Mux dashboard and there is no in-app upload
 UI - a `video.asset.ready` that was delivered *before* any lesson held the asset ID. The
-webhook answers 200 for an asset no lesson matches, so Mux never retries it. **Remedy:** if the
+webhook answers 201 for an asset no lesson matches, so Mux never retries it. **Remedy:** if the
 asset is already Ready in Mux, redeliver its `video.asset.ready` event from the Mux dashboard
 now that the lesson holds the asset ID. Both admin surfaces say so.
 
@@ -488,7 +489,7 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   "Catalogue Video States" above. It is normal: Mux issues the playback id later. It is also
   where a lesson lands when `video.asset.ready` was delivered *before* the asset id was pasted
   into the editor, which is the likely order since uploads happen in the Mux dashboard. The
-  handler answers 200 for an asset no lesson matches (assets exist in the account this app never
+  handler answers 201 for an asset no lesson matches (assets exist in the account this app never
   created, and throwing would make Mux retry forever), so that event is gone. The remedy, named
   on both admin surfaces, is to redeliver `video.asset.ready` from the Mux dashboard once the
   lesson holds the asset ID. Nothing re-reconciles automatically on purpose; resolving the asset
@@ -835,14 +836,15 @@ Then the part that actually matters, which `curl` cannot do because you cannot f
 signature:
 
 5. **Mux**: in the Mux dashboard, redeliver a `video.asset.ready` event to the new webhook (or
-   upload a short test asset). The delivery must show **200** in Mux's own webhook log. A 400
-   there means the signature did not verify - `MUX_WEBHOOK_SECRET` does not match the webhook
-   you copied it from. A 500 means it verified and then something failed server-side; the
-   reason is in the Vercel function logs.
+   upload a short test asset). The delivery must show **201** in Mux's own webhook log - neither
+   handler sets `@HttpCode`, so Nest answers a POST with 201, not 200. A 400 there means the
+   signature did not verify - `MUX_WEBHOOK_SECRET` does not match the webhook you copied it
+   from. A 500 means it verified and then something failed server-side; the reason is in the
+   Vercel function logs.
 6. **Stripe**: `stripe trigger checkout.session.completed` with the CLI pointed at the deployed
-   endpoint, or "Resend" an existing event from the dashboard. Same rule: 200 in Stripe's own
-   log, not just a 200 from `curl`.
-7. **Confirm a row changed.** A 200 only says the request was accepted. For Mux, the lesson
+   endpoint, or "Resend" an existing event from the dashboard. Same rule: 201 in Stripe's own
+   log, not just a 201 from `curl`.
+7. **Confirm a row changed.** A 201 only says the request was accepted. For Mux, the lesson
    matching the asset should now hold the playback id the event carried.
 
 Read the Vercel function logs alongside all of this. Startup refusals name the missing variable
