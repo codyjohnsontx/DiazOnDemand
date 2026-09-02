@@ -571,7 +571,9 @@ are recorded with the condition each one needs, because "affected by version ran
   The `Response.redirect(req.nextUrl.clone())` in `middleware.ts` looks similar and is not the
   same shape: no destination template, no external host, and `pathname`/`search` overwritten with
   constants. Measured - a poisoned `Host:` or `X-Forwarded-Host:` still yields the server's own
-  origin.
+  origin. Re-running that needs the coming-soon redirect to emit a `Location` at all, and on
+  shipped code it emits none: with `VOD_COMING_SOON=true` every path except `/` answers 500,
+  a separate pre-existing defect that is filed on its own and is not this advisory.
 - **GHSA-2xp9-vwfh-vxw4** - critical, unauthenticated RCE in the Image Optimization API via
   libheif/`sharp` when Next optimizes an attacker-controlled AVIF. Fixed in 15.5.24 / 16.3.3,
   which is outside the 15.2 line. **Not reachable here, and for exactly one reason** - stated
