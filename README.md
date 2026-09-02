@@ -650,7 +650,10 @@ A clean `pnpm audit` is necessary and not sufficient. Vercel publishes some advi
 vercel/next.js repository before OSV and the GitHub advisory database ingest them, so `pnpm audit`
 and OSV can both come back clean while a critical affecting the candidate is already public. Step 2
 below is the step that catches those, and it is where both criticals in the open list came from.
-Set `V` to the candidate; it is set to the current pin here because this recipe was run that way:
+Set `V` to the candidate; it is set to the current pin here because this recipe was run that way.
+Save the block to a file and run it with `bash`, which is how it was measured - do not paste it
+into an interactive shell, where `set -euo pipefail` persists and the first failure ends the
+session instead of showing you the error:
 
 ```bash
 set -euo pipefail          # without this the pipeline below fails open: see the note after
@@ -667,7 +670,10 @@ curl -fsS -X POST https://api.osv.dev/v1/query \
 # 2. repository-only advisories - published by vercel/next.js before OSV and the
 # GitHub advisory database ingest them, so step 1 and pnpm audit cannot see them.
 # grep exits 1 on no match, which is a valid result here, so allow only that code.
-gh api "repos/vercel/next.js/security-advisories?per_page=100" \
+# --paginate is load-bearing, not redundant with per_page=100: without it everything past
+# the first page is dropped with no error and the script still exits 0. The repository
+# publishes 61 advisories today, so nothing is lost yet - it fails open the day it passes 100.
+gh api --paginate "repos/vercel/next.js/security-advisories?per_page=100" \
   --jq '.[] | select(.state=="published") | [.severity, .ghsa_id, (.vulnerabilities|map(.vulnerable_version_range)|join("; "))] | @tsv' \
   | { grep -E 'critical|high' || [ $? -eq 1 ]; }
 
