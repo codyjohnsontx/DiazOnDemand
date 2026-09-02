@@ -653,24 +653,37 @@ below is the step that catches those, and it is where both criticals in the open
 Set `V` to the candidate; it is set to the current pin here because this recipe was run that way:
 
 ```bash
+set -euo pipefail          # without this the pipeline below fails open: see the note after
 V=15.2.9
 
 # 1. advisory-database set, with each advisory's own fix floors on the 15.5 and 16 lines
-curl -s -X POST https://api.osv.dev/v1/query \
+curl -fsS -X POST https://api.osv.dev/v1/query \
   -d "{\"package\":{\"name\":\"next\",\"ecosystem\":\"npm\"},\"version\":\"$V\"}" \
-  | jq -r '.vulns[] | . as $v | [ $v.database_specific.severity, $v.id,
+  | jq -r '(.vulns // [])[] | . as $v | [ $v.database_specific.severity, $v.id,
     ([$v.affected[].ranges[].events[].fixed // empty | select(startswith("15.5."))] | join(",")),
-    ([$v.affected[].ranges[].events[].fixed // empty | select(startswith("16."))] | join(",")) ] | @tsv' | sort
+    ([$v.affected[].ranges[].events[].fixed // empty | select(startswith("16."))] | join(",")) ] | @tsv' \
+  | sort
 
 # 2. repository-only advisories - published by vercel/next.js before OSV and the
-# GitHub advisory database ingest them, so step 1 and pnpm audit cannot see them
+# GitHub advisory database ingest them, so step 1 and pnpm audit cannot see them.
+# grep exits 1 on no match, which is a valid result here, so allow only that code.
 gh api "repos/vercel/next.js/security-advisories?per_page=100" \
   --jq '.[] | select(.state=="published") | [.severity, .ghsa_id, (.vulnerabilities|map(.vulnerable_version_range)|join("; "))] | @tsv' \
-  | grep -E 'critical|high'
+  | { grep -E 'critical|high' || [ $? -eq 1 ]; }
 
 # 3. npm deprecation for the candidate - empty output means not deprecated
 npm view "next@$V" deprecated
 ```
+
+Those three hardening details are the difference between a check and the appearance of one, so do
+not simplify them away. `curl -fsS` fails on an HTTP error instead of piping an error page into
+`jq`; `(.vulns // [])[]` distinguishes a genuinely clean candidate from a malformed response
+instead of erroring on both; and `set -euo pipefail` makes a failure anywhere in the pipeline stop
+the script rather than letting `sort` return 0 over nothing. Without them an OSV outage prints an
+empty advisory list and exits successfully - indistinguishable from a clean candidate, which is the
+one wrong answer this recipe must never give. Measured both ways: run normally it exits 0 and
+returns the 26 rows below; run with the OSV endpoint unreachable it exits 56 and prints the curl
+error, where the unhardened version exited 0 and printed nothing.
 
 Run against the pin, this recipe regenerates the section above rather than merely illustrating it,
 which is the point: a check that cannot reproduce the list beside it cannot fail either. Step 1
