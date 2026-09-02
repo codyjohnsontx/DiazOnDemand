@@ -549,7 +549,7 @@ the lowest version that satisfies that one constraint on the 15.2 line.
 | CVE-2025-55183 (source code exposure) and CVE-2025-55184 (DoS), plus the incomplete-fix CVE-2025-67779 / GHSA-5j59-xgg2-r9c4 | 15.2.8 | The 2025-12-11 follow-ups. npm security-deprecates 15.2.6 and 15.2.7 for these, so a version that clears React2Shell can still be deprecated. |
 | GHSA-h25m-26qc-wcjf - high, App Router RSC request-deserialization DoS | 15.2.9 | The only one of the five that 15.2.8 does not satisfy, and therefore the reason the pin is 15.2.9. |
 | CVE-2025-29927 - `x-middleware-subrequest` authorization bypass | 15.2.3 | `middleware.ts` is the app's only authorization boundary. Vercel-hosted deployments were architecturally not exploitable, because Vercel runs routing out of process, but the floor still holds for `next start` and local runs. |
-| `@clerk/nextjs` 6.37.5 peer range on `next` | 15.2.3 | `^13.5.7 || ^14.2.25 || ^15.2.3 || ^16`. The previous pin, 15.1.7, did not satisfy it. |
+| `@clerk/nextjs` 6.37.5 peer range on `next` | 15.2.3 | `^13.5.7 \|\| ^14.2.25 \|\| ^15.2.3 \|\| ^16`. The previous pin, 15.1.7, did not satisfy it. |
 
 ### What is still open at 15.2.9, and under what conditions
 
