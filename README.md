@@ -736,6 +736,12 @@ everything else stays permitted, and that the Clerk catch-all check in
 - While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and
   `NEXT_PUBLIC_VOD_COMING_SOON=true` on production web/API deployments. Leave both unset or
   `false` for local and preview deployments so development routes stay usable.
+  Known defect, web app only: with the flag on, `apps/diaz-ondemand-web/middleware.ts` returns
+  `Response.redirect()`, whose headers are immutable, `clerkMiddleware` appends its own to that
+  response and throws `TypeError: immutable`, so every path except `/` answers 500 instead of
+  redirecting - pre-existing, tracked separately, and deliberately not fixed here. The API is
+  unaffected: its wall is a separate implementation in `apps/api/src/create-app.ts` and answers
+  503 as designed, which the post-deploy checks below depend on.
 
 ## API Deploy Runbook (Vercel serverless)
 
