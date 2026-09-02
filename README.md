@@ -573,10 +573,24 @@ are recorded with the condition each one needs, because "affected by version ran
   constants. Measured - a poisoned `Host:` or `X-Forwarded-Host:` still yields the server's own
   origin.
 - **GHSA-2xp9-vwfh-vxw4** - critical, unauthenticated RCE in the Image Optimization API via
-  libheif/`sharp` when Next optimizes an attacker-controlled AVIF. Fixed in 15.5.24 / 16.3.3.
-  **Not reachable here.** The app imports `next/image` nowhere and sets no `images` config, and
-  the installed defaults are `formats: ["image/webp"]` with empty `remotePatterns` and `domains`,
-  so AVIF is never produced and the optimizer accepts no external source.
+  libheif/`sharp` when Next optimizes an attacker-controlled AVIF. Fixed in 15.5.24 / 16.3.3,
+  which is outside the 15.2 line. **Not reachable here, and for exactly one reason** - stated
+  that way because there is no second one to fall back on. That reason has two halves and needs
+  both. The optimizer's allowlist is empty: `apps/diaz-ondemand-web/next.config.ts` sets no
+  `images` config, so `remotePatterns` and `domains` both keep their `[]` defaults, which
+  confines `/_next/image?url=` to same-origin paths. And the origin serves nothing an attacker
+  can control the bytes of: no `public/` directory, no route handlers (no `route.ts` anywhere
+  under `app/`), no server actions, no upload surface. The allowlist keeps the optimizer on the
+  origin; the bare origin is what leaves it nothing to fetch. Neither half holds alone.
+  So this re-opens at 15.2.9 the moment either half goes - one `remotePatterns` or `domains`
+  entry (Mux thumbnails, an avatar CDN), or any same-origin route that serves user-supplied
+  image bytes. Re-read this bullet before changing image configuration or adding a route handler.
+  Two things that read like reasons and gate nothing, recorded so they are not counted as margin:
+  that the app imports `next/image` nowhere is irrelevant, because the Next server serves
+  `/_next/image` whether or not any component imports it; and the default
+  `formats: ["image/webp"]` is irrelevant, because `images.formats` selects the *output* encoding
+  negotiated through the `Accept` header, while the advisory fires on *decoding* an
+  attacker-supplied AVIF *input*.
 - **CVE-2026-75604 / GHSA-p293-qw3h-jr36** - critical, unauthenticated RCE on Windows-hosted
   servers. Fixed in 15.5.24 / 16.3.3. **Not applicable.** The advisory states Linux and macOS are
   unaffected; this deploys to Vercel.
