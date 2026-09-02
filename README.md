@@ -545,11 +545,22 @@ the lowest version that satisfies that one constraint on the 15.2 line.
 
 | Constraint | Floor | Why it binds |
 | --- | --- | --- |
-| CVE-2025-66478 / GHSA-9qr9-h5gf-34mp - React2Shell, critical, CVSS 10.0, RCE in the RSC flight protocol | 15.2.6 | Vercel fails the build outright: "Vulnerable version of Next.js detected". This is the only advisory the deploy gate is keyed to. |
+| GHSA-9qr9-h5gf-34mp / CVE-2025-55182, named CVE-2025-66478 by Vercel - React2Shell, critical, CVSS 10.0, RCE in the RSC flight protocol | 15.2.6 | Vercel fails the build outright: "Vulnerable version of Next.js detected". This is the only advisory the deploy gate is keyed to. See the identifier note under this table before looking any of the three up. |
 | The 2025-12-11 follow-ups: CVE-2025-55183 (source code exposure) and CVE-2025-55184 (DoS), then the incomplete-fix CVE-2025-67779 / GHSA-5j59-xgg2-r9c4 | 15.2.8 | 15.2.8 is the floor for the group, but not for each member: 55183 and 55184 are both fixed at 15.2.7, and it is 67779 - the incomplete fix for 55184, introduced by 15.2.7 itself - that requires 15.2.8. That is also why npm security-deprecates 15.2.7 as well as 15.2.6, so a version clearing React2Shell can still be deprecated. |
 | GHSA-h25m-26qc-wcjf - high, App Router RSC request-deserialization DoS | 15.2.9 | The only one of the five that 15.2.8 does not satisfy, and therefore the reason the pin is 15.2.9. |
 | CVE-2025-29927 - `x-middleware-subrequest` authorization bypass | 15.2.3 | `middleware.ts` is the app's only authorization boundary. Vercel-hosted deployments were architecturally not exploitable, because Vercel runs routing out of process, but the floor still holds for `next start` and local runs. |
 | `@clerk/nextjs` 6.37.5 peer range on `next` | 15.2.3 | `^13.5.7 \|\| ^14.2.25 \|\| ^15.2.3 \|\| ^16`. The previous pin, 15.1.7, did not satisfy it. |
+
+**Three identifiers, one vulnerability, and one of them looks broken.** `GHSA-9qr9-h5gf-34mp` is
+the advisory record. `CVE-2025-55182` is the identifier the vulnerability databases recognise: NVD
+has it Analyzed, at CVSS 3.1 10.0 CRITICAL, describing the pre-authentication RCE in React Server
+Components. `CVE-2025-66478` is kept in the row above because it is what Vercel's own tooling
+names - the deploy gate, its changelog, the blog at `nextjs.org/blog/CVE-2025-66478`, and the
+escape-hatch variable `DANGEROUSLY_DEPLOY_VULNERABLE_CVE_2025_66478`. Looking `CVE-2025-66478` up
+in NVD returns status **Rejected**, "This CVE is a duplicate of CVE-2025-55182", and GitHub's
+record for the GHSA carries `cve_id: null` while referencing 55182. That is expected and is not a
+sign this row is wrong: search the databases under the GHSA or 55182, and read Vercel's material
+under 66478.
 
 ### What is still open at 15.2.9, and under what conditions
 
@@ -596,19 +607,29 @@ are recorded with the condition each one needs, because "affected by version ran
 - **CVE-2026-75604 / GHSA-p293-qw3h-jr36** - critical, unauthenticated RCE on Windows-hosted
   servers, in applications using the Pages and App routers without Cache Components. Fixed in
   15.5.24 / 16.3.3, outside the 15.2 line. **Not applicable to this deployment**, and the
-  qualifier is the whole claim: the advisory states Linux and macOS are unaffected, and this
-  deploys to Vercel. It is a property of the hosting target, not of this code, so it says nothing
-  about the pin - a Windows host running 15.2.9 is affected, with no workaround short of
-  15.5.24 / 16.3.3. Re-evaluate this line if the hosting target ever changes.
+  qualifier is the whole claim. Each half of it comes from a different source, so check the right
+  one: the advisory itself scopes the RCE positively, to a server hosted on a Windows filesystem,
+  and says there is no known workaround for an affected Windows-hosted application; it is the
+  August 2026 release blog (`nextjs.org/blog/august-2026-security-release`) that states Linux and
+  macOS are unaffected. This deploys to Vercel. It is a property of the hosting target, not of
+  this code, so it says nothing about the pin - a Windows host running 15.2.9 is affected, with no
+  workaround short of 15.5.24 / 16.3.3. Re-evaluate this line if the hosting target ever changes.
 - The rest of the advisory-database set against 15.2.9 - nine further high, fourteen moderate
   and two low. Their individual floors vary, and the one that matters is the highest, not the
   lowest: clearing the whole set needs **15.5.21 or 16.2.11**. Eight of the twenty-six are not
-  cleared by 15.5.16 (seven need 15.5.21, one needs 15.5.18), so 15.5.16 is itself affected by
-  seven advisories it would appear to resolve. Adding the two criticals below pushes the real
-  target to 15.5.24 / 16.3.3. Those two criticals are not in this set at all; they were still
-  repository-only advisories when this was measured, which is the point of checking more than
-  `pnpm audit`. Counts and floors measured 2026-09-02 - re-measure rather than trusting them,
-  because the set grows.
+  cleared by 15.5.16 (seven need 15.5.21, one needs 15.5.18), and 15.5.16 is below every one of
+  those floors, so it is itself affected by all **eight** advisories it would appear to resolve,
+  not only the seven that need 15.5.21. Named, with the floor each needs:
+  GHSA-26hh-7cqf-hhc6 (high) at 15.5.18; and GHSA-89xv-2m56-2m9x (high), GHSA-m99w-x7hq-7vfj
+  (high), GHSA-p9j2-gv94-2wf4 (high, the SSRF bullet above), GHSA-4633-3j49-mh5q (moderate),
+  GHSA-4c39-4ccg-62r3 (moderate), GHSA-68g3-v927-f742 (moderate) and GHSA-955p-x3mx-jcvp
+  (moderate) at 15.5.21. Moving to 15.5.16 also opens one that never affected the 15.2 line at
+  all - GHSA-q8wf-6r8g-63ch / CVE-2026-64644, moderate, image-optimization DoS via SVG, itself
+  fixed at 15.5.21 - so `next@15.5.16` answers with nine advisories, not eight. Adding the two
+  criticals above pushes the real target to 15.5.24 / 16.3.3. Those two criticals are not in this
+  advisory-database set at all; they were still repository-only advisories when this was measured,
+  which is the point of checking more than `pnpm audit`. Counts and floors measured 2026-09-02 -
+  re-measure rather than trusting them, because the set grows.
 
 ### The 15.2 line is end-of-life
 
@@ -626,15 +647,40 @@ sentence if Clerk itself is upgraded.
 ### Checking a candidate version
 
 A clean `pnpm audit` is necessary and not sufficient. Vercel publishes some advisories to the
-vercel/next.js repository before OSV and the GitHub advisory database ingest them, so all three
-were measured for this pin and all three are needed:
+vercel/next.js repository before OSV and the GitHub advisory database ingest them, so `pnpm audit`
+and OSV can both come back clean while a critical affecting the candidate is already public. Step 2
+below is the step that catches those, and it is where both criticals in the open list came from.
+Set `V` to the candidate; it is set to the current pin here because this recipe was run that way:
 
 ```bash
-pnpm audit                                   # GitHub advisory database, via the lockfile
-npm view next@<candidate> deprecated         # names the advisory blog for a superseded release
+V=15.2.9
+
+# 1. advisory-database set, with each advisory's own fix floors on the 15.5 and 16 lines
 curl -s -X POST https://api.osv.dev/v1/query \
-  -d '{"package":{"name":"next","ecosystem":"npm"},"version":"<candidate>"}'
+  -d "{\"package\":{\"name\":\"next\",\"ecosystem\":\"npm\"},\"version\":\"$V\"}" \
+  | jq -r '.vulns[] | . as $v | [ $v.database_specific.severity, $v.id,
+    ([$v.affected[].ranges[].events[].fixed // empty | select(startswith("15.5."))] | join(",")),
+    ([$v.affected[].ranges[].events[].fixed // empty | select(startswith("16."))] | join(",")) ] | @tsv' | sort
+
+# 2. repository-only advisories - published by vercel/next.js before OSV and the
+# GitHub advisory database ingest them, so step 1 and pnpm audit cannot see them
+gh api "repos/vercel/next.js/security-advisories?per_page=100" \
+  --jq '.[] | select(.state=="published") | [.severity, .ghsa_id, (.vulnerabilities|map(.vulnerable_version_range)|join("; "))] | @tsv' \
+  | grep -E 'critical|high'
+
+# 3. npm deprecation for the candidate - empty output means not deprecated
+npm view "next@$V" deprecated
 ```
+
+Run against the pin, this recipe regenerates the section above rather than merely illustrating it,
+which is the point: a check that cannot reproduce the list beside it cannot fail either. Step 1
+returned exactly 26 advisories, split ten high / fourteen moderate / two low, matching the counts
+and every floor quoted above. Step 2 returned both repository-only criticals with ranges covering
+15.2.9 - GHSA-2xp9-vwfh-vxw4 at `>= 10.0.0 < 15.5.24` and GHSA-p293-qw3h-jr36 at
+`>= 13.4 < 15.5.24` - neither of which appears in step 1. Step 3 returned nothing, which is what a
+version carrying no deprecation notice looks like; for a superseded release it instead names the
+advisory blog. `pnpm audit` against the lockfile is still worth running, but it reads the same
+GitHub advisory database step 1 covers, so it is a cross-check rather than a fourth source.
 
 Then read the security posts on nextjs.org/blog for anything newer than the databases carry, and
 confirm the `@clerk/nextjs` peer range still admits the candidate (`pnpm install` reports an unmet
