@@ -457,8 +457,8 @@ over the paths directly.
 
 ## The web app's Next.js pin
 
-`apps/diaz-ondemand-web` pins `next` exactly, no caret, and the floor is set by three
-independent constraints rather than by "latest". Re-derive all three before moving it:
+`apps/diaz-ondemand-web` pins `next` exactly, no caret, and the floor is set by four
+independent constraints rather than by "latest". Re-derive all four before moving it:
 
 - Vercel refuses to build a version vulnerable to CVE-2025-66478 (React2Shell, GHSA-9qr9-h5gf-34mp,
   CVSS 10.0 RCE in the RSC flight protocol). This is a hard build failure - "Vulnerable version of
@@ -471,6 +471,9 @@ independent constraints rather than by "latest". Re-derive all three before movi
   6.37.5 asks `^13.5.7 || ^14.2.25 || ^15.2.3 || ^16`. Read the installed package's
   `peerDependencies` rather than assuming; an unmet `next` peer in `pnpm install` output is the
   signal.
+- GHSA-h25m-26qc-wcjf (HIGH, App Router RSC request-deserialization DoS) is fixed at 15.2.9 in
+  this line, and it is the only one of the four that 15.2.8 does not satisfy. Without it the other
+  three re-derive to 15.2.8, so it is the reason the pin reads 15.2.9 and not one patch lower.
 
 Check npm's deprecation notices, not just the advisory ranges: Vercel deprecates superseded
 security releases with the blog URL that explains them, so `npm view next@<v> deprecated` names the
