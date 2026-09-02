@@ -532,6 +532,89 @@ mux webhooks listen --forward-to http://localhost:4000/webhooks/mux
 mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhooks/mux
 ```
 
+## Next.js Version Floor
+
+`apps/diaz-ondemand-web` pins `next` exactly. `AGENTS.md` carries the rule; this section carries
+the evidence, so the next person moving the pin can re-derive it instead of guessing. **Current
+pin: 15.2.9.**
+
+### Why 15.2.9, and not lower
+
+The safe version is the intersection of five constraints, not the newest release. Each floor is
+the lowest version that satisfies that one constraint on the 15.2 line.
+
+| Constraint | Floor | Why it binds |
+| --- | --- | --- |
+| CVE-2025-66478 / GHSA-9qr9-h5gf-34mp - React2Shell, critical, CVSS 10.0, RCE in the RSC flight protocol | 15.2.6 | Vercel fails the build outright: "Vulnerable version of Next.js detected". This is the only advisory the deploy gate is keyed to. |
+| CVE-2025-55183 (source code exposure) and CVE-2025-55184 (DoS), plus the incomplete-fix CVE-2025-67779 / GHSA-5j59-xgg2-r9c4 | 15.2.8 | The 2025-12-11 follow-ups. npm security-deprecates 15.2.6 and 15.2.7 for these, so a version that clears React2Shell can still be deprecated. |
+| GHSA-h25m-26qc-wcjf - high, App Router RSC request-deserialization DoS | 15.2.9 | The only one of the five that 15.2.8 does not satisfy, and therefore the reason the pin is 15.2.9. |
+| CVE-2025-29927 - `x-middleware-subrequest` authorization bypass | 15.2.3 | `middleware.ts` is the app's only authorization boundary. Vercel-hosted deployments were architecturally not exploitable, because Vercel runs routing out of process, but the floor still holds for `next start` and local runs. |
+| `@clerk/nextjs` 6.37.5 peer range on `next` | 15.2.3 | `^13.5.7 || ^14.2.25 || ^15.2.3 || ^16`. The previous pin, 15.1.7, did not satisfy it. |
+
+### What is still open at 15.2.9, and under what conditions
+
+None of these has a fix inside the 15.2 line, so none is closable without a minor upgrade. They
+are recorded with the condition each one needs, because "affected by version range" and
+"reachable in this app" are different questions.
+
+- **GHSA-p9j2-gv94-2wf4 / CVE-2026-64645** - high, SSRF via `rewrites()` with an
+  attacker-controlled destination hostname. Fixed in 15.5.21 / 16.2.11. **Not reachable here.**
+  The advisory needs a `rewrites()` or `redirects()` rule that interpolates a dynamic segment
+  into an *external* destination hostname (`destination: 'https://:tenant.api.example.com'`).
+  `apps/diaz-ondemand-web/next.config.ts` declares neither, and is the repo's only Next config.
+  The repo's single `rewrites` entry is `apps/api/vercel.json` (`/(.*)` to `/api`) - a Vercel
+  platform rewrite in a different app, with a relative destination and no hostname to make
+  dynamic. The web app makes exactly one server-side request, `lib/api-shared.ts`
+  (a single `fetch()` over `apiBaseUrl` plus a path), whose host is `NEXT_PUBLIC_API_URL` from the
+  environment and never from the request; nothing reads `headers()`, `host` or
+  `x-forwarded-host` to build a URL.
+  The `Response.redirect(req.nextUrl.clone())` in `middleware.ts` looks similar and is not the
+  same shape: no destination template, no external host, and `pathname`/`search` overwritten with
+  constants. Measured - a poisoned `Host:` or `X-Forwarded-Host:` still yields the server's own
+  origin.
+- **GHSA-2xp9-vwfh-vxw4** - critical, unauthenticated RCE in the Image Optimization API via
+  libheif/`sharp` when Next optimizes an attacker-controlled AVIF. Fixed in 15.5.24 / 16.3.3.
+  **Not reachable here.** The app imports `next/image` nowhere and sets no `images` config, and
+  the installed defaults are `formats: ["image/webp"]` with empty `remotePatterns` and `domains`,
+  so AVIF is never produced and the optimizer accepts no external source.
+- **CVE-2026-75604 / GHSA-p293-qw3h-jr36** - critical, unauthenticated RCE on Windows-hosted
+  servers. Fixed in 15.5.24 / 16.3.3. **Not applicable.** The advisory states Linux and macOS are
+  unaffected; this deploys to Vercel.
+- The rest of the advisory-database set against 15.2.9 - nine further high, fourteen moderate
+  and two low - all needing 15.5.16+ or 16.x. The two criticals above are not in that set;
+  they were still repository-only advisories when this was measured, which is the point of
+  checking more than `pnpm audit`.
+
+### The 15.2 line is end-of-life
+
+Next.js supports 16.3 (Active LTS) and 15.5 (Maintenance LTS). 15.2 receives no further security
+patches, so this pin is a stopgap that clears the deploy block, not a resting place. Moving to
+15.5.x is a minor upgrade and a separate decision - it re-opens Clerk peer compatibility and the
+middleware/route behaviour checks below.
+
+### Checking a candidate version
+
+A clean `pnpm audit` is necessary and not sufficient. Vercel publishes some advisories to the
+vercel/next.js repository before OSV and the GitHub advisory database ingest them, so all three
+were measured for this pin and all three are needed:
+
+```bash
+pnpm audit                                   # GitHub advisory database, via the lockfile
+npm view next@<candidate> deprecated         # names the advisory blog for a superseded release
+curl -s -X POST https://api.osv.dev/v1/query \
+  -d '{"package":{"name":"next","ecosystem":"npm"},"version":"<candidate>"}'
+```
+
+Then read the security posts on nextjs.org/blog for anything newer than the databases carry, and
+confirm the `@clerk/nextjs` peer range still admits the candidate (`pnpm install` reports an unmet
+`next` peer when it does not).
+
+After changing the pin, re-verify what the bump could silently break: the route set and its
+static/dynamic classification, the middleware response matrix (coming-soon on, Clerk configured,
+Clerk unconfigured), that `/account`, `/favorites`, `/subscribe` and `/admin` still gate while
+everything else stays permitted, and that the Clerk catch-all check in
+[Clerk Setup Notes](#clerk-setup-notes-web--expo) still answers 200.
+
 ## Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
 - API deploy: its own Vercel project, rooted at `apps/api`, running as serverless functions.

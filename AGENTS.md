@@ -457,32 +457,24 @@ over the paths directly.
 
 ## The web app's Next.js pin
 
-`apps/diaz-ondemand-web` pins `next` exactly, no caret, and the floor is set by four
-independent constraints rather than by "latest". Re-derive all four before moving it:
+`apps/diaz-ondemand-web` pins `next` exactly, no caret, because the safe version is an
+intersection of several constraints rather than "latest". Do not move it by picking a newer
+version; re-derive the floor, and record the result. The constraints, the advisory evidence
+behind the current pin, and which advisories stay open at it are in the "Next.js Version Floor"
+section of README.md.
 
-- Vercel refuses to build a version vulnerable to CVE-2025-66478 (React2Shell, GHSA-9qr9-h5gf-34mp,
-  CVSS 10.0 RCE in the RSC flight protocol). This is a hard build failure - "Vulnerable version of
-  Next.js detected" - not a warning, and it is keyed to that one CVE. The escape hatch
+Three things that decide the answer and are easy to skip:
+
+- Vercel fails the *build* for a version vulnerable to CVE-2025-66478, so a version can be
+  current on advisories and still be undeployable. Its escape hatch
   (`DANGEROUSLY_DEPLOY_VULNERABLE_CVE_2025_66478=1`) must not be used.
-- CVE-2025-29927, the `x-middleware-subrequest` authorization bypass, needs >= 15.2.3. `middleware.ts`
-  is the app's only authorization boundary, so this floor is load-bearing even though Vercel-hosted
-  deployments were architecturally not exploitable (Vercel runs routing out of process).
-- `@clerk/nextjs` declares a `next` peer range that already excludes the vulnerable versions -
-  6.37.5 asks `^13.5.7 || ^14.2.25 || ^15.2.3 || ^16`. Read the installed package's
-  `peerDependencies` rather than assuming; an unmet `next` peer in `pnpm install` output is the
-  signal.
-- GHSA-h25m-26qc-wcjf (HIGH, App Router RSC request-deserialization DoS) is fixed at 15.2.9 in
-  this line, and it is the only one of the four that 15.2.8 does not satisfy. Without it the other
-  three re-derive to 15.2.8, so it is the reason the pin reads 15.2.9 and not one patch lower.
-
-Check npm's deprecation notices, not just the advisory ranges: Vercel deprecates superseded
-security releases with the blog URL that explains them, so `npm view next@<v> deprecated` names the
-advisory directly. That is how 15.2.6 and 15.2.7 are caught - both fix React2Shell yet are
-themselves deprecated for the 2025-12-11 follow-ups (CVE-2025-55183/55184 and the incomplete-fix
-CVE-2025-67779). `npx fix-react2shell-next` prints Vercel's own per-line recommendation.
-
-Staying inside a patch line is the cheap move; the advisories that remain open at 15.2.9 have no
-15.2-line fix at all and need 15.5.16+ or 16.x, which is a minor jump and a separate decision.
+- `pnpm audit` and OSV are necessary and not sufficient. Vercel publishes some advisories to
+  the vercel/next.js repository before the global databases ingest them, so a clean audit can
+  coexist with an unlisted critical - measured, not hypothetical. Also read
+  `npm view next@<v> deprecated`, which names the advisory blog for a superseded release, and
+  the security posts on nextjs.org/blog.
+- `@clerk/nextjs` constrains `next` through its peer range. Read the installed package's
+  `peerDependencies`; an unmet `next` peer in `pnpm install` output is the signal.
 
 ## Catalogue video states
 
