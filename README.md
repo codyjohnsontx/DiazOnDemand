@@ -681,15 +681,16 @@ gh api --paginate "repos/vercel/next.js/security-advisories?per_page=100" \
 npm view "next@$V" deprecated
 ```
 
-Those three hardening details are the difference between a check and the appearance of one, so do
-not simplify them away. `curl -fsS` fails on an HTTP error instead of piping an error page into
-`jq`; `(.vulns // [])[]` distinguishes a genuinely clean candidate from a malformed response
-instead of erroring on both; and `set -euo pipefail` makes a failure anywhere in the pipeline stop
-the script rather than letting `sort` return 0 over nothing. Without them an OSV outage prints an
-empty advisory list and exits successfully - indistinguishable from a clean candidate, which is the
-one wrong answer this recipe must never give. Measured both ways: run normally it exits 0 and
-returns the 26 rows below; run with the OSV endpoint unreachable it exits 56 and prints the curl
-error, where the unhardened version exited 0 and printed nothing.
+Those hardening details, `--paginate` in step 2 included, are the difference between a check and
+the appearance of one, so do not simplify any of them away. `curl -fsS` fails on an HTTP error
+instead of piping an error page into `jq`; `(.vulns // [])[]` distinguishes a genuinely clean
+candidate from a malformed response instead of erroring on both; and `set -euo pipefail` makes a
+failure anywhere in the pipeline stop the script rather than letting `sort` return 0 over nothing.
+Without those three an OSV outage prints an empty advisory list and exits successfully -
+indistinguishable from a clean candidate, which is the one wrong answer this recipe must never
+give. Measured both ways: run normally it exits 0 and returns the 26 rows below; run with the OSV
+endpoint unreachable it exits 56 and prints the curl error, where the unhardened version exited 0
+and printed nothing.
 
 Run against the pin, this recipe regenerates the section above rather than merely illustrating it,
 which is the point: a check that cannot reproduce the list beside it cannot fail either. Step 1
