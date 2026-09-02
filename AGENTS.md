@@ -470,9 +470,10 @@ Three things that decide the answer and are easy to skip:
   (`DANGEROUSLY_DEPLOY_VULNERABLE_CVE_2025_66478=1`) must not be used.
 - `pnpm audit` and OSV are necessary and not sufficient. Vercel publishes some advisories to
   the vercel/next.js repository before the global databases ingest them, so a clean audit can
-  coexist with an unlisted critical - measured, not hypothetical. Also read
-  `npm view next@<v> deprecated`, which names the advisory blog for a superseded release, and
-  the security posts on nextjs.org/blog.
+  coexist with an unlisted critical - measured, not hypothetical. Querying that repository
+  directly is the step that catches those, and it is where both criticals open at the current
+  pin came from. Run the whole recipe, not part of it: "Checking a candidate version" in
+  README.md is the authoritative copy.
 - `@clerk/nextjs` constrains `next` through its peer range. Read the installed package's
   `peerDependencies`; an unmet `next` peer in `pnpm install` output is the signal.
 
