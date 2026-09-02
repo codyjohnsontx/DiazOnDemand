@@ -546,7 +546,7 @@ the lowest version that satisfies that one constraint on the 15.2 line.
 | Constraint | Floor | Why it binds |
 | --- | --- | --- |
 | CVE-2025-66478 / GHSA-9qr9-h5gf-34mp - React2Shell, critical, CVSS 10.0, RCE in the RSC flight protocol | 15.2.6 | Vercel fails the build outright: "Vulnerable version of Next.js detected". This is the only advisory the deploy gate is keyed to. |
-| CVE-2025-55183 (source code exposure) and CVE-2025-55184 (DoS), plus the incomplete-fix CVE-2025-67779 / GHSA-5j59-xgg2-r9c4 | 15.2.8 | The 2025-12-11 follow-ups. npm security-deprecates 15.2.6 and 15.2.7 for these, so a version that clears React2Shell can still be deprecated. |
+| The 2025-12-11 follow-ups: CVE-2025-55183 (source code exposure) and CVE-2025-55184 (DoS), then the incomplete-fix CVE-2025-67779 / GHSA-5j59-xgg2-r9c4 | 15.2.8 | 15.2.8 is the floor for the group, but not for each member: 55183 and 55184 are both fixed at 15.2.7, and it is 67779 - the incomplete fix for 55184, introduced by 15.2.7 itself - that requires 15.2.8. That is also why npm security-deprecates 15.2.7 as well as 15.2.6, so a version clearing React2Shell can still be deprecated. |
 | GHSA-h25m-26qc-wcjf - high, App Router RSC request-deserialization DoS | 15.2.9 | The only one of the five that 15.2.8 does not satisfy, and therefore the reason the pin is 15.2.9. |
 | CVE-2025-29927 - `x-middleware-subrequest` authorization bypass | 15.2.3 | `middleware.ts` is the app's only authorization boundary. Vercel-hosted deployments were architecturally not exploitable, because Vercel runs routing out of process, but the floor still holds for `next start` and local runs. |
 | `@clerk/nextjs` 6.37.5 peer range on `next` | 15.2.3 | `^13.5.7 \|\| ^14.2.25 \|\| ^15.2.3 \|\| ^16`. The previous pin, 15.1.7, did not satisfy it. |
@@ -594,19 +594,34 @@ are recorded with the condition each one needs, because "affected by version ran
   negotiated through the `Accept` header, while the advisory fires on *decoding* an
   attacker-supplied AVIF *input*.
 - **CVE-2026-75604 / GHSA-p293-qw3h-jr36** - critical, unauthenticated RCE on Windows-hosted
-  servers. Fixed in 15.5.24 / 16.3.3. **Not applicable.** The advisory states Linux and macOS are
-  unaffected; this deploys to Vercel.
+  servers, in applications using the Pages and App routers without Cache Components. Fixed in
+  15.5.24 / 16.3.3, outside the 15.2 line. **Not applicable to this deployment**, and the
+  qualifier is the whole claim: the advisory states Linux and macOS are unaffected, and this
+  deploys to Vercel. It is a property of the hosting target, not of this code, so it says nothing
+  about the pin - a Windows host running 15.2.9 is affected, with no workaround short of
+  15.5.24 / 16.3.3. Re-evaluate this line if the hosting target ever changes.
 - The rest of the advisory-database set against 15.2.9 - nine further high, fourteen moderate
-  and two low - all needing 15.5.16+ or 16.x. The two criticals above are not in that set;
-  they were still repository-only advisories when this was measured, which is the point of
-  checking more than `pnpm audit`.
+  and two low. Their individual floors vary, and the one that matters is the highest, not the
+  lowest: clearing the whole set needs **15.5.21 or 16.2.11**. Eight of the twenty-six are not
+  cleared by 15.5.16 (seven need 15.5.21, one needs 15.5.18), so 15.5.16 is itself affected by
+  seven advisories it would appear to resolve. Adding the two criticals below pushes the real
+  target to 15.5.24 / 16.3.3. Those two criticals are not in this set at all; they were still
+  repository-only advisories when this was measured, which is the point of checking more than
+  `pnpm audit`. Counts and floors measured 2026-09-02 - re-measure rather than trusting them,
+  because the set grows.
 
 ### The 15.2 line is end-of-life
 
 Next.js supports 16.3 (Active LTS) and 15.5 (Maintenance LTS). 15.2 receives no further security
-patches, so this pin is a stopgap that clears the deploy block, not a resting place. Moving to
-15.5.x is a minor upgrade and a separate decision - it re-opens Clerk peer compatibility and the
-middleware/route behaviour checks below.
+patches - every advisory above that postdates the line has fixes only on 15.5 and 16 - so this pin
+is a stopgap that clears the deploy block, not a resting place. Moving to 15.5.x is a minor upgrade
+and a separate decision, and it reopens the middleware and route behaviour checks below.
+
+It does **not** reopen Clerk compatibility, which is worth stating because it looks like it should:
+`@clerk/nextjs` 6.37.5 asks `^13.5.7 || ^14.2.25 || ^15.2.3 || ^16`, and every candidate above -
+15.5.16, 15.5.21, 15.5.24, 16.2.11, 16.3.3 - satisfies it. The only version in this document that
+fails that range is the old 15.1.7. Re-check against the installed package rather than this
+sentence if Clerk itself is upgraded.
 
 ### Checking a candidate version
 
