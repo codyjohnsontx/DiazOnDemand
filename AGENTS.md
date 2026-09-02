@@ -455,6 +455,32 @@ Neither announces itself. Both are pathname-only decisions, so a route-shape cha
 them by itself - assert it rather than assume it, by running the two matchers from `middleware.ts`
 over the paths directly.
 
+## The web app's Next.js pin
+
+`apps/diaz-ondemand-web` pins `next` exactly, no caret, and the floor is set by three
+independent constraints rather than by "latest". Re-derive all three before moving it:
+
+- Vercel refuses to build a version vulnerable to CVE-2025-66478 (React2Shell, GHSA-9qr9-h5gf-34mp,
+  CVSS 10.0 RCE in the RSC flight protocol). This is a hard build failure - "Vulnerable version of
+  Next.js detected" - not a warning, and it is keyed to that one CVE. The escape hatch
+  (`DANGEROUSLY_DEPLOY_VULNERABLE_CVE_2025_66478=1`) must not be used.
+- CVE-2025-29927, the `x-middleware-subrequest` authorization bypass, needs >= 15.2.3. `middleware.ts`
+  is the app's only authorization boundary, so this floor is load-bearing even though Vercel-hosted
+  deployments were architecturally not exploitable (Vercel runs routing out of process).
+- `@clerk/nextjs` declares a `next` peer range that already excludes the vulnerable versions -
+  6.37.5 asks `^13.5.7 || ^14.2.25 || ^15.2.3 || ^16`. Read the installed package's
+  `peerDependencies` rather than assuming; an unmet `next` peer in `pnpm install` output is the
+  signal.
+
+Check npm's deprecation notices, not just the advisory ranges: Vercel deprecates superseded
+security releases with the blog URL that explains them, so `npm view next@<v> deprecated` names the
+advisory directly. That is how 15.2.6 and 15.2.7 are caught - both fix React2Shell yet are
+themselves deprecated for the 2025-12-11 follow-ups (CVE-2025-55183/55184 and the incomplete-fix
+CVE-2025-67779). `npx fix-react2shell-next` prints Vercel's own per-line recommendation.
+
+Staying inside a patch line is the cheap move; the advisories that remain open at 15.2.9 have no
+15.2-line fix at all and need 15.5.16+ or 16.x, which is a minor jump and a separate decision.
+
 ## Catalogue video states
 
 A published lesson may resolve to exactly one of three states, and nothing else: real
@@ -576,7 +602,7 @@ the read path refuses never leaves `publicVideoIdentifiers`, at any access level
 Two copies of `@types/react` are correct and must both stay: `apps/mobile` runs react 18.3.1
 and pins `^18`, while `apps/diaz-ondemand-web` and `packages/ui` run react 19 and pin `^19`.
 
-`next@15.1.7`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
+`next@15.2.9`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
 each declare `react` as a peer but not `@types/react`, even though their shipped `.d.ts` files
 import React types. pnpm therefore links no `@types/react` beside them, and TypeScript falls
 through to pnpm's hoisted fallback store, `node_modules/.pnpm/node_modules/@types/react`,
