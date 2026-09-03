@@ -326,7 +326,12 @@ the reason it exists is stated with it.
   the Mux one never sits next to a signed url - `publicVideoIdentifiers` in
   `apps/api/src/content/lesson-presentation.ts` nulls `muxPlaybackId` and `youtubeVideoId`
   together, and `mapAdminLessonSummary` puts them back for the admin routes only. One rule for
-  every provider, so a new one cannot be added past it. `/programs`, `/programs/:id` and
+  every provider, so a new one cannot be added past it - and that completeness is the property,
+  not the exposure of any one field. `muxAssetId` is listed in that same function and answered
+  null at every access level, because it is admin-only; it was read straight off the row in
+  `mapLessonDetail` until it was routed through the gate, and the fix was worth making for the
+  property even though the field addresses no stream. Add a new identifier to that function or
+  it is not covered. `/programs`, `/programs/:id` and
   `/courses/:id` take no authentication, and neither id is a name for a video, it is the whole
   address of one: `stream.mux.com/<id>.m3u8` plays a public-policy Mux asset for anyone holding
   it, and a YouTube video id plays at youtube.com for anyone holding it unless that video is

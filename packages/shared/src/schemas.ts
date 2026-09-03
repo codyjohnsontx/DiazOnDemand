@@ -131,15 +131,16 @@ export const programWithContentSchema = programSchema.extend({
 // *summary* payloads, which are built from lessonSummarySchema and are what
 // `/programs`, `/programs/:id` and `/courses/:id` answer.
 //
-// The lesson *detail* payload does carry it: `mapLessonDetail` emits `muxAssetId`
-// at the top level, `GET /lessons/:id` resolves with `getOptionalUser`, and
-// `ContentService.getLesson` only throws 402 for PAID - so a FREE published
-// lesson's asset id reaches an unauthenticated caller. That is deliberate for
-// now rather than overlooked. An asset id is an ingestion handle and addresses
-// no video: it plays nothing without Mux API credentials, unlike a playback id,
-// which is the whole address of a stream. So the PAID provider-identifier
-// invariant in AGENTS.md is not weakened by it. Whether the detail payload
-// should withhold it too is tracked separately.
+// The lesson *detail* payload keeps the field on its type but no longer carries
+// a value: `mapLessonDetail` takes it from `publicVideoIdentifiers`, the same
+// gate the two playback identifiers go through, and that gate answers null for
+// the asset id at every access level. It used to be read straight off the row
+// outside the gate, so a FREE published lesson's asset id reached an
+// unauthenticated caller of `GET /lessons/:id` (`getOptionalUser`, 402 only for
+// PAID). The exposure was narrow - an asset id is an ingestion handle that
+// addresses no video and does nothing without Mux API credentials - but "one
+// rule for every provider identifier" was false as a property, and that was the
+// defect worth closing.
 export const adminLessonSummarySchema = lessonSummarySchema.extend({
   muxAssetId: z.string().nullable().optional(),
 });

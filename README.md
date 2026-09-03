@@ -458,7 +458,10 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   video is Private. So `publicVideoIdentifiers` in
   `apps/api/src/content/lesson-presentation.ts` nulls `muxPlaybackId` and `youtubeVideoId`
   together for paid lessons, on both the summary and the detail payload - one rule for every
-  provider, so a new one cannot be added past it. The entitlement-gated handles built in
+  provider, so a new one cannot be added past it. `muxAssetId` is listed in the same function
+  and answered null at every access level: it is admin-only, and it belongs there so the rule
+  covers every stored provider identifier rather than only the two that address a stream.
+  The entitlement-gated handles built in
   `mapLessonDetail` are what an entitled member watches with: the signed `playbackUrl` for
   Mux, the `embedUrl` for YouTube. `mapAdminLessonSummary` puts the real ids back for the
   `ADMIN`/`COACH`-guarded admin routes, which is where admins type them in. A `FREE` lesson's
