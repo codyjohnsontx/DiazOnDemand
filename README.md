@@ -461,14 +461,14 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   provider, so a new one cannot be added past it. `muxAssetId` is listed in the same function
   and answered null at every access level: it is admin-only, and it belongs there so the rule
   covers every stored provider identifier rather than only the two that address a stream.
-  The entitlement-gated handles built in
-  `mapLessonDetail` are what an entitled member watches with: the signed `playbackUrl` for
-  Mux, the `embedUrl` for YouTube. `mapAdminLessonSummary` puts the real ids back for the
-  `ADMIN`/`COACH`-guarded admin routes, which is where admins type them in. A `FREE` lesson's
-  identifiers stay public on purpose, subject to one limit that applies at every access level:
-  `publicVideoIdentifiers` emits only the identifier of the provider the lesson actually
-  resolves to, so an id the read path refuses - see "Catalogue Video States" above - is never
-  handed out, and neither is an id belonging to a provider the lesson does not play on.
+  The entitlement-gated handles built in `mapLessonDetail` are what an entitled member watches
+  with: the signed `playbackUrl` for Mux, the `embedUrl` for YouTube. `mapAdminLessonSummary`
+  puts the real ids back for the `ADMIN`/`COACH`-guarded admin routes, which is where admins
+  type them in. A `FREE` lesson's playback identifiers stay public on purpose, subject to one
+  limit that applies at every access level: `publicVideoIdentifiers` emits only the identifier
+  of the provider the lesson actually resolves to, so an id the read path refuses - see
+  "Catalogue Video States" above - is never handed out, and neither is an id belonging to a
+  provider the lesson does not play on.
   Withholding the id on the detail payload is also what keeps signed playback working:
   measured against `@mux/mux-player` 3.11.4 in Chrome, a player handed both a `playbackId`
   and a signed `src` requests `stream.mux.com/<id>.m3u8?redundant_streams=true` and drops

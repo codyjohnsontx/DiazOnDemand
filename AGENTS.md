@@ -331,9 +331,9 @@ the reason it exists is stated with it.
   null at every access level, because it is admin-only; it was read straight off the row in
   `mapLessonDetail` until it was routed through the gate, and the fix was worth making for the
   property even though the field addresses no stream. Add a new identifier to that function or
-  it is not covered. `/programs`, `/programs/:id` and
-  `/courses/:id` take no authentication, and neither id is a name for a video, it is the whole
-  address of one: `stream.mux.com/<id>.m3u8` plays a public-policy Mux asset for anyone holding
+  it is not covered. `/programs`, `/programs/:id` and `/courses/:id` take no authentication, and
+  neither playback id is a name for a video, it is the whole address of one:
+  `stream.mux.com/<id>.m3u8` plays a public-policy Mux asset for anyone holding
   it, and a YouTube video id plays at youtube.com for anyone holding it unless that video is
   Private. Nothing ties `accessLevel` to `videoProvider` in `admin.service.ts`, so PAID plus
   YOUTUBE is saveable even though every seeded YouTube lesson is FREE. What an entitled member
