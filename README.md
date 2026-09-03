@@ -127,8 +127,14 @@ but listing it does not make an example-only copy work, which is why the `cp` ab
 conditional. The bypass flags being `false` is not the trigger: the same example previously
 shipped `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable key and no
 secret key, and `500`s identically. The middleware behaviour is not new, but copying that
-example is what puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, the
-web app starts and serves pages normally, with no Clerk error.
+example is what puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`,
+`pnpm dev` starts and serves every route with no Clerk error, protected ones included, while a
+production build of that same tree refuses every route, `/` included, with `Missing
+publishableKey`. Both measured on `@clerk/nextjs` 6.37.5, whose `canUseKeyless` sends
+development to a keyless middleware that returns `NextResponse.next()` before either key
+assertion or our own handler runs - so the `Clerk misconfigured for protected route` branch in
+`middleware.ts` is real code that never executes in dev, and must not be read as what a missing
+`.env` does.
 
 What actually works, each verified by running it:
 - **Local bypass (fastest), and the recommended local setup:** set `DEV_BYPASS_AUTH=true` in
@@ -145,9 +151,11 @@ What actually works, each verified by running it:
   Sign In. The web client sends no token, so the API resolves its calls as the seeded admin.
   Note that `/admin/programs` is one of the protected routes listed in
   `apps/diaz-ondemand-web/middleware.ts`, so reading that file alone would suggest it cannot
-  render here. The behaviour above is what the running app does, measured rather than derived;
-  the mechanism is not fully understood, so re-test it after a Clerk upgrade instead of
-  assuming this still holds.
+  render here. The mechanism is Clerk's keyless development mode, measured on `@clerk/nextjs`
+  6.37.5: with no publishable key anywhere, `canUseKeyless` routes the request to a keyless
+  middleware that returns `NextResponse.next()` without ever calling our handler, so no
+  protected-route check runs at all. That short-circuit is development-only and lives in a
+  dependency, so re-test after a Clerk upgrade instead of assuming it still holds.
 - **Real Clerk auth:** put real Clerk credentials - **both** `CLERK_SECRET_KEY` and
   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` - in `apps/diaz-ondemand-web/.env`. Nothing less does it:
   the secret key alone clears `Missing secretKey` but then fails `Publishable key not valid`,
