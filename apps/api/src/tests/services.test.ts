@@ -354,6 +354,81 @@ describe('ContentService', () => {
       ).toBe('freeYoutube');
     });
   });
+
+  // GET /lessons/:id resolves with getOptionalUser, so a FREE published lesson's
+  // detail payload is readable with no credentials at all. It used to carry the
+  // Mux asset id, which mapLessonDetail added outside publicVideoIdentifiers -
+  // the one place that is supposed to decide every provider identifier. The
+  // asset id addresses no stream, so this was never a paid-video leak; the
+  // defect was that the gate's completeness property was false.
+  describe('the mux asset id on an anonymous lesson detail', () => {
+    function lessonService(lesson: object) {
+      return new ContentService(
+        createPrismaService({
+          lesson: { findFirst: vi.fn().mockResolvedValue(lesson) },
+        }),
+      );
+    }
+
+    it('withholds the asset id from an anonymous caller of a free lesson', async () => {
+      const detail = await lessonService(freeCatalogueLesson).getLesson('lesson-free', null);
+
+      expect(detail.muxAssetId).toBeNull();
+      // The lesson is still fully watchable: withholding the ingestion handle
+      // takes nothing away from the member.
+      expect(detail.video.playbackUrl).toBe(
+        'https://stream.mux.com/freePlaybackId00000000000000000001.m3u8',
+      );
+    });
+
+    it('withholds it from an entitled member too, whose detail is the same payload', async () => {
+      const detail = await withDatabaseUrl(LOCAL_DB, () =>
+        lessonService(paidCatalogueLesson).getLesson('lesson-paid', {
+          id: 'user-1',
+          clerkUserId: 'clerk-1',
+          role: Role.STUDENT,
+          entitlementTier: EntitlementTier.PREMIUM,
+        }),
+      );
+
+      expect(detail.muxAssetId).toBeNull();
+    });
+
+    // The one surface that needs it: the lesson editor loads this payload into
+    // its form, and the "Waiting for Mux" badge is derived from this field.
+    it('still gives staff the asset id through the admin projection', () => {
+      expect(mapAdminLessonSummary(freeCatalogueLesson)).toMatchObject({
+        muxAssetId: 'asset-free',
+      });
+      expect(mapAdminLessonSummary(paidCatalogueLesson)).toMatchObject({
+        muxAssetId: 'asset-paid',
+      });
+    });
+
+    // The public summaries have never had the field, and routing the detail
+    // payload's copy through the shared gate must not give them one.
+    it('does not add the field to the public catalogue summaries', async () => {
+      const course = await new ContentService(
+        createPrismaService({
+          course: {
+            findFirst: vi.fn().mockResolvedValue({
+              id: 'course-1',
+              programId: 'program-1',
+              title: 'Course',
+              description: null,
+              orderIndex: 0,
+              isPublished: true,
+              lessons: [freeCatalogueLesson, paidCatalogueLesson],
+            }),
+          },
+        }),
+      ).getCourse('course-1');
+
+      for (const lesson of course.lessons) {
+        expect(lesson).not.toHaveProperty('muxAssetId');
+      }
+    });
+  });
 });
 
 describe('ProgressService', () => {

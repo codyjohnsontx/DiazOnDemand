@@ -102,12 +102,29 @@ export function mapLessonCurriculum(tags: LessonTagLike[] = []) {
  * `embedUrl` for YouTube - are the only handles on a paid video, and they are
  * minted behind the entitlement check in `ContentService.getLesson`. Admins get
  * the real ids back through `mapAdminLessonSummary`.
+ *
+ * `muxAssetId` is listed here because the rule is about provider identifiers,
+ * not about playback addresses. `mapLessonDetail` used to add it *outside* this
+ * function, which made "one rule for every provider" false as a property
+ * whatever that one field was worth: the next identifier could be added the
+ * same way, and the next one might address a stream. Listing every stored
+ * identifier here is what makes the rule checkable in one place.
+ *
+ * Its answer is stricter than the other two, not weaker: never, at any access
+ * level. It is admin-only, exactly as it already was on the summary payloads -
+ * an ingestion handle that addresses no stream and does nothing without Mux API
+ * credentials, whose only readers are the lesson editor and the
+ * `video.asset.ready` webhook that matches on it. `accessLevel` would be the
+ * wrong condition anyway: `ContentService.getLesson` throws 402 for a PAID
+ * lesson before this payload is built, so a PAID-only rule would have withheld
+ * nothing an anonymous caller could reach.
  */
 function publicVideoIdentifiers(lesson: LessonLike) {
   const withheld = lesson.accessLevel === 'PAID';
   const provider = resolveVideoProvider(lesson);
 
   return {
+    muxAssetId: null,
     // An identifier the provider cannot address is never handed out, whatever
     // the access level: it can only produce a hard player error.
     muxPlaybackId:
@@ -115,6 +132,19 @@ function publicVideoIdentifiers(lesson: LessonLike) {
     youtubeVideoId:
       withheld || provider !== VideoProvider.YOUTUBE ? null : (lesson.youtubeVideoId ?? null),
   };
+}
+
+/**
+ * The playback subset of the gate above, for the payloads that carry no
+ * `muxAssetId` field at all - `LessonSummary` has none, and `/programs`,
+ * `/programs/:id` and `/courses/:id` must not grow one. Picked explicitly
+ * rather than spread, so adding an identifier to the gate cannot widen those
+ * payloads by accident.
+ */
+function publicPlaybackIdentifiers(lesson: LessonLike) {
+  const { muxPlaybackId, youtubeVideoId } = publicVideoIdentifiers(lesson);
+
+  return { muxPlaybackId, youtubeVideoId };
 }
 
 /**
@@ -159,7 +189,7 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
     isPublished: lesson.isPublished,
     accessLevel: lesson.accessLevel as LessonSummary['accessLevel'],
     videoProvider,
-    ...publicVideoIdentifiers(lesson),
+    ...publicPlaybackIdentifiers(lesson),
     durationSeconds: lesson.durationSeconds ?? null,
     curriculum: mapLessonCurriculum(lesson.tags ?? []),
   };
@@ -219,7 +249,12 @@ export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }):
 
   return {
     ...summary,
-    muxAssetId: lesson.muxAssetId ?? null,
+    // Through the gate, like every other provider identifier on this payload,
+    // rather than read straight off the row beside it. `GET /lessons/:id`
+    // resolves with `getOptionalUser`, so this payload is anonymous-readable
+    // for a FREE lesson, and the asset id has never been a member's business.
+    // Staff get it from `mapAdminLessonSummary`, which the lesson editor loads.
+    muxAssetId: publicVideoIdentifiers(lesson).muxAssetId,
     tags: lesson.tags
       .map((tag) => ('tag' in tag ? tag.tag : tag))
       .map((tag) => ({ id: ('id' in tag ? tag.id : tag.name) as string, name: tag.name })),
@@ -234,7 +269,7 @@ export function mapLessonDetail(lesson: LessonLike & { tags: LessonTagLike[] }):
       // So leaving the id on this payload does not merely widen the exposure,
       // it is what stops signed playback working. `playbackUrl` and `embedUrl`
       // are the handles.
-      ...publicVideoIdentifiers(lesson),
+      ...publicPlaybackIdentifiers(lesson),
       embedUrl,
     },
   };
