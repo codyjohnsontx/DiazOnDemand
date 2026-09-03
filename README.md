@@ -115,16 +115,20 @@ with no working auth: it rejects the walkthrough below with `401` until you enab
 or configure real Clerk credentials.
 
 Copying the web example is what breaks the web app: with that file in place, `pnpm dev` serves
-HTTP `500` on **every** route, including the unprotected home page `/`. The trigger is an
-`apps/diaz-ondemand-web/.env` that carries a publishable key but no `CLERK_SECRET_KEY` -
-`clerkMiddleware` then throws `@clerk/nextjs: Missing secretKey` in the Edge runtime before any
-provider mounts. `CLERK_SECRET_KEY` ships in the root and `apps/api/.env.example`, but not in
-`apps/diaz-ondemand-web/.env.example`, and that is the file Next.js reads. The bypass flags
-being `false` is not the trigger: the same example previously shipped
-`NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable key and no secret key,
-and `500`s identically. The middleware behaviour is not new, but copying that example is what
-puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, the web app starts
-and serves pages normally, with no Clerk error.
+HTTP `500` on **every** route, including the unprotected home page `/`. `clerkMiddleware`
+asserts both Clerk keys in the Edge runtime before any provider mounts, and both values in the
+example are placeholders, so a verbatim copy throws `Publishable key not valid` on every route.
+Omitting `CLERK_SECRET_KEY` from that file throws `@clerk/nextjs: Missing secretKey` first
+instead, because both assertions are truthiness checks that run before the publishable key is
+ever parsed. That omission used to be the shipped default: `CLERK_SECRET_KEY` was in the root
+and `apps/api/.env.example` but not in `apps/diaz-ondemand-web/.env.example`, which is the file
+Next.js reads. It is listed there now, so the example no longer hides a variable you must set -
+but listing it does not make an example-only copy work, which is why the `cp` above is still
+conditional. The bypass flags being `false` is not the trigger: the same example previously
+shipped `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable key and no
+secret key, and `500`s identically. The middleware behaviour is not new, but copying that
+example is what puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`, the
+web app starts and serves pages normally, with no Clerk error.
 
 What actually works, each verified by running it:
 - **Local bypass (fastest), and the recommended local setup:** set `DEV_BYPASS_AUTH=true` in
