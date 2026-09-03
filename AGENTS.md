@@ -455,6 +455,28 @@ Neither announces itself. Both are pathname-only decisions, so a route-shape cha
 them by itself - assert it rather than assume it, by running the two matchers from `middleware.ts`
 over the paths directly.
 
+## The web app's Next.js pin
+
+`apps/diaz-ondemand-web` pins `next` exactly, no caret, because the safe version is an
+intersection of several constraints rather than "latest". Do not move it by picking a newer
+version; re-derive the floor, and record the result. The constraints, the advisory evidence
+behind the current pin, and which advisories stay open at it are in the "Next.js Version Floor"
+section of README.md.
+
+Three things that decide the answer and are easy to skip:
+
+- Vercel fails the *build* for a version vulnerable to CVE-2025-66478, so a version can be
+  current on advisories and still be undeployable. Its escape hatch
+  (`DANGEROUSLY_DEPLOY_VULNERABLE_CVE_2025_66478=1`) must not be used.
+- `pnpm audit` and OSV are necessary and not sufficient. Vercel publishes some advisories to
+  the vercel/next.js repository before the global databases ingest them, so a clean audit can
+  coexist with an unlisted critical - measured, not hypothetical. Querying that repository
+  directly is the step that catches those, and it is where both criticals open at the current
+  pin came from. Run the whole recipe, not part of it: "Checking a candidate version" in
+  README.md is the authoritative copy.
+- `@clerk/nextjs` constrains `next` through its peer range. Read the installed package's
+  `peerDependencies`; an unmet `next` peer in `pnpm install` output is the signal.
+
 ## Catalogue video states
 
 A published lesson may resolve to exactly one of three states, and nothing else: real
@@ -576,7 +598,7 @@ the read path refuses never leaves `publicVideoIdentifiers`, at any access level
 Two copies of `@types/react` are correct and must both stay: `apps/mobile` runs react 18.3.1
 and pins `^18`, while `apps/diaz-ondemand-web` and `packages/ui` run react 19 and pin `^19`.
 
-`next@15.1.7`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
+`next@15.2.9`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
 each declare `react` as a peer but not `@types/react`, even though their shipped `.d.ts` files
 import React types. pnpm therefore links no `@types/react` beside them, and TypeScript falls
 through to pnpm's hoisted fallback store, `node_modules/.pnpm/node_modules/@types/react`,

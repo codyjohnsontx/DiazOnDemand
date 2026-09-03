@@ -532,6 +532,186 @@ mux webhooks listen --forward-to http://localhost:4000/webhooks/mux
 mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhooks/mux
 ```
 
+## Next.js Version Floor
+
+`apps/diaz-ondemand-web` pins `next` exactly. `AGENTS.md` carries the rule; this section carries
+the evidence, so the next person moving the pin can re-derive it instead of guessing. **Current
+pin: 15.2.9.**
+
+### Why 15.2.9, and not lower
+
+The safe version is the intersection of five constraints, not the newest release. Each floor is
+the lowest version that satisfies that one constraint on the 15.2 line.
+
+| Constraint | Floor | Why it binds |
+| --- | --- | --- |
+| GHSA-9qr9-h5gf-34mp / CVE-2025-55182, named CVE-2025-66478 by Vercel - React2Shell, critical, CVSS 10.0, RCE in the RSC flight protocol | 15.2.6 | Vercel fails the build outright: "Vulnerable version of Next.js detected". This is the only advisory the deploy gate is keyed to. See the identifier note under this table before looking any of the three up. |
+| The 2025-12-11 follow-ups: CVE-2025-55183 (source code exposure) and CVE-2025-55184 (DoS), then the incomplete-fix CVE-2025-67779 / GHSA-5j59-xgg2-r9c4 | 15.2.8 | 15.2.8 is the floor for the group, but not for each member: 55183 and 55184 are both fixed at 15.2.7, and it is 67779 - the incomplete fix for 55184, introduced by 15.2.7 itself - that requires 15.2.8. That is also why npm security-deprecates 15.2.7 as well as 15.2.6, so a version clearing React2Shell can still be deprecated. |
+| GHSA-h25m-26qc-wcjf - high, App Router RSC request-deserialization DoS | 15.2.9 | The only one of the five that 15.2.8 does not satisfy, and therefore the reason the pin is 15.2.9. |
+| CVE-2025-29927 - `x-middleware-subrequest` authorization bypass | 15.2.3 | `middleware.ts` is the app's only authorization boundary. Vercel-hosted deployments were architecturally not exploitable, because Vercel runs routing out of process, but the floor still holds for `next start` and local runs. |
+| `@clerk/nextjs` 6.37.5 peer range on `next` | 15.2.3 | `^13.5.7 \|\| ^14.2.25 \|\| ^15.2.3 \|\| ^16`. The previous pin, 15.1.7, did not satisfy it. |
+
+**Three identifiers, one vulnerability, and one of them looks broken.** `GHSA-9qr9-h5gf-34mp` is
+the advisory record. `CVE-2025-55182` is the identifier the vulnerability databases recognise: NVD
+has it Analyzed, at CVSS 3.1 10.0 CRITICAL, describing the pre-authentication RCE in React Server
+Components. `CVE-2025-66478` is kept in the row above because it is what Vercel's own tooling
+names - the deploy gate, its changelog, the blog at `nextjs.org/blog/CVE-2025-66478`, and the
+escape-hatch variable `DANGEROUSLY_DEPLOY_VULNERABLE_CVE_2025_66478`. Looking `CVE-2025-66478` up
+in NVD returns status **Rejected**, "This CVE is a duplicate of CVE-2025-55182", and GitHub's
+record for the GHSA carries `cve_id: null` while referencing 55182. That is expected and is not a
+sign this row is wrong: search the databases under the GHSA or 55182, and read Vercel's material
+under 66478.
+
+### What is still open at 15.2.9, and under what conditions
+
+None of these has a fix inside the 15.2 line, so none is closable without a minor upgrade. They
+are recorded with the condition each one needs, because "affected by version range" and
+"reachable in this app" are different questions.
+
+- **GHSA-p9j2-gv94-2wf4 / CVE-2026-64645** - high, SSRF via `rewrites()` with an
+  attacker-controlled destination hostname. Fixed in 15.5.21 / 16.2.11. **Not reachable here.**
+  The advisory needs a `rewrites()` or `redirects()` rule that interpolates a dynamic segment
+  into an *external* destination hostname (`destination: 'https://:tenant.api.example.com'`).
+  `apps/diaz-ondemand-web/next.config.ts` declares neither, and is the repo's only Next config.
+  The repo's single `rewrites` entry is `apps/api/vercel.json` (`/(.*)` to `/api`) - a Vercel
+  platform rewrite in a different app, with a relative destination and no hostname to make
+  dynamic. The web app makes exactly one server-side request, `lib/api-shared.ts`
+  (a single `fetch()` over `apiBaseUrl` plus a path), whose host is `NEXT_PUBLIC_API_URL` from the
+  environment and never from the request; nothing reads `headers()`, `host` or
+  `x-forwarded-host` to build a URL.
+  The `Response.redirect(req.nextUrl.clone())` in `middleware.ts` looks similar and is not the
+  same shape: no destination template, no external host, and `pathname`/`search` overwritten with
+  constants. Measured - a poisoned `Host:` or `X-Forwarded-Host:` still yields the server's own
+  origin. Re-running that needs the coming-soon redirect to emit a `Location` at all, and on
+  shipped code it emits none: with `VOD_COMING_SOON=true` every path except `/` answers 500,
+  a separate pre-existing defect that is filed on its own and is not this advisory.
+- **GHSA-2xp9-vwfh-vxw4** - critical, unauthenticated RCE in the Image Optimization API via
+  libheif/`sharp` when Next optimizes an attacker-controlled AVIF. Fixed in 15.5.24 / 16.3.3,
+  which is outside the 15.2 line. **Not reachable here, and for exactly one reason** - stated
+  that way because there is no second one to fall back on. That reason has two halves and needs
+  both. The optimizer's allowlist is empty: `apps/diaz-ondemand-web/next.config.ts` sets no
+  `images` config, so `remotePatterns` and `domains` both keep their `[]` defaults, which
+  confines `/_next/image?url=` to same-origin paths. And the origin serves nothing an attacker
+  can control the bytes of: no `public/` directory, no route handlers (no `route.ts` anywhere
+  under `app/`), no server actions, no upload surface. The allowlist keeps the optimizer on the
+  origin; the bare origin is what leaves it nothing to fetch. Neither half holds alone.
+  So this re-opens at 15.2.9 the moment either half goes - one `remotePatterns` or `domains`
+  entry (Mux thumbnails, an avatar CDN), or any same-origin route that serves user-supplied
+  image bytes. Re-read this bullet before changing image configuration or adding a route handler.
+  Two things that read like reasons and gate nothing, recorded so they are not counted as margin:
+  that the app imports `next/image` nowhere is irrelevant, because the Next server serves
+  `/_next/image` whether or not any component imports it; and the default
+  `formats: ["image/webp"]` is irrelevant, because `images.formats` selects the *output* encoding
+  negotiated through the `Accept` header, while the advisory fires on *decoding* an
+  attacker-supplied AVIF *input*.
+- **CVE-2026-75604 / GHSA-p293-qw3h-jr36** - critical, unauthenticated RCE on Windows-hosted
+  servers, in applications using the Pages and App routers without Cache Components. Fixed in
+  15.5.24 / 16.3.3, outside the 15.2 line. **Not applicable to this deployment**, and the
+  qualifier is the whole claim. Each half of it comes from a different source, so check the right
+  one: the advisory itself scopes the RCE positively, to a server hosted on a Windows filesystem,
+  and says there is no known workaround for an affected Windows-hosted application; it is the
+  August 2026 release blog (`nextjs.org/blog/august-2026-security-release`) that states Linux and
+  macOS are unaffected. This deploys to Vercel. It is a property of the hosting target, not of
+  this code, so it says nothing about the pin - a Windows host running 15.2.9 is affected, with no
+  workaround short of 15.5.24 / 16.3.3. Re-evaluate this line if the hosting target ever changes.
+- The rest of the advisory-database set against 15.2.9 - nine further high, fourteen moderate
+  and two low. Their individual floors vary, and the one that matters is the highest, not the
+  lowest: clearing the whole set needs **15.5.21 or 16.2.11**. Eight of the twenty-six are not
+  cleared by 15.5.16 (seven need 15.5.21, one needs 15.5.18), and 15.5.16 is below every one of
+  those floors, so it is itself affected by all **eight** advisories it would appear to resolve,
+  not only the seven that need 15.5.21. Named, with the floor each needs:
+  GHSA-26hh-7cqf-hhc6 (high) at 15.5.18; and GHSA-89xv-2m56-2m9x (high), GHSA-m99w-x7hq-7vfj
+  (high), GHSA-p9j2-gv94-2wf4 (high, the SSRF bullet above), GHSA-4633-3j49-mh5q (moderate),
+  GHSA-4c39-4ccg-62r3 (moderate), GHSA-68g3-v927-f742 (moderate) and GHSA-955p-x3mx-jcvp
+  (moderate) at 15.5.21. Moving to 15.5.16 also opens one that never affected the 15.2 line at
+  all - GHSA-q8wf-6r8g-63ch / CVE-2026-64644, moderate, image-optimization DoS via SVG, itself
+  fixed at 15.5.21 - so `next@15.5.16` answers with nine advisories, not eight. Adding the two
+  criticals above pushes the real target to 15.5.24 / 16.3.3. Those two criticals are not in this
+  advisory-database set at all; they were still repository-only advisories when this was measured,
+  which is the point of checking more than `pnpm audit`. Counts and floors measured 2026-09-02 -
+  re-measure rather than trusting them, because the set grows.
+
+### The 15.2 line is end-of-life
+
+Next.js supports 16.3 (Active LTS) and 15.5 (Maintenance LTS). 15.2 receives no further security
+patches - every advisory above that postdates the line has fixes only on 15.5 and 16 - so this pin
+is a stopgap that clears the deploy block, not a resting place. Moving to 15.5.x is a minor upgrade
+and a separate decision, and it reopens the middleware and route behaviour checks below.
+
+It does **not** reopen Clerk compatibility, which is worth stating because it looks like it should:
+`@clerk/nextjs` 6.37.5 asks `^13.5.7 || ^14.2.25 || ^15.2.3 || ^16`, and every candidate above -
+15.5.16, 15.5.21, 15.5.24, 16.2.11, 16.3.3 - satisfies it. The only version in this document that
+fails that range is the old 15.1.7. Re-check against the installed package rather than this
+sentence if Clerk itself is upgraded.
+
+### Checking a candidate version
+
+A clean `pnpm audit` is necessary and not sufficient. Vercel publishes some advisories to the
+vercel/next.js repository before OSV and the GitHub advisory database ingest them, so `pnpm audit`
+and OSV can both come back clean while a critical affecting the candidate is already public. Step 2
+below is the step that catches those, and it is where both criticals in the open list came from.
+Set `V` to the candidate; it is set to the current pin here because this recipe was run that way.
+Save the block to a file and run it with `bash`, which is how it was measured - do not paste it
+into an interactive shell, where `set -euo pipefail` persists and the first failure ends the
+session instead of showing you the error:
+
+```bash
+set -euo pipefail          # without this the pipeline below fails open: see the note after
+V=15.2.9
+
+# 1. advisory-database set, with each advisory's own fix floors on the 15.5 and 16 lines
+curl -fsS -X POST https://api.osv.dev/v1/query \
+  -d "{\"package\":{\"name\":\"next\",\"ecosystem\":\"npm\"},\"version\":\"$V\"}" \
+  | jq -r '(.vulns // [])[] | . as $v | [ $v.database_specific.severity, $v.id,
+    ([$v.affected[].ranges[].events[].fixed // empty | select(startswith("15.5."))] | join(",")),
+    ([$v.affected[].ranges[].events[].fixed // empty | select(startswith("16."))] | join(",")) ] | @tsv' \
+  | sort
+
+# 2. repository-only advisories - published by vercel/next.js before OSV and the
+# GitHub advisory database ingest them, so step 1 and pnpm audit cannot see them.
+# grep exits 1 on no match, which is a valid result here, so allow only that code.
+# --paginate is load-bearing, not redundant with per_page=100: without it everything past
+# the first page is dropped with no error and the script still exits 0. The repository
+# publishes 61 advisories today, so nothing is lost yet - it fails open the day it passes 100.
+gh api --paginate "repos/vercel/next.js/security-advisories?per_page=100" \
+  --jq '.[] | select(.state=="published") | [.severity, .ghsa_id, (.vulnerabilities|map(.vulnerable_version_range)|join("; "))] | @tsv' \
+  | { grep -E 'critical|high' || [ $? -eq 1 ]; }
+
+# 3. npm deprecation for the candidate - empty output means not deprecated
+npm view "next@$V" deprecated
+```
+
+Those hardening details, `--paginate` in step 2 included, are the difference between a check and
+the appearance of one, so do not simplify any of them away. `curl -fsS` fails on an HTTP error
+instead of piping an error page into `jq`; `(.vulns // [])[]` distinguishes a genuinely clean
+candidate from a malformed response instead of erroring on both; and `set -euo pipefail` makes a
+failure anywhere in the pipeline stop the script rather than letting `sort` return 0 over nothing.
+Without those three an OSV outage prints an empty advisory list and exits successfully -
+indistinguishable from a clean candidate, which is the one wrong answer this recipe must never
+give. Measured both ways: run normally it exits 0 and returns the 26 rows below; run with the OSV
+endpoint unreachable it exits 56 and prints the curl error, where the unhardened version exited 0
+and printed nothing.
+
+Run against the pin, this recipe regenerates the section above rather than merely illustrating it,
+which is the point: a check that cannot reproduce the list beside it cannot fail either. Step 1
+returned exactly 26 advisories, split ten high / fourteen moderate / two low, matching the counts
+and every floor quoted above. Step 2 returned both repository-only criticals with ranges covering
+15.2.9 - GHSA-2xp9-vwfh-vxw4 at `>= 10.0.0 < 15.5.24` and GHSA-p293-qw3h-jr36 at
+`>= 13.4 < 15.5.24` - neither of which appears in step 1. Step 3 returned nothing, which is what a
+version carrying no deprecation notice looks like; for a superseded release it instead names the
+advisory blog. `pnpm audit` against the lockfile is still worth running, but it reads the same
+GitHub advisory database step 1 covers, so it is a cross-check rather than a fourth source.
+
+Then read the security posts on nextjs.org/blog for anything newer than the databases carry, and
+confirm the `@clerk/nextjs` peer range still admits the candidate (`pnpm install` reports an unmet
+`next` peer when it does not).
+
+After changing the pin, re-verify what the bump could silently break: the route set and its
+static/dynamic classification, the middleware response matrix (coming-soon on, Clerk configured,
+Clerk unconfigured), that `/account`, `/favorites`, `/subscribe` and `/admin` still gate while
+everything else stays permitted, and that the Clerk catch-all check in
+[Clerk Setup Notes](#clerk-setup-notes-web--expo) still answers 200.
+
 ## Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
 - API deploy: its own Vercel project, rooted at `apps/api`, running as serverless functions.
@@ -637,6 +817,12 @@ mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhoo
 - While Diaz on Demand is not launched, set `VOD_COMING_SOON=true` and
   `NEXT_PUBLIC_VOD_COMING_SOON=true` on production web/API deployments. Leave both unset or
   `false` for local and preview deployments so development routes stay usable.
+  Known defect, web app only: with the flag on, `apps/diaz-ondemand-web/middleware.ts` returns
+  `Response.redirect()`, whose headers are immutable, `clerkMiddleware` appends its own to that
+  response and throws `TypeError: immutable`, so every path except `/` answers 500 instead of
+  redirecting - pre-existing, tracked separately, and deliberately not fixed here. The API is
+  unaffected: its wall is a separate implementation in `apps/api/src/create-app.ts` and answers
+  503 as designed, which the post-deploy checks below depend on.
 
 ## API Deploy Runbook (Vercel serverless)
 
