@@ -119,10 +119,31 @@ function describeTarget(url: string): string {
 }
 
 /**
+ * Whether `prisma migrate status` reported a diverged history rather than a
+ * database that is simply behind.
+ *
+ * Measured on 6.19.2, both states print the same "have not yet been applied"
+ * header, so `pendingMigrations` below reads either one as a plain backlog.
+ * Only divergence also says the database holds migrations this checkout does
+ * not - a migration renamed, squashed or dropped after it was applied, or a
+ * branch carrying a different migration set - and that is a state
+ * `prisma migrate deploy` refuses rather than fixes.
+ *
+ * Either marker is enough, so a wording change to one of them still lands here
+ * rather than in the backlog message.
+ */
+function historiesDiverge(output: string): boolean {
+  return /migrations table from your database are different|not found locally in prisma\/migrations/.test(
+    output,
+  );
+}
+
+/**
  * The migrations `prisma migrate status` named as not yet applied.
  *
  * Enrichment only: the exit code is what decides, so a wording change upstream
- * costs the gate the list of names, never the refusal.
+ * costs the gate the list of names, never the refusal. Callers rule out a
+ * diverged history first, because that prints this same header.
  */
 function pendingMigrations(output: string): string[] {
   const lines = output.split('\n');
@@ -229,6 +250,23 @@ function main(): void {
 
   if (status.status === 0) {
     console.log(`migration check ok: every migration is applied to ${target}`);
+    return;
+  }
+
+  // Ruled out before the pending-name parser runs, or a diverged history is
+  // reported as a backlog with `migrate deploy` as its remedy - a command that
+  // refuses on divergence itself - and the half of Prisma's message that says
+  // what actually happened is dropped. Prisma's own output carries both lists,
+  // so it is printed whole rather than parsed twice.
+  if (historiesDiverge(output)) {
+    report(
+      mode,
+      `${target} and packages/db/prisma/migrations have diverged - prisma migrate status exited ${status.status}:\n\n` +
+        `${output}\n\n` +
+        `  The database holds migrations this checkout does not, so this is not a backlog and\n` +
+        `  prisma migrate deploy would refuse it too. Reconcile the two histories against that\n` +
+        `  same database before deploying: https://pris.ly/d/migrate-resolve\n`,
+    );
     return;
   }
 

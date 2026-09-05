@@ -66,10 +66,26 @@ jobs:
       # exactly like a gate with nothing to refuse - so something has to assert that
       # it still says no. The service container is unmigrated until the next step,
       # which is the state that shipped the P2022 incident it exists for.
+      #
+      # A non-zero exit is not enough on its own: the gate refuses an unverifiable
+      # database too, so a broken pending-name parser would still exit 1 here and
+      # still pass the step after. What the incident actually cost was the remedy,
+      # so the refusal has to name a pending migration and still carry the
+      # direct-connection trap. All seven are pending against an empty database.
       - name: Deploy gate refuses a behind database
         run: |
-          if pnpm db:check; then
+          if out=$(pnpm db:check 2>&1); then
+            echo "$out"
             echo "db:check passed against an unmigrated database - the gate is not gating"
+            exit 1
+          fi
+          echo "$out"
+          if ! grep -q '20260901090000_lesson_mux_awaiting_playback' <<<"$out"; then
+            echo "the refusal did not name the pending migrations"
+            exit 1
+          fi
+          if ! grep -q 'DIRECT connection' <<<"$out"; then
+            echo "the refusal did not carry the direct-connection remedy"
             exit 1
           fi
         env:

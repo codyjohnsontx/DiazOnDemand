@@ -998,6 +998,15 @@ database and holding the seventh back:
 | No `DATABASE_URL`, off Vercel | skips |
 | No `DATABASE_URL`, production | refuses - a Production-only variable is absent from previews, and that is worth saying |
 | Database unreachable, or migrations directory not visible | refuses in production, warns in preview |
+| Histories diverged | refuses in production, warns in preview - reported as its own state, not as a backlog |
+
+The diverged case is separated because `prisma migrate status` prints the same "have not yet
+been applied" header for it as for a plain backlog, while meaning something else: the database
+holds a migration this checkout does not, usually one renamed or squashed after it was applied.
+Reproduced by applying all seven and then renaming the last one in `_prisma_migrations`. Reported
+as a backlog it would hand the reader `prisma migrate deploy`, which refuses on divergence
+itself, and drop the "not found locally in prisma/migrations" list that says what happened - so
+the gate prints Prisma's output whole and points at <https://pris.ly/d/migrate-resolve> instead.
 
 Three details that are easy to assume and were checked instead: `prisma migrate status` works
 through a PgBouncer transaction pooler, so the gate reads the same pooled `DATABASE_URL` the
@@ -1009,6 +1018,10 @@ is "up to date" and a deliberate rollback still deploys.
 CI asserts both directions - it runs `pnpm db:check` against the service container before
 migrations, requiring a refusal, and again after, requiring a pass. A gate's only failure mode
 is silence, and one that has stopped refusing looks exactly like one with nothing to refuse.
+The refusal is checked for its reason rather than its exit code: the gate also refuses a
+database it cannot verify, so a non-zero exit alone would stay green with the pending names and
+the remedy gone. The step requires the output to name a pending migration and to still carry the
+direct-connection trap - the part that cost real time during the incident.
 
 ### 3. Environment variables
 
