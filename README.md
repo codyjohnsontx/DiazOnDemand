@@ -1004,9 +1004,19 @@ The diverged case is separated because `prisma migrate status` prints the same "
 been applied" header for it as for a plain backlog, while meaning something else: the database
 holds a migration this checkout does not, usually one renamed or squashed after it was applied.
 Reproduced by applying all seven and then renaming the last one in `_prisma_migrations`. Reported
-as a backlog it would hand the reader `prisma migrate deploy`, which refuses on divergence
-itself, and drop the "not found locally in prisma/migrations" list that says what happened - so
-the gate prints Prisma's output whole and points at <https://pris.ly/d/migrate-resolve> instead.
+as a backlog it would hand the reader `prisma migrate deploy` and drop the "not found locally in
+prisma/migrations" list that says what happened - so the gate prints Prisma's output whole and
+points at <https://pris.ly/d/migrate-resolve> instead.
+
+For that one state this gate is not a second opinion, it is the only opinion. Measured on Prisma
+6.19.2 against Postgres 17 with the recipe just above: the gate refused, and `prisma migrate
+deploy` against that same database then applied `20260901090000_lesson_mux_awaiting_playback` and
+**exited 0**, leaving that migration recorded under both names. Prisma does not refuse a diverged
+history on deploy, so removing this branch as redundant would let that state ship. Re-measure it
+on a Prisma upgrade rather than trusting this paragraph - it is a claim about someone else's
+tool, and an unpinned one rots into exactly the kind of record this gate exists to prevent.
+Diverged history is not hypothetical here: the incident that caused this gate ended with a
+migration recorded as applied whose constraint had never existed, repaired by hand.
 
 Three details that are easy to assume and were checked instead: `prisma migrate status` works
 through a PgBouncer transaction pooler, so the gate reads the same pooled `DATABASE_URL` the

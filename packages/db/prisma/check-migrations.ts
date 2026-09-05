@@ -126,8 +126,22 @@ function describeTarget(url: string): string {
  * header, so `pendingMigrations` below reads either one as a plain backlog.
  * Only divergence also says the database holds migrations this checkout does
  * not - a migration renamed, squashed or dropped after it was applied, or a
- * branch carrying a different migration set - and that is a state
- * `prisma migrate deploy` refuses rather than fixes.
+ * branch carrying a different migration set.
+ *
+ * This branch is not a second opinion on a check Prisma performs later; Prisma
+ * performs none. Measured on Prisma 6.19.2 against Postgres 17, through the
+ * recipe in README's "The migration deploy gate" - apply all seven migrations,
+ * then rename the last one in `_prisma_migrations` - this gate refused, and
+ * `prisma migrate deploy` against that same database then applied
+ * 20260901090000_lesson_mux_awaiting_playback and exited 0, leaving that
+ * migration recorded under both names. So for a diverged history this gate is
+ * the only thing between that state and a deploy: do not delete this branch as
+ * redundant, and re-measure on a Prisma upgrade rather than trusting this note,
+ * because it is a claim about someone else's tool.
+ *
+ * Not a hypothetical state here. The incident this gate was written for ended
+ * with a migration recorded as applied whose constraint had never existed,
+ * repaired by hand.
  *
  * Either marker is enough, so a wording change to one of them still lands here
  * rather than in the backlog message.
@@ -255,17 +269,20 @@ function main(): void {
 
   // Ruled out before the pending-name parser runs, or a diverged history is
   // reported as a backlog with `migrate deploy` as its remedy - a command that
-  // refuses on divergence itself - and the half of Prisma's message that says
-  // what actually happened is dropped. Prisma's own output carries both lists,
-  // so it is printed whole rather than parsed twice.
+  // does not refuse this state but applies into it - and the half of Prisma's
+  // message that says what actually happened is dropped. Prisma's own output
+  // carries both lists, so it is printed whole rather than parsed twice.
   if (historiesDiverge(output)) {
     report(
       mode,
       `${target} and packages/db/prisma/migrations have diverged - prisma migrate status exited ${status.status}:\n\n` +
         `${output}\n\n` +
-        `  The database holds migrations this checkout does not, so this is not a backlog and\n` +
-        `  prisma migrate deploy would refuse it too. Reconcile the two histories against that\n` +
-        `  same database before deploying: https://pris.ly/d/migrate-resolve\n`,
+        `  The database holds migrations this checkout does not, so this is not a backlog,\n` +
+        `  and this gate is the only thing refusing it. Measured on Prisma 6.19.2 against\n` +
+        `  Postgres 17, prisma migrate deploy does NOT refuse a diverged history: it applies\n` +
+        `  the pending migration and exits 0, leaving one migration recorded under two names.\n` +
+        `  Reconcile the two histories against that same database before deploying:\n` +
+        `  https://pris.ly/d/migrate-resolve\n`,
     );
     return;
   }
