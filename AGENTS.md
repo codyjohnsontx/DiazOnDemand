@@ -744,6 +744,22 @@ Five things here are load-bearing and each looks like tidy-up bait:
   caps one instance, the pooler caps how many instances cost, and neither alone is enough.
   `packages/db/src/client.ts` needs no change for this and did not get one.
 
+A sixth thing is not about the function at all: nothing applies migrations on deploy, so the
+API build refuses to build for production against a database that is behind.
+`packages/db/prisma/check-migrations.ts` runs `prisma migrate status` and nothing else, wired
+into `buildCommand` in `apps/api/vercel.json` - not into `apps/api`'s `build` script, because
+that is a turbo task and a cache hit replays its logs rather than running it, so a check placed
+there is skipped exactly when the code has not changed and the database is the thing that moved.
+Whether a Vercel deploy restores `.turbo` across builds is unverified from here, and
+`buildCommand` runs either way. It never applies anything and never creates
+`_prisma_migrations`: a gate that fixes things is a gate that silently migrates production
+during a build. Production refuses, preview warns, a local build with no `DATABASE_URL` skips.
+The web project gets no gate and must not be given one - `apps/diaz-ondemand-web` imports
+neither `@diaz/db` nor `PrismaClient`, and `DATABASE_URL` is API-only by policy, so a gate there
+would skip in every environment. Behaviour, measurements and the incident that caused it are in
+"The migration deploy gate" in README.md; CI asserts both directions, because a gate that has
+stopped refusing looks exactly like one with nothing to refuse.
+
 Known and deliberately not worked around: `swagger-ui-dist` contributes only `absolute-path.js`
 and `package.json` to a `@vercel/nft` 1.10.0 trace of the entrypoint, so `/docs` will serve its
 HTML on Vercel and then fail to load its own CSS and JS. `/docs-json` is generated in-process
