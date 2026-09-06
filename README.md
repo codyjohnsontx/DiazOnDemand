@@ -733,6 +733,9 @@ everything else stays permitted, and that the Clerk catch-all check in
   Step-by-step in [API Deploy Runbook (Vercel serverless)](#api-deploy-runbook-vercel-serverless)
   below. `pnpm start` still runs the same application as a long-running server and is what
   local and any non-Vercel host use.
+- **Apply migrations before deploying the API, against the direct connection string.** Nothing
+  applies them for you. The API build refuses to build for production against a database that
+  is behind - see [The migration deploy gate](#the-migration-deploy-gate).
 - Pre-deploy checklist. The API **exits instead of starting** if any of these is missing:
   - `DIAZ_INTERNAL_API_KEY` - always.
   - `MUX_WEBHOOK_SECRET` - always, with no "is Mux enabled" condition attached.
@@ -885,8 +888,9 @@ between them. Three details there are load-bearing and should not be "tidied":
   the Build Step" enabled - the install has to happen at the workspace root or `@diaz/shared`
   and `@diaz/db` will not resolve.
 - **Framework Preset: Other.** `apps/api/vercel.json` already sets the build command
-  (`pnpm exec turbo run build --filter=api`, which also runs `prisma generate` via `@diaz/db`),
-  the output directory (`public`) and the catch-all rewrite. Do not also set them in the
+  (`pnpm --filter @diaz/db db:check && pnpm exec turbo run build --filter=api` - the migration
+  deploy gate below, then the build, which also runs `prisma generate` via `@diaz/db`), the
+  output directory (`public`) and the catch-all rewrite. Do not also set them in the
   dashboard; the dashboard wins and they will disagree.
 - **`apps/api/public/` is empty on purpose, and `outputDirectory` points at it.** With no output
   directory set and no `public/` directory present, Vercel's documented fallback is to serve the
@@ -942,6 +946,92 @@ direct `5432` endpoint:
 DATABASE_URL='postgresql://USER:PASSWORD@DIRECT-HOST:5432/DB?schema=public' \
   pnpm --filter @diaz/db exec prisma migrate deploy --schema prisma/schema.prisma
 ```
+
+### The migration deploy gate
+
+Nothing runs migrations on deploy, on purpose, so "migrate first, then deploy" was until now
+enforced by nobody. It shipped the wrong way round once: `Entitlement.source` was added by
+`20260801095656_stripe_billing_lifecycle` on 1 August and never applied to the production Neon
+database. Every read path kept working, because reads only touch older stable schema, so the
+deployment looked healthy for weeks. The first *write* - the first sign-in ever attempted
+against it - answered 500 with Prisma `P2022`, "The column `source` does not exist in the
+current database".
+
+`packages/db/prisma/check-migrations.ts` is the gate that now refuses that deploy. Run it by
+hand as `pnpm db:check`; the API build runs it first, from the `buildCommand` in
+`apps/api/vercel.json`.
+
+- **It is read only.** It runs `prisma migrate status` and nothing else. It never applies a
+  migration and never creates `_prisma_migrations` - applying stays `prisma migrate deploy`,
+  run by a human against a named database, as above.
+- **Failing the production build is the desired outcome.** A rejected deploy leaves the
+  previous, schema-matching deployment live, and a service that keeps working beats a service
+  that ships and 500s.
+- **It is deliberately not part of `apps/api`'s `build` script.** That script is a turbo task,
+  and turbo replays a cache hit rather than running it: `turbo run build --filter=api` on an
+  unchanged tree answers `api:build: cache hit, replaying logs` and executes nothing. A check
+  inside that script is therefore skipped exactly when nothing in the code changed - which is
+  when the database is most likely to be the thing that moved. Whether a Vercel deploy restores
+  `.turbo` across builds is not verifiable from this repository, so the gate does not depend on
+  the answer: `buildCommand` runs on every build either way.
+- **Severity depends on the environment, and must.** Production refuses; a preview only warns,
+  or a pull request carrying a schema change could not produce a preview anyone could open;
+  a local build with no `DATABASE_URL` skips, because that is a contributor without Postgres
+  rather than a deploy. `SKIP_MIGRATION_CHECK=1` turns it off, and only "1" or "true" do -
+  anything else is ignored with a warning and the gate stays on.
+- **When it fires it names the pending migrations and the remedy**, including that the remedy
+  needs the direct connection string rather than the pooled one this project is configured
+  with.
+- **The web project has no gate and should not get one.** `apps/diaz-ondemand-web` imports
+  neither `@diaz/db` nor `PrismaClient` - it reaches the API over HTTP - and `DATABASE_URL` is
+  API-only by policy, so a gate there would skip in every environment. The API is the half that
+  crashed and the only half that talks to Postgres.
+
+Measured on Prisma 6.19.2 against Postgres 17, applying six of the seven migrations to a local
+database and holding the seventh back:
+
+| Situation | Gate |
+| --- | --- |
+| Behind by one, `VERCEL_ENV=production` | names `20260901090000_lesson_mux_awaiting_playback`, exits 1, turbo never runs |
+| Behind by one, preview | same message as a warning, build continues |
+| Up to date | `migration check ok`, build proceeds |
+| No `DATABASE_URL`, off Vercel | skips |
+| No `DATABASE_URL`, production | refuses - a Production-only variable is absent from previews, and that is worth saying |
+| Database unreachable, or migrations directory not visible | refuses in production, warns in preview |
+| Histories diverged | refuses in production, warns in preview - reported as its own state, not as a backlog |
+
+The diverged case is separated because `prisma migrate status` prints the same "have not yet
+been applied" header for it as for a plain backlog, while meaning something else: the database
+holds a migration this checkout does not, usually one renamed or squashed after it was applied.
+Reproduced by applying all seven and then renaming the last one in `_prisma_migrations`. Reported
+as a backlog it would hand the reader `prisma migrate deploy` and drop the "not found locally in
+prisma/migrations" list that says what happened - so the gate prints Prisma's output whole and
+points at <https://pris.ly/d/migrate-resolve> instead.
+
+For that one state this gate is not a second opinion, it is the only opinion. Measured on Prisma
+6.19.2 against Postgres 17 with the recipe just above: the gate refused, and `prisma migrate
+deploy` against that same database then applied `20260901090000_lesson_mux_awaiting_playback` and
+**exited 0**, leaving that migration recorded under both names. Prisma does not refuse a diverged
+history on deploy, so removing this branch as redundant would let that state ship. Re-measure it
+on a Prisma upgrade rather than trusting this paragraph - it is a claim about someone else's
+tool, and an unpinned one rots into exactly the kind of record this gate exists to prevent.
+Diverged history is not hypothetical here: the incident that caused this gate ended with a
+migration recorded as applied whose constraint had never existed, repaired by hand.
+
+Three details that are easy to assume and were checked instead: `prisma migrate status` works
+through a PgBouncer transaction pooler, so the gate reads the same pooled `DATABASE_URL` the
+functions use and needs no second connection string; it leaves an empty database with no tables
+at all, and answers correctly as a role holding only `CONNECT`/`USAGE`/`SELECT` in a read-only
+transaction; and it reports only *pending* migrations, so a database **ahead** of the checkout
+is "up to date" and a deliberate rollback still deploys.
+
+CI asserts both directions - it runs `pnpm db:check` against the service container before
+migrations, requiring a refusal, and again after, requiring a pass. A gate's only failure mode
+is silence, and one that has stopped refusing looks exactly like one with nothing to refuse.
+The refusal is checked for its reason rather than its exit code: the gate also refuses a
+database it cannot verify, so a non-zero exit alone would stay green with the pending names and
+the remedy gone. The step requires the output to name a pending migration and to still carry the
+direct-connection trap - the part that cost real time during the incident.
 
 ### 3. Environment variables
 
@@ -1116,6 +1206,9 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 - `pnpm test` (see [Tests](#tests))
 - `pnpm db:generate`
 - `pnpm db:migrate`
+- `pnpm db:check` -> read-only check that the database in `DATABASE_URL` has every migration in
+  `packages/db/prisma/migrations`. Runs ahead of the API's Vercel build - see
+  [The migration deploy gate](#the-migration-deploy-gate).
 - `pnpm db:seed`
 
 ## Tests
