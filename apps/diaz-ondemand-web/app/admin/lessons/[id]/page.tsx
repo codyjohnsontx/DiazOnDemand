@@ -43,25 +43,31 @@ const PAID_CLEAR_STATUS =
   'for anyone holding it - and if the lesson was ever published while it was free, everyone who ' +
   'browsed the catalogue holds it and it cannot be recalled. ';
 
-// Redelivery first: an asset that is already signed-only is accepted by the
-// webhook and gives back the same playback ID, so naming the re-create first
-// sends the operator to re-upload a video that never needed re-uploading.
+// Both remedies below follow one shape: the step that always applies, then a
+// conditional shortcut where there is one, then a fallback that works in every
+// state which can reach that branch. A conditional step with nothing under it
+// can only fail an operator it does not happen to describe, and neither the row
+// nor the form can say which playback policy an asset carries.
+//
+// The shortcut here is redelivery: an asset that is already signed-only is
+// accepted by the webhook and gives back the same playback ID, so a re-create
+// would be a re-upload the video never needed.
 const PAID_CLEAR_REMEDY_KEPT_ASSET =
   'Redeliver video.asset.ready from the Mux dashboard first - if the asset is already ' +
   'signed-only that restores its playback ID. If it carries a public playback policy the ' +
   'redelivery is refused; re-create the asset in Mux with a signed-only playback policy, paste ' +
   'its asset ID here, and video.asset.ready will fill in the new playback ID.';
 
-// With no asset ID to keep, the API drops the lesson to no video source, which
-// also takes the Mux asset ID field off this page - so the remedy has to name
-// the step that brings the field back before it names the field.
+// This branch is reached only when the lesson stored no asset ID, so it cannot
+// presuppose one. Dropping to no video source also takes the Mux asset ID field
+// off this page, and both paths need it back, so that step is named before the
+// branch rather than inside the shortcut.
 const PAID_CLEAR_REMEDY_RESET_SOURCE =
   'Video source was reset to No video source, because the lesson had no Mux asset ID to keep. ' +
-  'Set Video source back to Mux, paste the existing asset ID and save, then redeliver ' +
-  'video.asset.ready from the Mux dashboard - if the asset is already signed-only that restores ' +
-  'its playback ID. If it carries a public playback policy the redelivery is refused; re-create ' +
-  'the asset in Mux with a signed-only playback policy, paste the new asset ID instead, and ' +
-  'video.asset.ready will fill in the new playback ID.';
+  'Set Video source back to Mux to bring the asset ID field back. If you still have that asset ' +
+  'in Mux, paste its asset ID and save, then redeliver video.asset.ready from the Mux ' +
+  'dashboard. Otherwise re-create it in Mux with a signed-only playback policy and save the ' +
+  'new asset ID.';
 
 type LessonEditorForm = {
   title: string;
