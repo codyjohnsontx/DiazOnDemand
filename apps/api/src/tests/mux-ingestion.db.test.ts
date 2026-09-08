@@ -286,7 +286,12 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
 
     /** The body the lesson editor PATCHes: every field, including the id it loaded. */
     function editorSave(
-      lesson: { title: string; videoProvider: string; muxAssetId: string | null; muxPlaybackId: string | null },
+      lesson: {
+        title: string;
+        videoProvider: string;
+        muxAssetId: string | null;
+        muxPlaybackId: string | null;
+      },
       overrides: Record<string, unknown> = {},
     ) {
       return {

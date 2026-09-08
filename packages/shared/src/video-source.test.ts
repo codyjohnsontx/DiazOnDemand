@@ -399,8 +399,8 @@ describe('clearsMuxPlaybackIdOnPaidTransition', () => {
   // PATCH /admin/lessons/:id/publish sends isPublished and nothing else, so the
   // next access level is whatever the row already had.
   it('leaves a write that never mentions the access level alone', () => {
-    expect(transition({ nextAccessLevel: AccessLevel.FREE, incomingMuxPlaybackId: undefined })).toBe(
-      false,
-    );
+    expect(
+      transition({ nextAccessLevel: AccessLevel.FREE, incomingMuxPlaybackId: undefined }),
+    ).toBe(false);
   });
 });
