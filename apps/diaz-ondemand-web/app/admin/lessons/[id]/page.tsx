@@ -26,6 +26,7 @@ import {
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
+import { AwaitingMuxPlaybackNote } from '@/components/awaiting-mux-playback-note';
 import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
@@ -195,9 +196,11 @@ export default function AdminLessonDetailPage() {
       // other way.
       setStatus(
         saved?.muxPlaybackIdClearedForPaidAccess
-          ? 'Lesson saved as premium, and the Mux playback ID was cleared. That ID was published ' +
-              'to anyone browsing the catalogue while the lesson was free, and a public Mux asset ' +
-              'plays for anyone holding it. Re-create the asset in Mux with a signed-only playback ' +
+          ? 'Lesson saved as premium, and the Mux playback ID was cleared. A public Mux asset ' +
+              'plays for anyone holding its playback ID, so it cannot back premium content ' +
+              'whether or not anyone holds this one yet. And if the lesson was ever published ' +
+              'while it was free, that ID reached everyone who browsed the catalogue and cannot ' +
+              'be recalled. Re-create the asset in Mux with a signed-only playback ' +
               'policy, paste its asset ID here, and video.asset.ready will fill in the new playback ID.'
           : 'Lesson saved.',
       );
@@ -336,9 +339,11 @@ export default function AdminLessonDetailPage() {
               </select>
               {willClearMuxPlaybackId ? (
                 <p className="type-meta text-[var(--danger)]">
-                  Saving will clear the Mux playback ID. It was published to anyone browsing the
-                  catalogue while this lesson was free, so it cannot protect premium content. Give
-                  the lesson a signed-only Mux asset instead.
+                  Saving will clear the Mux playback ID. A public Mux asset plays for anyone
+                  holding its playback ID, so it cannot back premium content whether or not anyone
+                  holds this one yet. And if this lesson was ever published while it was free, that
+                  ID reached everyone who browsed the catalogue and cannot be recalled. Give the
+                  lesson a signed-only Mux asset instead.
                 </p>
               ) : null}
             </div>
@@ -391,18 +396,15 @@ export default function AdminLessonDetailPage() {
                 automatically once the asset finishes encoding.
               </p>
               {/*
-                The asset ID is saved and the playback ID has not arrived.
-                Encoding may still be running, the event may have been delivered
-                before this lesson held the asset ID, the upload may have failed,
-                or the webhook may never have been configured - so this says what
-                is true of all four and what to do about the one an admin can fix.
+                Both derived from the saved row rather than the pending form: the
+                remedy has to describe the lesson the webhook will actually meet,
+                not the one this form would save.
               */}
               {awaitingMuxPlayback ? (
-                <p className="type-meta text-[var(--text-muted)]">
-                  No playback ID yet. Mux sends it with the video.asset.ready event, and only a
-                  lesson that already holds the asset ID receives it. If the asset is already Ready
-                  in Mux, redeliver that event from the Mux dashboard.
-                </p>
+                <AwaitingMuxPlaybackNote
+                  accessLevel={lesson.accessLevel}
+                  className="type-meta text-[var(--text-muted)]"
+                />
               ) : null}
             </div>
           ) : null}

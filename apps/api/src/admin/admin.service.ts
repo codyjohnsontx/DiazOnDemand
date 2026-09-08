@@ -25,6 +25,10 @@ type LessonVideoRow = {
  * have to answer the same here: reading only the bare one would report "not
  * mentioned" for a write that did mention the column, and the guard below turns
  * exactly that distinction into a decision.
+ *
+ * No caller in this repository produces the `{ set: value }` spelling today, and
+ * it is kept deliberately rather than left as dead code: a future caller writing
+ * `{ set: null }` would otherwise dodge the guard silently.
  */
 function nextFieldValue(
   field: string | null | { set?: string | null } | undefined,

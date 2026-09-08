@@ -14,6 +14,7 @@ import {
   type AdminProgramWithContentDto,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
+import { AwaitingMuxPlaybackNote } from '@/components/awaiting-mux-playback-note';
 import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
@@ -219,20 +220,11 @@ export default function AdminCourseDetailPage() {
                         not-filmed state.
                       </p>
                     ) : null}
-                    {/*
-                      The Mux asset is saved and the playback ID has not arrived.
-                      Encoding may still be running, the event may have been
-                      delivered before this lesson held the asset ID, the upload
-                      may have failed, or the webhook may never have been
-                      configured - so this says what is true of all four and what
-                      to do about the one an admin can fix.
-                    */}
                     {isAwaitingMuxPlayback(lesson) ? (
-                      <p className="text-sm text-[var(--text-muted)]">
-                        No playback ID yet. Mux sends it with the video.asset.ready event, and only
-                        a lesson that already holds the asset ID receives it. If the asset is
-                        already Ready in Mux, redeliver that event from the Mux dashboard.
-                      </p>
+                      <AwaitingMuxPlaybackNote
+                        accessLevel={lesson.accessLevel}
+                        className="text-sm text-[var(--text-muted)]"
+                      />
                     ) : null}
                   </div>
                   <div className="flex items-center gap-2">

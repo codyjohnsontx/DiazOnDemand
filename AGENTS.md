@@ -351,10 +351,13 @@ the reason it exists is stated with it.
   identifier is not the same act as retiring one. `clearsMuxPlaybackIdOnPaidTransition` in
   `@diaz/shared` holds the rule; `planPaidAccessTransition` in
   `apps/api/src/admin/admin.service.ts` applies it on the one write path both admin PATCH routes
-  go through. A FREE lesson publishes that id to anonymous `/programs` callers, and a FREE
-  lesson's Mux asset must carry a public playback policy because `syncMuxAsset` refuses any
-  other - so `stream.mux.com/<id>.m3u8` plays for anyone who read the catalogue first, forever,
-  and the flip stops the API handing the id out while taking nothing back. Reproduced end to end
+  go through. A FREE lesson publishes that id to anonymous `/programs` callers once it is
+  published - every public read filters `isPublished` - and a FREE lesson's Mux asset must carry
+  a public playback policy because `syncMuxAsset` refuses any other, so `stream.mux.com/<id>.m3u8`
+  plays for anyone who read the catalogue first, forever, and the flip stops the API handing the
+  id out while taking nothing back. The public policy is reason enough on its own: it bars the
+  asset from paid content whether or not the lesson was ever published, which is why the admin
+  copy states that unconditionally and the disclosure conditionally. Reproduced end to end
   against the built API on a real Postgres before the fix: anonymous `/programs` and
   `/lessons/:id` handed over the id and the plain url, the admin PATCH set PAID, `/programs`
   correctly went quiet, and the row still held that exact id. Clearing it forces the only fix
