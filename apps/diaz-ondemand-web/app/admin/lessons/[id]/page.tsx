@@ -57,8 +57,11 @@ const PAID_CLEAR_REMEDY_KEPT_ASSET =
 // the step that brings the field back before it names the field.
 const PAID_CLEAR_REMEDY_RESET_SOURCE =
   'Video source was reset to No video source, because the lesson had no Mux asset ID to keep. ' +
-  'Re-create the asset in Mux with a signed-only playback policy, set Video source back to Mux, ' +
-  'paste the new asset ID, and video.asset.ready will fill in the new playback ID.';
+  'Set Video source back to Mux, paste the existing asset ID and save, then redeliver ' +
+  'video.asset.ready from the Mux dashboard - if the asset is already signed-only that restores ' +
+  'its playback ID. If it carries a public playback policy the redelivery is refused; re-create ' +
+  'the asset in Mux with a signed-only playback policy, paste the new asset ID instead, and ' +
+  'video.asset.ready will fill in the new playback ID.';
 
 type LessonEditorForm = {
   title: string;
