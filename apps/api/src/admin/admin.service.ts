@@ -207,7 +207,10 @@ export class AdminService {
     // clear took place - by design, since a column recording it could only
     // drift from the three fields that already describe the video - so the
     // response is the one place the answer can come from.
-    return { ...saved, muxPlaybackIdClearedForPaidAccess: transition.muxPlaybackIdClearedForPaidAccess };
+    return {
+      ...saved,
+      muxPlaybackIdClearedForPaidAccess: transition.muxPlaybackIdClearedForPaidAccess,
+    };
   }
 
   deleteLesson(id: string) {

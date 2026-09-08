@@ -210,11 +210,7 @@ export default function AdminLessonDetailPage() {
     // Mux issues the playback id later, on `video.asset.ready`, and the webhook
     // finds the lesson by exactly this asset id. Demanding a playback id here
     // was what left ingestion with no entrance at all.
-    if (
-      form.videoProvider === VideoProvider.MUX &&
-      !outgoingMuxPlaybackId &&
-      !outgoingMuxAssetId
-    ) {
+    if (form.videoProvider === VideoProvider.MUX && !outgoingMuxPlaybackId && !outgoingMuxAssetId) {
       setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
       setSaving(false);
       return;
