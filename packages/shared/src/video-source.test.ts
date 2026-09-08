@@ -355,9 +355,9 @@ describe('clearsMuxPlaybackIdOnPaidTransition', () => {
     });
   }
 
-  // The id was published to every anonymous /programs caller while the lesson
-  // was free, and a free lesson's asset must carry a public playback policy, so
-  // stream.mux.com/<id>.m3u8 keeps playing for anyone holding it.
+  // A published free lesson serves the id to every anonymous /programs caller,
+  // and on a public-policy asset stream.mux.com/<id>.m3u8 keeps playing for
+  // anyone holding it.
   it('retires an id the lesson was serving publicly', () => {
     expect(transition()).toBe(true);
   });

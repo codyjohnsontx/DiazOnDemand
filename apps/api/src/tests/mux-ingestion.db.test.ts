@@ -258,11 +258,11 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
   /**
    * The other write that has to respect this constraint, and the leak it closes.
    *
-   * A FREE lesson publishes its playback id to anonymous callers of `/programs`,
-   * and a FREE lesson's asset must carry a public playback policy - `syncMuxAsset`
-   * refuses any other - so that id plays at `stream.mux.com/<id>.m3u8` for anyone
-   * who read the catalogue, forever. Flipping the lesson to PAID stops the API
-   * publishing it and takes nothing back.
+   * A FREE lesson publishes its playback id to anonymous callers of `/programs`
+   * once it is published, and on a public-policy asset that id plays at
+   * `stream.mux.com/<id>.m3u8` for anyone who read the catalogue, forever.
+   * Flipping the lesson to PAID stops the API publishing it and takes nothing
+   * back.
    */
   describe('the FREE -> PAID access transition', () => {
     const admin = new AdminService(prisma);
