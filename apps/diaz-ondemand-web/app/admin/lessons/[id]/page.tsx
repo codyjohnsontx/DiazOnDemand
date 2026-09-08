@@ -31,6 +31,28 @@ import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
 
+// The public playback policy bars the asset from premium content on its own,
+// whether or not anyone ever saw the lesson, so that half is stated flatly and
+// the disclosure is stated as the condition it is: the catalogue only serves a
+// published lesson.
+const PAID_CLEAR_STATUS =
+  'Lesson saved as premium, and the Mux playback ID was cleared. A public Mux asset plays for ' +
+  'anyone holding its playback ID, so it cannot back premium content whether or not anyone ' +
+  'holds this one yet. And if the lesson was ever published while it was free, that ID reached ' +
+  'everyone who browsed the catalogue and cannot be recalled. ';
+
+const PAID_CLEAR_REMEDY_KEPT_ASSET =
+  'Re-create the asset in Mux with a signed-only playback policy, paste its asset ID here, and ' +
+  'video.asset.ready will fill in the new playback ID.';
+
+// With no asset ID to keep, the API drops the lesson to no video source, which
+// also takes the Mux asset ID field off this page - so the remedy has to name
+// the step that brings the field back before it names the field.
+const PAID_CLEAR_REMEDY_RESET_SOURCE =
+  'Video source was reset to No video source, because the lesson had no Mux asset ID to keep. ' +
+  'Re-create the asset in Mux with a signed-only playback policy, set Video source back to Mux, ' +
+  'paste the new asset ID, and video.asset.ready will fill in the new playback ID.';
+
 type LessonEditorForm = {
   title: string;
   description: string;
@@ -109,6 +131,7 @@ export default function AdminLessonDetailPage() {
   // exactly the ones saved here.
   const outgoingMuxPlaybackId =
     form.videoProvider === VideoProvider.MUX ? form.muxPlaybackId.trim() || null : null;
+  const outgoingMuxAssetId = showMuxAssetIdField ? form.muxAssetId.trim() || null : null;
 
   const load = async () => {
     try {
@@ -150,7 +173,6 @@ export default function AdminLessonDetailPage() {
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
-    const normalizedMuxAssetId = form.muxAssetId.trim();
     const normalizedYoutubeVideoId = form.youtubeVideoId.trim();
 
     // An asset id on its own is a complete Mux lesson that is not playable yet:
@@ -160,7 +182,7 @@ export default function AdminLessonDetailPage() {
     if (
       form.videoProvider === VideoProvider.MUX &&
       !outgoingMuxPlaybackId &&
-      !normalizedMuxAssetId
+      !outgoingMuxAssetId
     ) {
       setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
       return;
@@ -179,7 +201,7 @@ export default function AdminLessonDetailPage() {
           description: form.description,
           accessLevel: form.accessLevel,
           videoProvider: form.videoProvider,
-          muxAssetId: showMuxAssetIdField ? normalizedMuxAssetId || null : null,
+          muxAssetId: outgoingMuxAssetId,
           muxPlaybackId: outgoingMuxPlaybackId,
           youtubeVideoId:
             form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
@@ -194,14 +216,14 @@ export default function AdminLessonDetailPage() {
       // the access level says a clear is coming; this says it happened, and it
       // is the only thing an operator sees if the flip reached the API some
       // other way.
+      //
+      // The asset id the payload carried is what decides whether the API kept
+      // this lesson on Mux or dropped it to no video source, so the remedy is
+      // chosen by the same fact rather than by a second answer from the API.
       setStatus(
         saved?.muxPlaybackIdClearedForPaidAccess
-          ? 'Lesson saved as premium, and the Mux playback ID was cleared. A public Mux asset ' +
-              'plays for anyone holding its playback ID, so it cannot back premium content ' +
-              'whether or not anyone holds this one yet. And if the lesson was ever published ' +
-              'while it was free, that ID reached everyone who browsed the catalogue and cannot ' +
-              'be recalled. Re-create the asset in Mux with a signed-only playback ' +
-              'policy, paste its asset ID here, and video.asset.ready will fill in the new playback ID.'
+          ? PAID_CLEAR_STATUS +
+              (outgoingMuxAssetId ? PAID_CLEAR_REMEDY_KEPT_ASSET : PAID_CLEAR_REMEDY_RESET_SOURCE)
           : 'Lesson saved.',
       );
       await load();
@@ -453,8 +475,9 @@ export default function AdminLessonDetailPage() {
               {showPaidYoutubeExposureNote ? (
                 <p className="type-meta text-[var(--text-muted)]">
                   Premium does not protect a YouTube video. This ID is the video&apos;s permanent
-                  address, premium playback embeds the same public ID, and anyone who saw the lesson
-                  while it was free still holds it. Only YouTube Studio can restrict the video.
+                  address and premium playback embeds that same public ID. If this lesson was ever
+                  published while it was free, everyone who browsed the catalogue holds this ID and
+                  it cannot be recalled. Only YouTube Studio can restrict the video.
                 </p>
               ) : null}
             </div>
