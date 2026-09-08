@@ -103,6 +103,11 @@ export default function AdminLessonDetailPage() {
   const showMuxAssetIdField =
     form.videoProvider === VideoProvider.MUX ||
     (awaitingMuxPlayback && form.videoProvider !== VideoProvider.YOUTUBE);
+  // Blank is stored as NULL, never as an empty string: "no playback id yet"
+  // needs one spelling, or a query for the lessons still waiting on Mux misses
+  // exactly the ones saved here.
+  const outgoingMuxPlaybackId =
+    form.videoProvider === VideoProvider.MUX ? form.muxPlaybackId.trim() || null : null;
 
   const load = async () => {
     try {
@@ -145,7 +150,6 @@ export default function AdminLessonDetailPage() {
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
     const normalizedMuxAssetId = form.muxAssetId.trim();
-    const normalizedMuxPlaybackId = form.muxPlaybackId.trim();
     const normalizedYoutubeVideoId = form.youtubeVideoId.trim();
 
     // An asset id on its own is a complete Mux lesson that is not playable yet:
@@ -154,7 +158,7 @@ export default function AdminLessonDetailPage() {
     // was what left ingestion with no entrance at all.
     if (
       form.videoProvider === VideoProvider.MUX &&
-      !normalizedMuxPlaybackId &&
+      !outgoingMuxPlaybackId &&
       !normalizedMuxAssetId
     ) {
       setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
@@ -175,11 +179,7 @@ export default function AdminLessonDetailPage() {
           accessLevel: form.accessLevel,
           videoProvider: form.videoProvider,
           muxAssetId: showMuxAssetIdField ? normalizedMuxAssetId || null : null,
-          // Blank is stored as NULL, never as an empty string: "no playback id
-          // yet" needs one spelling, or a query for the lessons still waiting
-          // on Mux misses exactly the ones saved here.
-          muxPlaybackId:
-            form.videoProvider === VideoProvider.MUX ? normalizedMuxPlaybackId || null : null,
+          muxPlaybackId: outgoingMuxPlaybackId,
           youtubeVideoId:
             form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
           durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
@@ -263,7 +263,7 @@ export default function AdminLessonDetailPage() {
     previousAccessLevel: lesson.accessLevel,
     nextAccessLevel: form.accessLevel,
     storedMuxPlaybackId: lesson.muxPlaybackId,
-    incomingMuxPlaybackId: form.muxPlaybackId.trim() || null,
+    incomingMuxPlaybackId: outgoingMuxPlaybackId,
   });
   // A YouTube video id is the video's permanent address on YouTube, so there is
   // nothing to rotate it to and premium playback embeds that same public id.
