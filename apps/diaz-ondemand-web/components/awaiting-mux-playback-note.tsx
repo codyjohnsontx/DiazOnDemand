@@ -11,11 +11,14 @@ import { AccessLevel } from '@diaz/shared';
  *
  * The remedy differs by access level, and naming only the free one is how this
  * sends a premium operator at a step that cannot work: `syncMuxAsset` refuses an
- * asset carrying a public playback ID on a PAID lesson, which is exactly the
- * asset a FREE -> PAID clear leaves behind, so redelivering `video.asset.ready`
- * for it fails every time. Redelivery is still right once the asset is
- * signed-only, and the row cannot say which of the two this is, so the premium
- * text names both and the condition that separates them.
+ * asset carrying a public playback ID on a PAID lesson, so redelivering
+ * `video.asset.ready` for one fails every time. Redelivery is still right once
+ * the asset is signed-only, and the row cannot say which case it is in, so the
+ * premium text states the rule, names redelivery for the case it works in, and
+ * leaves re-creation as the unconditional fallback. A condition on that fallback
+ * can only fail an operator it does not happen to describe - a lesson set PAID
+ * with a public asset from the start is never free with it and never has an id
+ * cleared, and it still needs the same remedy.
  *
  * It lives here because both admin surfaces show it and the two must not drift:
  * an operator who follows the course row and an operator who follows the lesson
@@ -35,8 +38,8 @@ export function AwaitingMuxPlaybackNote({
       {accessLevel === AccessLevel.PAID
         ? 'A premium lesson needs a signed-only asset, and an asset carrying a public playback ' +
           'ID is refused. If it is already signed-only and Ready in Mux, redeliver that event ' +
-          'from the Mux dashboard. If this is still the asset the lesson had while it was free, ' +
-          're-create it in Mux with a signed-only playback policy and save the new asset ID.'
+          'from the Mux dashboard. Otherwise re-create it in Mux with a signed-only playback ' +
+          'policy and save the new asset ID.'
         : 'If the asset is already Ready in Mux, redeliver that event from the Mux dashboard.'}
     </p>
   );
