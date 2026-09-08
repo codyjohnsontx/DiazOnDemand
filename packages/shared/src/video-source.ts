@@ -297,3 +297,51 @@ export function clearsMuxPlaybackIdOnPaidTransition(transition: {
     transition.incomingMuxPlaybackId === transition.storedMuxPlaybackId
   );
 }
+
+/**
+ * The access and video fields an editor form must adopt from a save the API has
+ * already completed, so the next save cannot resend a value that save retired.
+ *
+ * This exists because the fields the operator is looking at and the fields the
+ * row now holds stop agreeing the instant a save changes something the operator
+ * did not type. `clearsMuxPlaybackIdOnPaidTransition` is exactly such a change:
+ * the API clears `muxPlaybackId` on a FREE -> PAID flip, answers the cleared
+ * row, and the form is then holding an identifier that no longer exists on the
+ * lesson. A second save in that state PATCHes it straight back - the API sees
+ * PAID -> PAID, correctly does not clear, and writes the id it was given, so one
+ * extra click silently undoes the retirement and reports "Lesson saved."
+ *
+ * That was found by an independent review of the change that introduced the
+ * clear, and reproduced against the real transition function before this was
+ * written: save one gives PAID with a null playback id, save two gives PAID
+ * carrying the public id again. Which is the state the clear exists to prevent,
+ * reached through the button that performs it.
+ *
+ * The rule is therefore "believe the answer, not the form". Every field here is
+ * taken from the saved row rather than merged with what the form held, because
+ * a merge is what the defect was: the form's copy is stale by definition once
+ * the API has answered, and the API's answer is the only account of the row that
+ * is current. A blank identifier arrives as null and becomes the empty string
+ * the inputs are controlled with - the two spellings of absent that
+ * `adminUpdateLessonSchema` normalises back at the write boundary.
+ *
+ * Only these fields, and not the whole form: a save answers the row, not the
+ * operator's unsaved edits to fields it did not touch. Access level and video
+ * source are included because the clear can change `videoProvider` too, dropping
+ * a lesson with no `muxAssetId` to fall back on to NONE.
+ */
+export function lessonEditorFieldsAfterSave(saved: {
+  accessLevel?: string | null;
+  videoProvider?: string | null;
+  muxAssetId?: string | null;
+  muxPlaybackId?: string | null;
+  youtubeVideoId?: string | null;
+}) {
+  return {
+    accessLevel: saved.accessLevel ?? null,
+    videoProvider: saved.videoProvider ?? null,
+    muxAssetId: saved.muxAssetId ?? '',
+    muxPlaybackId: saved.muxPlaybackId ?? '',
+    youtubeVideoId: saved.youtubeVideoId ?? '',
+  };
+}

@@ -8,6 +8,7 @@ import {
   isStoredIdentifierAbsent,
   isValidMuxPlaybackId,
   isValidYouTubeVideoId,
+  lessonEditorFieldsAfterSave,
 } from './video-source.js';
 
 describe('isValidMuxPlaybackId', () => {
@@ -402,5 +403,60 @@ describe('clearsMuxPlaybackIdOnPaidTransition', () => {
     expect(
       transition({ nextAccessLevel: AccessLevel.FREE, incomingMuxPlaybackId: undefined }),
     ).toBe(false);
+  });
+});
+
+describe('lessonEditorFieldsAfterSave', () => {
+  it('takes every field from the saved row rather than from what was sent', () => {
+    expect(
+      lessonEditorFieldsAfterSave({
+        accessLevel: AccessLevel.PAID,
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: null,
+        youtubeVideoId: null,
+      }),
+    ).toEqual({
+      accessLevel: AccessLevel.PAID,
+      videoProvider: VideoProvider.MUX,
+      muxAssetId: 'asset-1',
+      muxPlaybackId: '',
+      youtubeVideoId: '',
+    });
+  });
+
+  // The whole point: the identifier the form sent is not the identifier the row
+  // now holds, and the form has to end up holding the second one.
+  it('answers the cleared playback id, not the one the save carried', () => {
+    const sent = 'freePlaybackId00000000000000000001';
+
+    expect(
+      lessonEditorFieldsAfterSave({
+        accessLevel: AccessLevel.PAID,
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: null,
+      }).muxPlaybackId,
+    ).not.toBe(sent);
+  });
+
+  // A clear on a lesson with no asset id to fall back on drops the row to NONE,
+  // so the form's video source has to follow or the next save writes MUX back
+  // onto a row holding neither identifier - which the CHECK constraint refuses.
+  it('follows the row down to no video source', () => {
+    expect(
+      lessonEditorFieldsAfterSave({
+        accessLevel: AccessLevel.PAID,
+        videoProvider: VideoProvider.NONE,
+        muxAssetId: null,
+        muxPlaybackId: null,
+      }),
+    ).toEqual({
+      accessLevel: AccessLevel.PAID,
+      videoProvider: VideoProvider.NONE,
+      muxAssetId: '',
+      muxPlaybackId: '',
+      youtubeVideoId: '',
+    });
   });
 });

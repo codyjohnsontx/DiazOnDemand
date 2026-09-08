@@ -23,6 +23,7 @@ import {
   getDisciplineLabel,
   hasUnplayableVideoIdentifier,
   isAwaitingMuxPlayback,
+  lessonEditorFieldsAfterSave,
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
@@ -101,6 +102,9 @@ export default function AdminLessonDetailPage() {
   const [programs, setPrograms] = useState<AdminProgramWithContentDto[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // A save is not instant and the form it was built from keeps accepting clicks
+  // until it returns. See the guard at the top of `onSave`.
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<LessonEditorForm>({
     title: '',
     description: '',
@@ -189,6 +193,17 @@ export default function AdminLessonDetailPage() {
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
+
+    // A second click while the first save is outstanding re-sends the form as it
+    // stood before the API answered, and the API is then looking at a row it has
+    // already changed. On a FREE -> PAID flip that means PATCHing the cleared
+    // playback ID back onto a row that is PAID by then: the transition is
+    // PAID -> PAID, no clear is due, and the identifier the first save retired is
+    // written straight back under a plain "Lesson saved.". One click is the only
+    // save this form is describing.
+    if (saving) return;
+    setSaving(true);
+
     const normalizedYoutubeVideoId = form.youtubeVideoId.trim();
 
     // An asset id on its own is a complete Mux lesson that is not playable yet:
@@ -201,18 +216,24 @@ export default function AdminLessonDetailPage() {
       !outgoingMuxAssetId
     ) {
       setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
+      setSaving(false);
       return;
     }
 
     if (form.videoProvider === VideoProvider.YOUTUBE && !normalizedYoutubeVideoId) {
       setStatus('YouTube video ID is required when the lesson uses YouTube.');
+      setSaving(false);
       return;
     }
 
     try {
       const saved = await apiFetch<{
         muxPlaybackIdClearedForPaidAccess?: boolean;
+        accessLevel?: AccessLevel;
         videoProvider?: VideoProvider;
+        muxAssetId?: string | null;
+        muxPlaybackId?: string | null;
+        youtubeVideoId?: string | null;
       }>(`/admin/lessons/${lessonId}`, {
         method: 'PATCH',
         body: JSON.stringify({
@@ -249,6 +270,24 @@ export default function AdminLessonDetailPage() {
                 : PAID_CLEAR_REMEDY_KEPT_ASSET)
           : 'Lesson saved.',
       );
+      // Adopt the row the API answered, before `load()` is even started. The
+      // effect below repopulates this form from `/admin/programs`, and until that
+      // round trip lands the form still holds the playback ID this save just
+      // retired - so the reload is far too late to be the only thing that
+      // reconciles them. The rule lives in `@diaz/shared` so it can be tested;
+      // this app has no test runner.
+      setForm((prev) => {
+        const next = lessonEditorFieldsAfterSave(saved ?? {});
+
+        return {
+          ...prev,
+          accessLevel: (next.accessLevel as AccessLevel | null) ?? prev.accessLevel,
+          videoProvider: (next.videoProvider as VideoProvider | null) ?? prev.videoProvider,
+          muxAssetId: next.muxAssetId,
+          muxPlaybackId: next.muxPlaybackId,
+          youtubeVideoId: next.youtubeVideoId,
+        };
+      });
       await load();
     } catch (requestError) {
       setStatus(
@@ -256,6 +295,8 @@ export default function AdminLessonDetailPage() {
           ? `Lesson could not be saved. ${requestError.message}`
           : 'Lesson could not be saved.',
       );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -508,10 +549,11 @@ export default function AdminLessonDetailPage() {
           ) : null}
           <div className="flex flex-wrap gap-3">
             <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
               type="submit"
             >
-              Save lesson
+              {saving ? 'Saving...' : 'Save lesson'}
             </button>
             <button
               className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"

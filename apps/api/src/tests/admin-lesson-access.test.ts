@@ -15,6 +15,7 @@
  * `lesson_video_provider_consistency_chk` refuses, and no mocked Prisma can say.
  */
 import { AccessLevel, VideoProvider } from '@diaz/db';
+import { lessonEditorFieldsAfterSave } from '@diaz/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { AdminService, planPaidAccessTransition } from '../admin/admin.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -228,5 +229,71 @@ describe('AdminService.updateLesson', () => {
       data: expect.objectContaining({ muxPlaybackId: PUBLIC_PLAYBACK_ID }),
     });
     expect(saved.muxPlaybackIdClearedForPaidAccess).toBe(false);
+  });
+});
+
+/**
+ * The clear survives a second click on Save.
+ *
+ * Found by an independent review of this change and reproduced here before it
+ * was fixed. The editor's Save button carried no disabled state and `onSave` no
+ * in-flight guard, and the form was only repopulated when `load()` returned from
+ * `/admin/programs` - so between the PATCH answering and that reload landing, the
+ * form still held the playback id the save had just retired. A second click
+ * re-sent it, the API saw PAID -> PAID, correctly declined to clear, and wrote
+ * the public identifier back onto the paid lesson under a plain "Lesson saved.".
+ *
+ * The API is right at every step, which is why the guard is not here: nothing on
+ * the row distinguishes an operator legitimately pasting a rotated id from a
+ * stale form resending a retired one. The fix is for the editor to believe the
+ * answer it was given, and `lessonEditorFieldsAfterSave` is that rule. The web
+ * app has no test runner, so this is where the two halves can be driven
+ * together.
+ */
+describe('a second save before the editor reloads', () => {
+  /** `prisma.lesson.update` semantics: an undefined field leaves the column alone. */
+  function applyUpdate(row: Record<string, unknown>, data: Record<string, unknown>) {
+    const next = { ...row };
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) next[key] = value;
+    }
+    return next;
+  }
+
+  function save(row: Record<string, unknown>, body: Record<string, unknown>) {
+    const plan = planPaidAccessTransition(row as never, body as never);
+    return { row: applyUpdate(row, plan.data as Record<string, unknown>) };
+  }
+
+  it('put the retired playback id back when the form was not reconciled', () => {
+    const first = save(freeMuxLesson(), editorSave());
+    expect(first.row.muxPlaybackId).toBeNull();
+
+    // The form as it stood before the API answered - unchanged, because nothing
+    // had reconciled it.
+    const second = save(first.row, editorSave());
+
+    expect(second.row.muxPlaybackId).toBe(PUBLIC_PLAYBACK_ID);
+    expect(second.row.accessLevel).toBe(AccessLevel.PAID);
+  });
+
+  it('sends no retired playback id once the form adopts the saved row', () => {
+    const first = save(freeMuxLesson(), editorSave());
+    const reconciled = lessonEditorFieldsAfterSave(first.row);
+
+    // Exactly what the editor builds from its form: blank is sent as null.
+    const secondBody = editorSave({
+      accessLevel: reconciled.accessLevel,
+      videoProvider: reconciled.videoProvider,
+      muxAssetId: reconciled.muxAssetId || null,
+      muxPlaybackId: reconciled.muxPlaybackId || null,
+    });
+
+    expect(secondBody.muxPlaybackId).toBeNull();
+
+    const second = save(first.row, secondBody);
+
+    expect(second.row.muxPlaybackId).toBeNull();
+    expect(second.row.accessLevel).toBe(AccessLevel.PAID);
   });
 });
