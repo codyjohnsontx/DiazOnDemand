@@ -31,19 +31,26 @@ import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
 
-// The public playback policy bars the asset from premium content on its own,
-// whether or not anyone ever saw the lesson, so that half is stated flatly and
-// the disclosure is stated as the condition it is: the catalogue only serves a
-// published lesson.
+// What forces the clear is stated flatly, because it holds either way: nothing
+// on the lesson records the asset's playback policy. The two things that would
+// make the cleared ID watchable by a stranger are stated as the separate
+// conditions they are - the asset being public-policy, and the lesson having
+// been published while it was free - because a stranger needs both.
 const PAID_CLEAR_STATUS =
-  'Lesson saved as premium, and the Mux playback ID was cleared. A public Mux asset plays for ' +
-  'anyone holding its playback ID, so it cannot back premium content whether or not anyone ' +
-  'holds this one yet. And if the lesson was ever published while it was free, that ID reached ' +
-  'everyone who browsed the catalogue and cannot be recalled. ';
+  'Lesson saved as premium, and the Mux playback ID was cleared. A public-policy Mux asset ' +
+  'cannot back premium content, and nothing on the lesson records which policy this asset ' +
+  'carries, so the ID is cleared rather than kept. If the asset is public-policy, that ID plays ' +
+  'for anyone holding it - and if the lesson was ever published while it was free, everyone who ' +
+  'browsed the catalogue holds it and it cannot be recalled. ';
 
+// Redelivery first: an asset that is already signed-only is accepted by the
+// webhook and gives back the same playback ID, so naming the re-create first
+// sends the operator to re-upload a video that never needed re-uploading.
 const PAID_CLEAR_REMEDY_KEPT_ASSET =
-  'Re-create the asset in Mux with a signed-only playback policy, paste its asset ID here, and ' +
-  'video.asset.ready will fill in the new playback ID.';
+  'Redeliver video.asset.ready from the Mux dashboard first - if the asset is already ' +
+  'signed-only that restores its playback ID. If it carries a public playback policy the ' +
+  'redelivery is refused; re-create the asset in Mux with a signed-only playback policy, paste ' +
+  'its asset ID here, and video.asset.ready will fill in the new playback ID.';
 
 // With no asset ID to keep, the API drops the lesson to no video source, which
 // also takes the Mux asset ID field off this page - so the remedy has to name
@@ -368,11 +375,12 @@ export default function AdminLessonDetailPage() {
               </select>
               {willClearMuxPlaybackId ? (
                 <p className="type-meta text-[var(--danger)]">
-                  Saving will clear the Mux playback ID. A public Mux asset plays for anyone
-                  holding its playback ID, so it cannot back premium content whether or not anyone
-                  holds this one yet. And if this lesson was ever published while it was free, that
-                  ID reached everyone who browsed the catalogue and cannot be recalled. Give the
-                  lesson a signed-only Mux asset instead.
+                  Saving will clear the Mux playback ID. A public-policy Mux asset cannot back
+                  premium content, and nothing on the lesson records which policy this asset
+                  carries, so the ID is cleared rather than kept. If the asset is public-policy,
+                  that ID plays for anyone holding it - and if this lesson was ever published while
+                  it was free, everyone who browsed the catalogue holds it and it cannot be
+                  recalled. A premium lesson needs a signed-only Mux asset.
                 </p>
               ) : null}
             </div>

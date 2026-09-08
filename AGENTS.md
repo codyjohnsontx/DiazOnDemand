@@ -352,18 +352,22 @@ the reason it exists is stated with it.
   `@diaz/shared` holds the rule; `planPaidAccessTransition` in
   `apps/api/src/admin/admin.service.ts` applies it on the one write path both admin PATCH routes
   go through. A FREE lesson publishes that id to anonymous `/programs` callers once it is
-  published - every public read filters `isPublished` - and a FREE lesson's Mux asset must carry
-  a public playback policy because `syncMuxAsset` refuses any other, so `stream.mux.com/<id>.m3u8`
-  plays for anyone who read the catalogue first, forever, and the flip stops the API handing the
-  id out while taking nothing back. The public policy is reason enough on its own: it bars the
-  asset from paid content whether or not the lesson was ever published, which is why the admin
-  copy states that unconditionally and the disclosure conditionally. Reproduced end to end
+  published - every public read filters `isPublished` - so on a public-policy asset
+  `stream.mux.com/<id>.m3u8` plays for anyone who read the catalogue first, forever, and the flip
+  stops the API handing the id out while taking nothing back. `syncMuxAsset` gives a FREE lesson
+  only a public playback id, but it is not the column's only writer: PAID -> FREE keeps the id the
+  row already holds, so a FREE lesson can be carrying a signed-only one. The rule fires on every
+  flip anyway, because nothing on the row records the asset's policy and clearing is the only
+  choice that cannot leak; the cost on a PAID -> FREE -> PAID round trip is a redelivery of
+  `video.asset.ready`, which restores the same signed-only id. That is why the admin copy states
+  the rule flatly and states both the public-policy claim and the disclosure as conditions, and
+  why its remedy names redelivery before re-creating the asset. Reproduced end to end
   against the built API on a real Postgres before the fix: anonymous `/programs` and
   `/lessons/:id` handed over the id and the plain url, the admin PATCH set PAID, `/programs`
   correctly went quiet, and the row still held that exact id. Clearing it forces the only fix
-  that works - a new signed-only asset, whose id nobody holds - and `syncMuxAsset` refuses to
-  reattach a public id to a PAID lesson, so the re-ingestion cannot put the same kind of
-  identifier quietly back. Three parts of it are load-bearing. A write supplying a *different*
+  that works on a public asset - a new signed-only one, whose id nobody holds - and `syncMuxAsset`
+  refuses to reattach a public id to a PAID lesson, so the re-ingestion cannot put the same kind
+  of identifier quietly back. Three parts of it are load-bearing. A write supplying a *different*
   id is the rotation itself and is left alone, or the guard would eat the value an operator just
   typed. The clear has to leave a row `lesson_video_provider_consistency_chk` accepts, so a
   lesson with no `muxAssetId` to fall back on drops to `videoProvider = NONE` instead of

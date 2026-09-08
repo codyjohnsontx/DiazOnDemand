@@ -232,20 +232,28 @@ export function hasUnplayableVideoIdentifier(lesson: {
  * A FREE lesson publishes its `muxPlaybackId` to anonymous callers of
  * `/programs`, `/programs/:id` and `/courses/:id`, and that id is not a name for
  * the video, it is the whole address of one: on an asset with a public playback
- * policy - the only kind a FREE lesson can hold, because `syncMuxAsset` refuses
- * any other - `https://stream.mux.com/<id>.m3u8` plays for anyone holding it,
- * never expires and asks for nothing. Flipping the lesson to PAID stops the API
+ * policy, `https://stream.mux.com/<id>.m3u8` plays for anyone holding it, never
+ * expires and asks for nothing. Flipping the lesson to PAID stops the API
  * handing that id out and changes nothing whatsoever for the people already
  * holding it, so the lesson stays free forever for everyone who read the
  * catalogue first. Withholding an identifier is not the same act as retiring
  * one, and only the second one closes this.
  *
- * Clearing the column is what forces the fix that does work: a new asset in Mux
- * with a signed-only playback policy, which carries a different playback id
- * nobody has yet, arriving through `video.asset.ready`. The webhook refuses to
- * attach a public playback id to a PAID lesson, so the re-ingestion cannot put
- * the same kind of identifier quietly back - see `syncMuxAsset` in
- * apps/api/src/webhooks/webhooks.service.ts.
+ * `syncMuxAsset` gives a FREE lesson only a public playback id, but it is not
+ * the only writer of that column: the admin access-level flip is a second one,
+ * and PAID -> FREE deliberately keeps the id the row already holds, so a FREE
+ * lesson can be carrying a signed-only id instead. The rule still fires on every
+ * FREE -> PAID flip anyway, because nothing on the row records which policy the
+ * asset carries and clearing is the only choice that cannot leak. The cost of
+ * being wrong that way is a redelivery of `video.asset.ready` on a
+ * PAID -> FREE -> PAID round trip, which restores the same signed-only id.
+ *
+ * Clearing the column is what forces the fix that does work when the asset is
+ * public: a new asset in Mux with a signed-only playback policy, which carries a
+ * different playback id nobody has yet, arriving through `video.asset.ready`.
+ * The webhook refuses to attach a public playback id to a PAID lesson, so the
+ * re-ingestion cannot put the same kind of identifier quietly back - see
+ * `syncMuxAsset` in apps/api/src/webhooks/webhooks.service.ts.
  *
  * A write that supplies a *different* id is a rotation the operator is already
  * performing, and it is left alone: only the carried-over id is retired.

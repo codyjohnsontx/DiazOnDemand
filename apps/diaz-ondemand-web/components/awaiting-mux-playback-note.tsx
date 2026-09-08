@@ -34,9 +34,9 @@ export function AwaitingMuxPlaybackNote({
       already holds the asset ID receives it.{' '}
       {accessLevel === AccessLevel.PAID
         ? 'A premium lesson needs a signed-only asset, and an asset carrying a public playback ' +
-          'ID is refused. If this is still the asset the lesson had while it was free, re-create ' +
-          'it in Mux with a signed-only playback policy and save the new asset ID. If it is ' +
-          'already signed-only and Ready in Mux, redeliver that event from the Mux dashboard.'
+          'ID is refused. If it is already signed-only and Ready in Mux, redeliver that event ' +
+          'from the Mux dashboard. If this is still the asset the lesson had while it was free, ' +
+          're-create it in Mux with a signed-only playback policy and save the new asset ID.'
         : 'If the asset is already Ready in Mux, redeliver that event from the Mux dashboard.'}
     </p>
   );
