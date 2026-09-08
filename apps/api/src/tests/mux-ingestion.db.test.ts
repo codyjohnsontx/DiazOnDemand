@@ -1,22 +1,27 @@
 /**
- * Database-backed tests for Mux ingestion: a lesson saved as "uploaded, still
- * encoding", and the `video.asset.ready` webhook that completes it.
+ * Database-backed tests for the writes that have to satisfy the `Lesson` CHECK
+ * constraint: a lesson saved as "uploaded, still encoding", the
+ * `video.asset.ready` webhook that completes it, and the admin FREE -> PAID
+ * transition that retires a publicly-served playback id.
  *
  * These run against a real Postgres for the same reason the billing ones do.
  * What made the awaiting state unstorable was a CHECK constraint,
  * `lesson_video_provider_consistency_chk`, which no mocked Prisma enforces - so
  * against the mocks the chain looked like it worked while every real save
  * answered 500 and every Mux delivery logged "No lesson matches Mux asset
- * <id>; skipping sync".
+ * <id>; skipping sync". The paid-access clear is in the same position: it takes
+ * an identifier off a row the constraint has an opinion about, and only the
+ * database can say whether what is left is storable.
  *
  * Point TEST_DATABASE_URL at a throwaway database with the migrations applied;
  * see the header of billing-lifecycle.db.test.ts for the exact commands.
  * Without it the suite skips, except on CI where a skip would silently drop the
  * only coverage this constraint has.
  */
-import { PrismaClient, VideoProvider } from '@diaz/db';
+import { AccessLevel, PrismaClient, VideoProvider } from '@diaz/db';
 import { isAwaitingMuxPlayback } from '@diaz/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { AdminService } from '../admin/admin.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 
@@ -248,5 +253,141 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
 
     expect(awaiting).toContainEqual({ id: lesson.id });
     expect(awaiting).toContainEqual({ id: withoutProvider.id });
+  });
+
+  /**
+   * The other write that has to respect this constraint, and the leak it closes.
+   *
+   * A FREE lesson publishes its playback id to anonymous callers of `/programs`,
+   * and a FREE lesson's asset must carry a public playback policy - `syncMuxAsset`
+   * refuses any other - so that id plays at `stream.mux.com/<id>.m3u8` for anyone
+   * who read the catalogue, forever. Flipping the lesson to PAID stops the API
+   * publishing it and takes nothing back.
+   */
+  describe('the FREE -> PAID access transition', () => {
+    const admin = new AdminService(prisma);
+
+    async function createFreeMuxLesson(overrides: Record<string, unknown> = {}) {
+      const course = await createCourse();
+
+      return prismaClient!.lesson.create({
+        data: {
+          courseId: course.id,
+          title: 'mux-ingestion-test lesson',
+          orderIndex: 0,
+          accessLevel: AccessLevel.FREE,
+          videoProvider: VideoProvider.MUX,
+          muxAssetId: nextAssetId(),
+          muxPlaybackId: PUBLIC_PLAYBACK_ID,
+          ...overrides,
+        },
+      });
+    }
+
+    /** The body the lesson editor PATCHes: every field, including the id it loaded. */
+    function editorSave(
+      lesson: { title: string; videoProvider: string; muxAssetId: string | null; muxPlaybackId: string | null },
+      overrides: Record<string, unknown> = {},
+    ) {
+      return {
+        title: lesson.title,
+        accessLevel: AccessLevel.PAID,
+        videoProvider: lesson.videoProvider as VideoProvider,
+        muxAssetId: lesson.muxAssetId,
+        muxPlaybackId: lesson.muxPlaybackId,
+        youtubeVideoId: null,
+        ...overrides,
+      };
+    }
+
+    // The premise, measured rather than assumed. Postgres stores a PAID lesson
+    // still holding its public playback id without a murmur, so nothing under
+    // the service refuses the carry-over and the guard is the only thing that
+    // can.
+    it('is a row Postgres accepts, so nothing below the guard refuses the carry-over', async () => {
+      const lesson = await createFreeMuxLesson();
+
+      const carried = await prismaClient!.lesson.update({
+        where: { id: lesson.id },
+        data: { accessLevel: AccessLevel.PAID },
+      });
+
+      expect(carried.accessLevel).toBe(AccessLevel.PAID);
+      expect(carried.muxPlaybackId).toBe(PUBLIC_PLAYBACK_ID);
+    });
+
+    it('clears the playback id and leaves a row the constraint accepts', async () => {
+      const lesson = await createFreeMuxLesson();
+
+      const saved = await admin.updateLesson(lesson.id, editorSave(lesson));
+
+      expect(saved.muxPlaybackIdClearedForPaidAccess).toBe(true);
+      expect(saved.accessLevel).toBe(AccessLevel.PAID);
+      expect(saved.muxPlaybackId).toBeNull();
+      // The asset id survives, so the lesson lands in the state the
+      // "Waiting for Mux" badge already describes rather than nowhere.
+      expect(saved.muxAssetId).toBe(lesson.muxAssetId);
+      expect(saved.videoProvider).toBe(VideoProvider.MUX);
+      expect(
+        isAwaitingMuxPlayback({
+          muxAssetId: saved.muxAssetId,
+          muxPlaybackId: saved.muxPlaybackId,
+          youtubeVideoId: saved.youtubeVideoId,
+        }),
+      ).toBe(true);
+    });
+
+    // A MUX row must hold a playback id or an asset id. Clearing the only
+    // identifier a lesson has would violate the constraint, so the row becomes
+    // the honest not-filmed state instead of a failed save.
+    it('drops the provider to NONE when the lesson has no asset id to fall back on', async () => {
+      const lesson = await createFreeMuxLesson({ muxAssetId: null });
+
+      const saved = await admin.updateLesson(lesson.id, editorSave(lesson));
+
+      expect(saved.muxPlaybackId).toBeNull();
+      expect(saved.videoProvider).toBe(VideoProvider.NONE);
+      expect(saved.muxPlaybackIdClearedForPaidAccess).toBe(true);
+    });
+
+    // The reverse transition, and the ordinary save, both against the real
+    // constraint: a premium lesson that never published its id keeps it.
+    it('leaves the reverse PAID -> FREE transition alone', async () => {
+      const lesson = await createFreeMuxLesson({ accessLevel: AccessLevel.PAID });
+
+      const saved = await admin.updateLesson(
+        lesson.id,
+        editorSave(lesson, { accessLevel: AccessLevel.FREE }),
+      );
+
+      expect(saved.accessLevel).toBe(AccessLevel.FREE);
+      expect(saved.muxPlaybackId).toBe(PUBLIC_PLAYBACK_ID);
+      expect(saved.muxPlaybackIdClearedForPaidAccess).toBe(false);
+    });
+
+    it('leaves a lesson that was premium from the start alone', async () => {
+      const lesson = await createFreeMuxLesson({ accessLevel: AccessLevel.PAID });
+
+      const saved = await admin.updateLesson(lesson.id, editorSave(lesson));
+
+      expect(saved.muxPlaybackId).toBe(PUBLIC_PLAYBACK_ID);
+      expect(saved.muxPlaybackIdClearedForPaidAccess).toBe(false);
+    });
+
+    // The clear is only half a rotation. The other half is that the same asset
+    // cannot be reattached: it is public, the lesson is now paid, and
+    // `syncMuxAsset` fails the delivery in the Mux dashboard naming the remedy.
+    it('refuses to re-attach the same public asset to the now-paid lesson', async () => {
+      const lesson = await createFreeMuxLesson();
+      await admin.updateLesson(lesson.id, editorSave(lesson));
+
+      await expect(service.handleMuxWebhook(assetReady(lesson.muxAssetId!))).rejects.toThrow(
+        /has a public playback id/,
+      );
+
+      const after = await prismaClient!.lesson.findUniqueOrThrow({ where: { id: lesson.id } });
+
+      expect(after.muxPlaybackId).toBeNull();
+    });
   });
 });

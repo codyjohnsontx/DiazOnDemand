@@ -1,4 +1,4 @@
-import { VideoProvider } from './enums.js';
+import { AccessLevel, VideoProvider } from './enums.js';
 
 /**
  * The 16 placeholder Mux playback ids this repository itself seeded into
@@ -223,4 +223,68 @@ export function hasUnplayableVideoIdentifier(lesson: {
   }
 
   return false;
+}
+
+/**
+ * Whether saving this lesson as PAID has to drop the Mux playback id it is
+ * already carrying.
+ *
+ * A FREE lesson publishes its `muxPlaybackId` to anonymous callers of
+ * `/programs`, `/programs/:id` and `/courses/:id`, and that id is not a name for
+ * the video, it is the whole address of one: on an asset with a public playback
+ * policy - the only kind a FREE lesson can hold, because `syncMuxAsset` refuses
+ * any other - `https://stream.mux.com/<id>.m3u8` plays for anyone holding it,
+ * never expires and asks for nothing. Flipping the lesson to PAID stops the API
+ * handing that id out and changes nothing whatsoever for the people already
+ * holding it, so the lesson stays free forever for everyone who read the
+ * catalogue first. Withholding an identifier is not the same act as retiring
+ * one, and only the second one closes this.
+ *
+ * Clearing the column is what forces the fix that does work: a new asset in Mux
+ * with a signed-only playback policy, which carries a different playback id
+ * nobody has yet, arriving through `video.asset.ready`. The webhook refuses to
+ * attach a public playback id to a PAID lesson, so the re-ingestion cannot put
+ * the same kind of identifier quietly back - see `syncMuxAsset` in
+ * apps/api/src/webhooks/webhooks.service.ts.
+ *
+ * A write that supplies a *different* id is a rotation the operator is already
+ * performing, and it is left alone: only the carried-over id is retired.
+ *
+ * `youtubeVideoId` has no counterpart here, and the asymmetry is a conclusion
+ * rather than an omission. A Mux playback id is rotatable; a YouTube video id is
+ * the video's permanent name on YouTube, so re-ingesting yields the same id and
+ * clearing the column retires nothing that leaked. There is no signed variant to
+ * rotate *to* either - `mapLessonDetail` hands an entitled member
+ * `youtube-nocookie.com/embed/<id>`, the same public address the anonymous
+ * catalogue used to publish - so a PAID YouTube lesson has exactly one handle,
+ * and clearing it would take a working lesson to NONE while leaving the leaked
+ * id as playable as it was. That is a clear with no rotation behind it, which is
+ * the shape of a mitigation that only looks like one. The remedy is in YouTube
+ * Studio, and the lesson editor says so instead.
+ */
+export function clearsMuxPlaybackIdOnPaidTransition(transition: {
+  previousAccessLevel: string | null | undefined;
+  nextAccessLevel: string | null | undefined;
+  storedMuxPlaybackId?: string | null;
+  /** `undefined` when the write does not mention the column at all. */
+  incomingMuxPlaybackId?: string | null;
+}) {
+  if (
+    transition.previousAccessLevel !== AccessLevel.FREE ||
+    transition.nextAccessLevel !== AccessLevel.PAID
+  ) {
+    return false;
+  }
+
+  // Blank is the database's definition of blank, not JavaScript's, because the
+  // clear this authorises has to leave a row `lesson_video_provider_consistency_chk`
+  // accepts - see `isStoredIdentifierAbsent`.
+  if (isStoredIdentifierAbsent(transition.storedMuxPlaybackId)) {
+    return false;
+  }
+
+  return (
+    transition.incomingMuxPlaybackId === undefined ||
+    transition.incomingMuxPlaybackId === transition.storedMuxPlaybackId
+  );
 }

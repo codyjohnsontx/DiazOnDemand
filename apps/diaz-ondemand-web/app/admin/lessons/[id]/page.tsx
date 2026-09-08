@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import type {
-  AccessLevel,
-  AdminProgramWithContentDto,
-  CurriculumMetadata,
-} from '@diaz/shared';
+import type { AdminProgramWithContentDto, CurriculumMetadata } from '@diaz/shared';
 import {
+  // A value import, not a type-only one: the paid-YouTube note below compares
+  // against it, and TypeScript refuses to compare a string enum with a bare
+  // string literal.
+  AccessLevel,
   VideoProvider,
+  clearsMuxPlaybackIdOnPaidTransition,
   createDefaultCurriculum,
   curriculumDisciplineKeys,
   getCurriculumPhaseLabel,
@@ -166,7 +167,7 @@ export default function AdminLessonDetailPage() {
     }
 
     try {
-      await apiFetch(`/admin/lessons/${lessonId}`, {
+      const saved = await apiFetch<{ muxPlaybackIdClearedForPaidAccess?: boolean }>(`/admin/lessons/${lessonId}`, {
         method: 'PATCH',
         body: JSON.stringify({
           title: form.title,
@@ -188,7 +189,18 @@ export default function AdminLessonDetailPage() {
           },
         }),
       });
-      setStatus('Lesson saved.');
+      // What the API decided, not what this form predicted. The warning beside
+      // the access level says a clear is coming; this says it happened, and it
+      // is the only thing an operator sees if the flip reached the API some
+      // other way.
+      setStatus(
+        saved?.muxPlaybackIdClearedForPaidAccess
+          ? 'Lesson saved as premium, and the Mux playback ID was cleared. That ID was published ' +
+              'to anyone browsing the catalogue while the lesson was free, and a public Mux asset ' +
+              'plays for anyone holding it. Re-create the asset in Mux with a signed-only playback ' +
+              'policy, paste its asset ID here, and video.asset.ready will fill in the new playback ID.'
+          : 'Lesson saved.',
+      );
       await load();
     } catch (requestError) {
       setStatus(
@@ -243,6 +255,24 @@ export default function AdminLessonDetailPage() {
     videoProvider: form.videoProvider,
     youtubeVideoId: form.youtubeVideoId,
   });
+  // Saved row against pending form, so the operator is warned before the save
+  // rather than only told afterwards. The incoming id mirrors exactly what
+  // onSave sends, so this predicts the API's own answer; the API still decides,
+  // and the save status reports what it decided.
+  const willClearMuxPlaybackId = clearsMuxPlaybackIdOnPaidTransition({
+    previousAccessLevel: lesson.accessLevel,
+    nextAccessLevel: form.accessLevel,
+    storedMuxPlaybackId: lesson.muxPlaybackId,
+    incomingMuxPlaybackId: form.muxPlaybackId.trim() || null,
+  });
+  // A YouTube video id is the video's permanent address on YouTube, so there is
+  // nothing to rotate it to and premium playback embeds that same public id.
+  // Without this the Mux warning above would imply, by contrast, that switching
+  // a YouTube lesson to premium protects it.
+  const showPaidYoutubeExposureNote =
+    form.accessLevel === AccessLevel.PAID &&
+    form.videoProvider === VideoProvider.YOUTUBE &&
+    form.youtubeVideoId.trim().length > 0;
   const phaseOptions = getCurriculumPhaseKeys(form.curriculum.discipline);
   const trackOptions = getCurriculumTrackKeys(form.curriculum.discipline, form.curriculum.phase);
   const skillOptions = getCurriculumSkillKeys(form.curriculum.discipline);
@@ -304,6 +334,13 @@ export default function AdminLessonDetailPage() {
                 <option value="FREE">Free lesson</option>
                 <option value="PAID">Premium lesson</option>
               </select>
+              {willClearMuxPlaybackId ? (
+                <p className="type-meta text-[var(--danger)]">
+                  Saving will clear the Mux playback ID. It was published to anyone browsing the
+                  catalogue while this lesson was free, so it cannot protect premium content. Give
+                  the lesson a signed-only Mux asset instead.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <label className="type-kicker text-[var(--text-muted)]" htmlFor={durationSecondsInputId}>
@@ -409,6 +446,13 @@ export default function AdminLessonDetailPage() {
                 <p className="type-meta text-[var(--danger)]">
                   This video ID will not play. A published lesson with it shows the not-filmed
                   state.
+                </p>
+              ) : null}
+              {showPaidYoutubeExposureNote ? (
+                <p className="type-meta text-[var(--text-muted)]">
+                  Premium does not protect a YouTube video. This ID is the video&apos;s permanent
+                  address, premium playback embeds the same public ID, and anyone who saw the lesson
+                  while it was free still holds it. Only YouTube Studio can restrict the video.
                 </p>
               ) : null}
             </div>

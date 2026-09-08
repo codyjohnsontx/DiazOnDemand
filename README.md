@@ -1221,7 +1221,10 @@ because what they cover is invisible to a mocked client:
 - `apps/api/src/tests/mux-ingestion.db.test.ts` - the state "uploaded, still encoding" was
   refused by a CHECK constraint, `lesson_video_provider_consistency_chk`, which Prisma does not
   model and mocks do not enforce. Against the mocks the ingestion chain looked like it worked
-  while every real save answered 500.
+  while every real save answered 500. The same suite covers the admin FREE -> PAID transition,
+  which takes an identifier off a row that constraint has an opinion about, and which needs the
+  real database to show that Postgres would otherwise store a paid lesson holding its public
+  playback id without complaint.
 
 Both run the real services against a real Postgres, and both have the same contract: they
 **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
