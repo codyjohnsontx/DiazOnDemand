@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import type {
-  AccessLevel,
-  AdminProgramWithContentDto,
-  CurriculumMetadata,
-} from '@diaz/shared';
+import type { AdminProgramWithContentDto, CurriculumMetadata } from '@diaz/shared';
 import {
+  // A value import, not a type-only one: the paid-YouTube note below compares
+  // against it, and TypeScript refuses to compare a string enum with a bare
+  // string literal.
+  AccessLevel,
   VideoProvider,
+  clearsMuxPlaybackIdOnPaidTransition,
   createDefaultCurriculum,
   curriculumDisciplineKeys,
   getCurriculumPhaseLabel,
@@ -22,12 +23,52 @@ import {
   getDisciplineLabel,
   hasUnplayableVideoIdentifier,
   isAwaitingMuxPlayback,
+  lessonEditorFieldsAfterSave,
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
+import { AwaitingMuxPlaybackNote } from '@/components/awaiting-mux-playback-note';
 import { EmptyState } from '@/components/empty-state';
 import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
+
+// What forces the clear is stated flatly, because it holds either way: nothing
+// on the lesson records the asset's playback policy. The two things that would
+// make the cleared ID watchable by a stranger are stated as the separate
+// conditions they are - the asset being public-policy, and the lesson having
+// been published while it was free - because a stranger needs both.
+const PAID_CLEAR_STATUS =
+  'Lesson saved as premium, and the Mux playback ID was cleared. A public-policy Mux asset ' +
+  'cannot back premium content, and nothing on the lesson records which policy this asset ' +
+  'carries, so the ID is cleared rather than kept. If the asset is public-policy, that ID plays ' +
+  'for anyone holding it - and if the lesson was ever published while it was free, everyone who ' +
+  'browsed the catalogue holds it and it cannot be recalled. ';
+
+// Both remedies below follow one shape: the step that always applies, then a
+// conditional shortcut where there is one, then a fallback that works in every
+// state which can reach that branch. A conditional step with nothing under it
+// can only fail an operator it does not happen to describe, and neither the row
+// nor the form can say which playback policy an asset carries.
+//
+// The shortcut here is redelivery: an asset that is already signed-only is
+// accepted by the webhook and gives back the same playback ID, so a re-create
+// would be a re-upload the video never needed.
+const PAID_CLEAR_REMEDY_KEPT_ASSET =
+  'Redeliver video.asset.ready from the Mux dashboard first - if the asset is already ' +
+  'signed-only that restores its playback ID. If it carries a public playback policy the ' +
+  'redelivery is refused; re-create the asset in Mux with a signed-only playback policy, paste ' +
+  'its asset ID here, and video.asset.ready will fill in the new playback ID.';
+
+// This branch is reached only when the lesson stored no asset ID, so it cannot
+// presuppose one. Dropping to no video source also takes the Mux asset ID field
+// off this page, and both paths need it back, so that step is named before the
+// branch rather than inside the shortcut.
+const PAID_CLEAR_REMEDY_RESET_SOURCE =
+  'Video source was reset to No video source, because the lesson had no Mux asset ID to keep. ' +
+  'Set Video source back to Mux to bring the asset ID field back. If you still have that asset ' +
+  'in Mux, paste its asset ID and save, then redeliver video.asset.ready from the Mux ' +
+  'dashboard. Otherwise re-create it in Mux with a signed-only playback policy and save the ' +
+  'new asset ID.';
 
 type LessonEditorForm = {
   title: string;
@@ -61,6 +102,9 @@ export default function AdminLessonDetailPage() {
   const [programs, setPrograms] = useState<AdminProgramWithContentDto[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // A save is not instant and the form it was built from keeps accepting clicks
+  // until it returns. See the guard at the top of `onSave`.
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<LessonEditorForm>({
     title: '',
     description: '',
@@ -102,6 +146,12 @@ export default function AdminLessonDetailPage() {
   const showMuxAssetIdField =
     form.videoProvider === VideoProvider.MUX ||
     (awaitingMuxPlayback && form.videoProvider !== VideoProvider.YOUTUBE);
+  // Blank is stored as NULL, never as an empty string: "no playback id yet"
+  // needs one spelling, or a query for the lessons still waiting on Mux misses
+  // exactly the ones saved here.
+  const outgoingMuxPlaybackId =
+    form.videoProvider === VideoProvider.MUX ? form.muxPlaybackId.trim() || null : null;
+  const outgoingMuxAssetId = showMuxAssetIdField ? form.muxAssetId.trim() || null : null;
 
   const load = async () => {
     try {
@@ -143,42 +193,52 @@ export default function AdminLessonDetailPage() {
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
-    const normalizedMuxAssetId = form.muxAssetId.trim();
-    const normalizedMuxPlaybackId = form.muxPlaybackId.trim();
+
+    // A second click while the first save is outstanding re-sends the form as it
+    // stood before the API answered, and the API is then looking at a row it has
+    // already changed. On a FREE -> PAID flip that means PATCHing the cleared
+    // playback ID back onto a row that is PAID by then: the transition is
+    // PAID -> PAID, no clear is due, and the identifier the first save retired is
+    // written straight back under a plain "Lesson saved.". One click is the only
+    // save this form is describing.
+    if (saving) return;
+    setSaving(true);
+
     const normalizedYoutubeVideoId = form.youtubeVideoId.trim();
 
     // An asset id on its own is a complete Mux lesson that is not playable yet:
     // Mux issues the playback id later, on `video.asset.ready`, and the webhook
     // finds the lesson by exactly this asset id. Demanding a playback id here
     // was what left ingestion with no entrance at all.
-    if (
-      form.videoProvider === VideoProvider.MUX &&
-      !normalizedMuxPlaybackId &&
-      !normalizedMuxAssetId
-    ) {
+    if (form.videoProvider === VideoProvider.MUX && !outgoingMuxPlaybackId && !outgoingMuxAssetId) {
       setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
+      setSaving(false);
       return;
     }
 
     if (form.videoProvider === VideoProvider.YOUTUBE && !normalizedYoutubeVideoId) {
       setStatus('YouTube video ID is required when the lesson uses YouTube.');
+      setSaving(false);
       return;
     }
 
     try {
-      await apiFetch(`/admin/lessons/${lessonId}`, {
+      const saved = await apiFetch<{
+        muxPlaybackIdClearedForPaidAccess?: boolean;
+        accessLevel: AccessLevel;
+        videoProvider: VideoProvider;
+        muxAssetId: string | null;
+        muxPlaybackId: string | null;
+        youtubeVideoId: string | null;
+      }>(`/admin/lessons/${lessonId}`, {
         method: 'PATCH',
         body: JSON.stringify({
           title: form.title,
           description: form.description,
           accessLevel: form.accessLevel,
           videoProvider: form.videoProvider,
-          muxAssetId: showMuxAssetIdField ? normalizedMuxAssetId || null : null,
-          // Blank is stored as NULL, never as an empty string: "no playback id
-          // yet" needs one spelling, or a query for the lessons still waiting
-          // on Mux misses exactly the ones saved here.
-          muxPlaybackId:
-            form.videoProvider === VideoProvider.MUX ? normalizedMuxPlaybackId || null : null,
+          muxAssetId: outgoingMuxAssetId,
+          muxPlaybackId: outgoingMuxPlaybackId,
           youtubeVideoId:
             form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
           durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
@@ -188,7 +248,31 @@ export default function AdminLessonDetailPage() {
           },
         }),
       });
-      setStatus('Lesson saved.');
+      // What the API decided, not what this form predicted. The warning beside
+      // the access level says a clear is coming; this says it happened, and it
+      // is the only thing an operator sees if the flip reached the API some
+      // other way.
+      //
+      // Which remedy applies is the API's answer as well. `planPaidAccessTransition`
+      // is what decides whether the lesson keeps MUX or drops to no video source,
+      // and the saved row it returns carries the result, so the remedy is chosen by
+      // reading that rather than by re-deriving the rule here. A client-side copy
+      // of it would have nothing to catch the two drifting apart.
+      setStatus(
+        saved?.muxPlaybackIdClearedForPaidAccess
+          ? PAID_CLEAR_STATUS +
+              (saved.videoProvider === VideoProvider.NONE
+                ? PAID_CLEAR_REMEDY_RESET_SOURCE
+                : PAID_CLEAR_REMEDY_KEPT_ASSET)
+          : 'Lesson saved.',
+      );
+      // Adopt the row the API answered, before `load()` is even started. The
+      // effect below repopulates this form from `/admin/programs`, and until that
+      // round trip lands the form still holds the playback ID this save just
+      // retired - so the reload is far too late to be the only thing that
+      // reconciles them. The rule lives in `@diaz/shared` so it can be tested;
+      // this app has no test runner.
+      setForm((prev) => ({ ...prev, ...lessonEditorFieldsAfterSave(saved) }));
       await load();
     } catch (requestError) {
       setStatus(
@@ -196,6 +280,8 @@ export default function AdminLessonDetailPage() {
           ? `Lesson could not be saved. ${requestError.message}`
           : 'Lesson could not be saved.',
       );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -243,6 +329,24 @@ export default function AdminLessonDetailPage() {
     videoProvider: form.videoProvider,
     youtubeVideoId: form.youtubeVideoId,
   });
+  // Saved row against pending form, so the operator is warned before the save
+  // rather than only told afterwards. The incoming id mirrors exactly what
+  // onSave sends, so this predicts the API's own answer; the API still decides,
+  // and the save status reports what it decided.
+  const willClearMuxPlaybackId = clearsMuxPlaybackIdOnPaidTransition({
+    previousAccessLevel: lesson.accessLevel,
+    nextAccessLevel: form.accessLevel,
+    storedMuxPlaybackId: lesson.muxPlaybackId,
+    incomingMuxPlaybackId: outgoingMuxPlaybackId,
+  });
+  // A YouTube video id is the video's permanent address on YouTube, so there is
+  // nothing to rotate it to and premium playback embeds that same public id.
+  // Without this the Mux warning above would imply, by contrast, that switching
+  // a YouTube lesson to premium protects it.
+  const showPaidYoutubeExposureNote =
+    form.accessLevel === AccessLevel.PAID &&
+    form.videoProvider === VideoProvider.YOUTUBE &&
+    form.youtubeVideoId.trim().length > 0;
   const phaseOptions = getCurriculumPhaseKeys(form.curriculum.discipline);
   const trackOptions = getCurriculumTrackKeys(form.curriculum.discipline, form.curriculum.phase);
   const skillOptions = getCurriculumSkillKeys(form.curriculum.discipline);
@@ -304,6 +408,16 @@ export default function AdminLessonDetailPage() {
                 <option value="FREE">Free lesson</option>
                 <option value="PAID">Premium lesson</option>
               </select>
+              {willClearMuxPlaybackId ? (
+                <p className="type-meta text-[var(--danger)]">
+                  Saving will clear the Mux playback ID. A public-policy Mux asset cannot back
+                  premium content, and nothing on the lesson records which policy this asset
+                  carries, so the ID is cleared rather than kept. If the asset is public-policy,
+                  that ID plays for anyone holding it - and if this lesson was ever published while
+                  it was free, everyone who browsed the catalogue holds it and it cannot be
+                  recalled. A premium lesson needs a signed-only Mux asset.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <label className="type-kicker text-[var(--text-muted)]" htmlFor={durationSecondsInputId}>
@@ -354,18 +468,15 @@ export default function AdminLessonDetailPage() {
                 automatically once the asset finishes encoding.
               </p>
               {/*
-                The asset ID is saved and the playback ID has not arrived.
-                Encoding may still be running, the event may have been delivered
-                before this lesson held the asset ID, the upload may have failed,
-                or the webhook may never have been configured - so this says what
-                is true of all four and what to do about the one an admin can fix.
+                Both derived from the saved row rather than the pending form: the
+                remedy has to describe the lesson the webhook will actually meet,
+                not the one this form would save.
               */}
               {awaitingMuxPlayback ? (
-                <p className="type-meta text-[var(--text-muted)]">
-                  No playback ID yet. Mux sends it with the video.asset.ready event, and only a
-                  lesson that already holds the asset ID receives it. If the asset is already Ready
-                  in Mux, redeliver that event from the Mux dashboard.
-                </p>
+                <AwaitingMuxPlaybackNote
+                  accessLevel={lesson.accessLevel}
+                  className="type-meta text-[var(--text-muted)]"
+                />
               ) : null}
             </div>
           ) : null}
@@ -411,14 +522,23 @@ export default function AdminLessonDetailPage() {
                   state.
                 </p>
               ) : null}
+              {showPaidYoutubeExposureNote ? (
+                <p className="type-meta text-[var(--text-muted)]">
+                  Premium does not protect a YouTube video. This ID is the video&apos;s permanent
+                  address and premium playback embeds that same public ID. If this lesson was ever
+                  published while it was free, everyone who browsed the catalogue holds this ID and
+                  it cannot be recalled. Only YouTube Studio can restrict the video.
+                </p>
+              ) : null}
             </div>
           ) : null}
           <div className="flex flex-wrap gap-3">
             <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
               type="submit"
             >
-              Save lesson
+              {saving ? 'Saving...' : 'Save lesson'}
             </button>
             <button
               className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"

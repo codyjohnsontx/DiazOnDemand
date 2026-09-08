@@ -347,6 +347,55 @@ the reason it exists is stated with it.
   outright, so neither can drop a signed token today, but both ship separately from the API.
   Restoring the id to a paid payload would still widen the exposure, and would silently switch
   signed playback off in any client that passes both.
+- Flipping a lesson from FREE to PAID clears its stored `muxPlaybackId`, because withholding an
+  identifier is not the same act as retiring one. `clearsMuxPlaybackIdOnPaidTransition` in
+  `@diaz/shared` holds the rule; `planPaidAccessTransition` in
+  `apps/api/src/admin/admin.service.ts` applies it on the one write path both admin PATCH routes
+  go through. A FREE lesson publishes that id to anonymous `/programs` callers once it is
+  published - every public read filters `isPublished` - so on a public-policy asset
+  `stream.mux.com/<id>.m3u8` plays for anyone who read the catalogue first, forever, and the flip
+  stops the API handing the id out while taking nothing back. `syncMuxAsset` gives a FREE lesson
+  only a public playback id, but it is not the column's only writer: PAID -> FREE keeps the id the
+  row already holds, so a FREE lesson can be carrying a signed-only one. The rule fires on every
+  flip anyway, because nothing on the row records the asset's policy and clearing is the only
+  choice that cannot leak; the cost on a PAID -> FREE -> PAID round trip is a redelivery of
+  `video.asset.ready`, which restores the same signed-only id. That is why the admin copy states
+  the rule flatly and states both the public-policy claim and the disclosure as conditions, and
+  why its remedy names redelivery before re-creating the asset. Reproduced end to end
+  against the built API on a real Postgres before the fix: anonymous `/programs` and
+  `/lessons/:id` handed over the id and the plain url, the admin PATCH set PAID, `/programs`
+  correctly went quiet, and the row still held that exact id. Clearing it forces the only fix
+  that works on a public asset - a new signed-only one, whose id nobody holds - and `syncMuxAsset`
+  refuses to reattach a public id to a PAID lesson, so the re-ingestion cannot put the same kind
+  of identifier quietly back. Four parts of it are load-bearing. A write supplying a *different*
+  id is the rotation itself and is left alone, or the guard would eat the value an operator just
+  typed. The clear has to leave a row `lesson_video_provider_consistency_chk` accepts, so a
+  lesson with no `muxAssetId` to fall back on drops to `videoProvider = NONE` instead of
+  answering 500; one that keeps its asset id lands in the "Waiting for Mux" state, which is
+  where the operator's record of the upload belongs. And the PATCH response carries
+  `muxPlaybackIdClearedForPaidAccess`, because a silent clear is a different bug wearing the same
+  shape - the lesson editor warns beside the access level before the save and reports the API's
+  own answer after it. Nothing is stored: a column recording the clear could only drift from the
+  three fields that already describe the video. And the editor *adopts* the row that answer
+  describes, the moment the save returns - `lessonEditorFieldsAfterSave` in `@diaz/shared` is that
+  rule - because the form it saved from still holds the retired id until `load()` returns from
+  `/admin/programs`, and a second Save in that window PATCHes it back onto a row that is PAID by
+  then: the transition is PAID -> PAID, no clear is due, and the identifier is written straight
+  back under a plain "Lesson saved.". An in-flight guard on submit closes the same window from the
+  other side. `apps/diaz-ondemand-web` has no test runner, so nothing mechanical guards this: an
+  agent deleting the adoption as a redundant pre-reload write re-opens the leak with every check
+  still green, which is why the rule and its tests live in `packages/shared` and pin the rule
+  rather than the wiring.
+  `youtubeVideoId` is deliberately not cleared, and the asymmetry is a conclusion rather than an
+  omission. A Mux playback id is rotatable; a YouTube video id is the video's permanent name on
+  YouTube, so re-ingesting yields the same id and clearing the column retires nothing that
+  leaked. There is no signed variant to rotate *to* either - an entitled member gets
+  `youtube-nocookie.com/embed/<id>`, the same public address the free catalogue published - so a
+  PAID YouTube lesson has exactly one handle, and clearing it would break a working lesson while
+  leaving the leaked id as playable as it was. That is a clear with no rotation behind it, which
+  is the shape of a mitigation that only looks like one. The remedy is in YouTube Studio, and the
+  lesson editor says so beside the field, so the Mux warning cannot imply by contrast that
+  premium protects a YouTube lesson.
 - The unsigned-playback fallback for a PAID lesson is gated on a loopback `DATABASE_URL`, not
   on `NODE_ENV`: `isUnsignedPaidPlaybackAllowed` in `apps/api/src/config/env.ts`, the same
   predicate and the same reasoning as the auth bypass above. Startup validation is the other
@@ -381,10 +430,13 @@ the reason it exists is stated with it.
   The audit covers two populations, not one. First, lessons that are PAID today. Second, and
   this is the one that gets missed, lessons that were FREE and were later flipped to PAID:
   `updateLesson` in `apps/api/src/admin/admin.service.ts` applies a partial update, so setting
-  `accessLevel` leaves the row holding the provider identifier it already had, and that
-  identifier was served to every anonymous `/programs` caller for as long as the lesson was
-  free. This was reproduced end to end against the built API on a seeded database. It is what
-  happens, not what might happen.
+  `accessLevel` left the row holding the provider identifier it already had, and that identifier
+  was served to every anonymous `/programs` caller for as long as the lesson was free. This was
+  reproduced end to end against the built API on a seeded database. It is what happened, not what
+  might have happened. The Mux half of it is now closed at that write boundary - see the
+  FREE -> PAID entry above - but only for flips from that commit forward, and only for
+  `muxPlaybackId`. A flip that already happened left the id in place, and the YouTube half is not
+  closable from here at all. Both populations still need the audit.
   Two checks only the project owner can settle, neither of them from this repository: every
   paid Mux asset must use a signed playback policy, which is a Mux dashboard job, and every
   paid YouTube-hosted lesson must not be publicly listed, which is a YouTube Studio job.
@@ -543,7 +595,10 @@ uploads in Mux, `video.asset.ready` is delivered while no lesson holds the asset
 logs "No lesson matches" and answers 201 so Mux never retries, and the id is pasted in
 afterwards. Nothing re-reconciles that, on purpose - resolving the asset from Mux at save time
 is the separately tracked `diaz-mux-id-write-validation`. Both admin surfaces name the remedy
-instead: redeliver `video.asset.ready` from the Mux dashboard.
+instead, from one shared component (`AwaitingMuxPlaybackNote`) so they cannot drift: redeliver
+`video.asset.ready` from the Mux dashboard, which only completes an asset whose playback policy
+the access level accepts - otherwise the fix is the asset, signed-only for PAID and public for
+FREE.
 
 "Blank" means what the database means by it, and that is narrower than JavaScript's.
 `lesson_video_provider_consistency_chk` asks `NULLIF(TRIM(<column>), '')`, and Postgres `TRIM()`

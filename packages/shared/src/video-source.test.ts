@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { VideoProvider } from './enums.js';
+import { AccessLevel, VideoProvider } from './enums.js';
 import {
+  clearsMuxPlaybackIdOnPaidTransition,
   hasPlayableVideo,
   hasUnplayableVideoIdentifier,
   isAwaitingMuxPlayback,
   isStoredIdentifierAbsent,
   isValidMuxPlaybackId,
   isValidYouTubeVideoId,
+  lessonEditorFieldsAfterSave,
 } from './video-source.js';
 
 describe('isValidMuxPlaybackId', () => {
@@ -330,5 +332,133 @@ describe('isAwaitingMuxPlayback and the database agree about blank', () => {
   // the database counts as present.
   it('calls a row awaiting when a tab-only asset id is stored, which the database counts as present', () => {
     expect(isAwaitingMuxPlayback({ muxAssetId: '\t', muxPlaybackId: null })).toBe(true);
+  });
+});
+
+/**
+ * The rule the admin write path and the lesson editor both ask before an
+ * operator flips a lesson to premium. It lives here rather than in either
+ * consumer because both have to give the same answer: the editor warns beside
+ * the access level before the save, the API decides at the write, and a warning
+ * that disagreed with the write would be worse than none.
+ */
+describe('clearsMuxPlaybackIdOnPaidTransition', () => {
+  const PUBLIC_ID = 'DS00Spx1CV902MCtPj5WknGlR102V5HFkDe';
+  const SIGNED_ID = 'a4nOgmxGWg6gULfcBbAa00gXyfcwPnAFldF8RdsNyk8M';
+
+  function transition(overrides: Record<string, unknown> = {}) {
+    return clearsMuxPlaybackIdOnPaidTransition({
+      previousAccessLevel: AccessLevel.FREE,
+      nextAccessLevel: AccessLevel.PAID,
+      storedMuxPlaybackId: PUBLIC_ID,
+      incomingMuxPlaybackId: PUBLIC_ID,
+      ...overrides,
+    });
+  }
+
+  // A published free lesson serves the id to every anonymous /programs caller,
+  // and on a public-policy asset stream.mux.com/<id>.m3u8 keeps playing for
+  // anyone holding it.
+  it('retires an id the lesson was serving publicly', () => {
+    expect(transition()).toBe(true);
+  });
+
+  // The editor loads the id and sends it straight back, so "unchanged" and
+  // "not mentioned" have to answer alike.
+  it('answers the same whether the write carries the id or omits it', () => {
+    expect(transition({ incomingMuxPlaybackId: undefined })).toBe(true);
+  });
+
+  // The operator re-created the asset in Mux and is pasting the new id in the
+  // same save. That is the rotation this rule exists to force; eating the value
+  // they just typed would turn the fix into a dead end.
+  it('leaves a different id supplied by the same write alone', () => {
+    expect(transition({ incomingMuxPlaybackId: SIGNED_ID })).toBe(false);
+  });
+
+  it('has nothing to retire when the lesson never held an id', () => {
+    expect(transition({ storedMuxPlaybackId: null, incomingMuxPlaybackId: null })).toBe(false);
+  });
+
+  // Blank is the database's definition of it, not JavaScript's: Postgres TRIM()
+  // strips U+0020 only, so a tab-only id is a value the CHECK constraint counts
+  // as present and clearing it is a real write. Aligning this on a sibling
+  // `.trim()` instead is the bug this repository has already shipped once.
+  it('reads a spaces-only id as absent and a tab-only id as present', () => {
+    expect(transition({ storedMuxPlaybackId: '   ', incomingMuxPlaybackId: '   ' })).toBe(false);
+    expect(transition({ storedMuxPlaybackId: '\t', incomingMuxPlaybackId: '\t' })).toBe(true);
+  });
+
+  it('leaves the reverse transition and the ordinary paid save alone', () => {
+    expect(
+      transition({ previousAccessLevel: AccessLevel.PAID, nextAccessLevel: AccessLevel.FREE }),
+    ).toBe(false);
+    expect(transition({ previousAccessLevel: AccessLevel.PAID })).toBe(false);
+    expect(transition({ nextAccessLevel: AccessLevel.FREE })).toBe(false);
+  });
+
+  // PATCH /admin/lessons/:id/publish sends isPublished and nothing else, so the
+  // next access level is whatever the row already had.
+  it('leaves a write that never mentions the access level alone', () => {
+    expect(
+      transition({ nextAccessLevel: AccessLevel.FREE, incomingMuxPlaybackId: undefined }),
+    ).toBe(false);
+  });
+});
+
+describe('lessonEditorFieldsAfterSave', () => {
+  it('takes every field from the saved row rather than from what was sent', () => {
+    expect(
+      lessonEditorFieldsAfterSave({
+        accessLevel: AccessLevel.PAID,
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: null,
+        youtubeVideoId: null,
+      }),
+    ).toEqual({
+      accessLevel: AccessLevel.PAID,
+      videoProvider: VideoProvider.MUX,
+      muxAssetId: 'asset-1',
+      muxPlaybackId: '',
+      youtubeVideoId: '',
+    });
+  });
+
+  // The whole point: the identifier the form sent is not the identifier the row
+  // now holds, and the form has to end up holding the second one.
+  it('answers the cleared playback id, not the one the save carried', () => {
+    const sent = 'freePlaybackId00000000000000000001';
+
+    expect(
+      lessonEditorFieldsAfterSave({
+        accessLevel: AccessLevel.PAID,
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: null,
+        youtubeVideoId: null,
+      }).muxPlaybackId,
+    ).not.toBe(sent);
+  });
+
+  // A clear on a lesson with no asset id to fall back on drops the row to NONE,
+  // so the form's video source has to follow or the next save writes MUX back
+  // onto a row holding neither identifier - which the CHECK constraint refuses.
+  it('follows the row down to no video source', () => {
+    expect(
+      lessonEditorFieldsAfterSave({
+        accessLevel: AccessLevel.PAID,
+        videoProvider: VideoProvider.NONE,
+        muxAssetId: null,
+        muxPlaybackId: null,
+        youtubeVideoId: null,
+      }),
+    ).toEqual({
+      accessLevel: AccessLevel.PAID,
+      videoProvider: VideoProvider.NONE,
+      muxAssetId: '',
+      muxPlaybackId: '',
+      youtubeVideoId: '',
+    });
   });
 });
