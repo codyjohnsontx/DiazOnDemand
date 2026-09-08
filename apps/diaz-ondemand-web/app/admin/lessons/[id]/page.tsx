@@ -194,7 +194,10 @@ export default function AdminLessonDetailPage() {
     }
 
     try {
-      const saved = await apiFetch<{ muxPlaybackIdClearedForPaidAccess?: boolean }>(`/admin/lessons/${lessonId}`, {
+      const saved = await apiFetch<{
+        muxPlaybackIdClearedForPaidAccess?: boolean;
+        videoProvider?: VideoProvider;
+      }>(`/admin/lessons/${lessonId}`, {
         method: 'PATCH',
         body: JSON.stringify({
           title: form.title,
@@ -217,13 +220,17 @@ export default function AdminLessonDetailPage() {
       // is the only thing an operator sees if the flip reached the API some
       // other way.
       //
-      // The asset id the payload carried is what decides whether the API kept
-      // this lesson on Mux or dropped it to no video source, so the remedy is
-      // chosen by the same fact rather than by a second answer from the API.
+      // Which remedy applies is the API's answer as well. `planPaidAccessTransition`
+      // is what decides whether the lesson keeps MUX or drops to no video source,
+      // and the saved row it returns carries the result, so the remedy is chosen by
+      // reading that rather than by re-deriving the rule here. A client-side copy
+      // of it would have nothing to catch the two drifting apart.
       setStatus(
         saved?.muxPlaybackIdClearedForPaidAccess
           ? PAID_CLEAR_STATUS +
-              (outgoingMuxAssetId ? PAID_CLEAR_REMEDY_KEPT_ASSET : PAID_CLEAR_REMEDY_RESET_SOURCE)
+              (saved.videoProvider === VideoProvider.NONE
+                ? PAID_CLEAR_REMEDY_RESET_SOURCE
+                : PAID_CLEAR_REMEDY_KEPT_ASSET)
           : 'Lesson saved.',
       );
       await load();
