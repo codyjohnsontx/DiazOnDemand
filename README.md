@@ -259,8 +259,13 @@ encoding still running, an upload that failed at Mux, a webhook that was never c
 - most likely of all, since uploads happen in the Mux dashboard and there is no in-app upload
 UI - a `video.asset.ready` that was delivered *before* any lesson held the asset ID. The
 webhook answers 201 for an asset no lesson matches, so Mux never retries it. **Remedy:** if the
-asset is already Ready in Mux, redeliver its `video.asset.ready` event from the Mux dashboard
-now that the lesson holds the asset ID. Both admin surfaces say so.
+asset is already Ready in Mux *and* carries the playback policy the lesson's access level
+requires - signed-only for `PAID`, public for `FREE`, see "Video Notes" below - redeliver its
+`video.asset.ready` event from the Mux dashboard now that the lesson holds the asset ID. For any
+other asset that redelivery is refused every time, and the fix is the asset itself: re-create it
+signed-only for a paid lesson, give it a public playback policy for a free one. Both admin
+surfaces say exactly that, from one shared component
+(`apps/diaz-ondemand-web/components/awaiting-mux-playback-note.tsx`), so the two cannot drift.
 
 ## Clerk Setup Notes (Web + Expo)
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
@@ -487,6 +492,23 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   the token entirely. The web player passes the id only when `src` carries no token for it
   to drop, and the mobile player prefers `playbackUrl`, but they deploy separately from the
   API, so neither substitutes for withholding the id.
+- **Flipping a lesson from `FREE` to `PAID` clears its stored `muxPlaybackId`.** Withholding an
+  id from later callers is not the same act as retiring one, and nothing on the row records which
+  playback policy the asset carries, so the flip clears the id rather than carry it into premium
+  content - the lesson is re-ingested against an asset the access level accepts instead.
+  `clearsMuxPlaybackIdOnPaidTransition` in `packages/shared` holds the rule;
+  `planPaidAccessTransition` in `apps/api/src/admin/admin.service.ts` applies it on the one write
+  path both admin lesson PATCH routes go through. A write supplying a *different* playback id is
+  the rotation itself and is left alone. A lesson that keeps its `muxAssetId` lands in the
+  **waiting-for-Mux** state; one with no asset id to fall back on drops to `videoProvider = NONE`,
+  the not-yet-filmed state, because `lesson_video_provider_consistency_chk` refuses a Mux row
+  holding neither identifier. Nothing about the clear is stored: the PATCH response carries
+  `muxPlaybackIdClearedForPaidAccess`, and the lesson editor warns beside the access level before
+  the save and reports what the API answered after it. `youtubeVideoId` is deliberately **not**
+  cleared - a YouTube video id is the video's permanent name on YouTube, so re-ingesting yields
+  the same id, there is no signed variant to rotate to, and clearing it would break a working
+  lesson while retiring nothing. That remedy is in YouTube Studio, and the editor says so beside
+  the field.
 - `POST /webhooks/mux` verifies the `mux-signature` HMAC (rejecting timestamps older than
   300s) and, on `video.asset.ready`, writes `muxPlaybackId`, `durationSeconds` and
   `videoProvider` onto the lesson whose `muxAssetId` matches. Set `muxAssetId` in the admin
@@ -507,9 +529,9 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   into the editor, which is the likely order since uploads happen in the Mux dashboard. The
   handler answers 201 for an asset no lesson matches (assets exist in the account this app never
   created, and throwing would make Mux retry forever), so that event is gone. The remedy, named
-  on both admin surfaces, is to redeliver `video.asset.ready` from the Mux dashboard once the
-  lesson holds the asset ID. Nothing re-reconciles automatically on purpose; resolving the asset
-  from Mux at save time is separately tracked.
+  on both admin surfaces, is under "Waiting for Mux" above: redelivery only completes an asset
+  whose playback policy the access level accepts. Nothing re-reconciles automatically on purpose;
+  resolving the asset from Mux at save time is separately tracked.
   For a `PAID` lesson the asset must be **signed-only**: the sync refuses an asset that
   carries no `signed` playback id, and equally refuses one that carries a `public` playback
   id even when a signed id sits beside it, because nothing stops a caller using the public
@@ -527,14 +549,14 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   stays public, and no code change retracts a playback id that has already been served. Both
   are Mux dashboard work for the account owner. Two cases to audit, not one:
   - every asset backing a lesson that is `PAID` today, and
-  - every asset backing a lesson that was `FREE` and later flipped to `PAID`. The admin
-    editor's `updateLesson` (`apps/api/src/admin/admin.service.ts`) changes `accessLevel`
-    while the row keeps its existing `muxPlaybackId`. From then on the API withholds that id
-    and mints signed URLs, but it was already served to every anonymous `/programs` caller
-    while the lesson was free, so anyone who read the catalogue earlier still holds a
-    working, non-expiring `stream.mux.com` URL against a public-policy asset. Closing that
-    needs the asset rotated or re-created in Mux; it is filed as separate work and is
-    deliberately not mitigated in code, because a half-measure here would only look handled.
+  - every asset backing a lesson that was `FREE` and later flipped to `PAID`. The flip now
+    clears the stored `muxPlaybackId` (bullet above), so the row stops carrying an id whose
+    policy nothing records - but that closes the flip from this change forward, and only for
+    Mux. A flip that already happened left the id in place, and it was served to every
+    anonymous `/programs` caller for as long as the lesson was published and free, so anyone
+    who read the catalogue then still holds a working, non-expiring `stream.mux.com` URL
+    against a public-policy asset. No code change retracts an id already served: closing that
+    needs the asset rotated or re-created in Mux.
 
   A `PAID` lesson hosted on YouTube needs the same audit in YouTube Studio, for the same
   reason: its video id was served anonymously too, and the video plays for anyone holding

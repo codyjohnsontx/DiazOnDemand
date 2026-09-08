@@ -586,7 +586,10 @@ uploads in Mux, `video.asset.ready` is delivered while no lesson holds the asset
 logs "No lesson matches" and answers 201 so Mux never retries, and the id is pasted in
 afterwards. Nothing re-reconciles that, on purpose - resolving the asset from Mux at save time
 is the separately tracked `diaz-mux-id-write-validation`. Both admin surfaces name the remedy
-instead: redeliver `video.asset.ready` from the Mux dashboard.
+instead, from one shared component (`AwaitingMuxPlaybackNote`) so they cannot drift: redeliver
+`video.asset.ready` from the Mux dashboard, which only completes an asset whose playback policy
+the access level accepts - otherwise the fix is the asset, signed-only for PAID and public for
+FREE.
 
 "Blank" means what the database means by it, and that is narrower than JavaScript's.
 `lesson_video_provider_consistency_chk` asks `NULLIF(TRIM(<column>), '')`, and Postgres `TRIM()`
