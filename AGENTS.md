@@ -367,7 +367,7 @@ the reason it exists is stated with it.
   correctly went quiet, and the row still held that exact id. Clearing it forces the only fix
   that works on a public asset - a new signed-only one, whose id nobody holds - and `syncMuxAsset`
   refuses to reattach a public id to a PAID lesson, so the re-ingestion cannot put the same kind
-  of identifier quietly back. Three parts of it are load-bearing. A write supplying a *different*
+  of identifier quietly back. Four parts of it are load-bearing. A write supplying a *different*
   id is the rotation itself and is left alone, or the guard would eat the value an operator just
   typed. The clear has to leave a row `lesson_video_provider_consistency_chk` accepts, so a
   lesson with no `muxAssetId` to fall back on drops to `videoProvider = NONE` instead of
@@ -376,7 +376,16 @@ the reason it exists is stated with it.
   `muxPlaybackIdClearedForPaidAccess`, because a silent clear is a different bug wearing the same
   shape - the lesson editor warns beside the access level before the save and reports the API's
   own answer after it. Nothing is stored: a column recording the clear could only drift from the
-  three fields that already describe the video.
+  three fields that already describe the video. And the editor *adopts* the row that answer
+  describes, the moment the save returns - `lessonEditorFieldsAfterSave` in `@diaz/shared` is that
+  rule - because the form it saved from still holds the retired id until `load()` returns from
+  `/admin/programs`, and a second Save in that window PATCHes it back onto a row that is PAID by
+  then: the transition is PAID -> PAID, no clear is due, and the identifier is written straight
+  back under a plain "Lesson saved.". An in-flight guard on submit closes the same window from the
+  other side. `apps/diaz-ondemand-web` has no test runner, so nothing mechanical guards this: an
+  agent deleting the adoption as a redundant pre-reload write re-opens the leak with every check
+  still green, which is why the rule and its tests live in `packages/shared` and pin the rule
+  rather than the wiring.
   `youtubeVideoId` is deliberately not cleared, and the asymmetry is a conclusion rather than an
   omission. A Mux playback id is rotatable; a YouTube video id is the video's permanent name on
   YouTube, so re-ingesting yields the same id and clearing the column retires nothing that

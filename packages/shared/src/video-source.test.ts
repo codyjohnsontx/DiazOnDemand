@@ -436,6 +436,7 @@ describe('lessonEditorFieldsAfterSave', () => {
         videoProvider: VideoProvider.MUX,
         muxAssetId: 'asset-1',
         muxPlaybackId: null,
+        youtubeVideoId: null,
       }).muxPlaybackId,
     ).not.toBe(sent);
   });
@@ -450,6 +451,7 @@ describe('lessonEditorFieldsAfterSave', () => {
         videoProvider: VideoProvider.NONE,
         muxAssetId: null,
         muxPlaybackId: null,
+        youtubeVideoId: null,
       }),
     ).toEqual({
       accessLevel: AccessLevel.PAID,

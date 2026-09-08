@@ -229,11 +229,11 @@ export default function AdminLessonDetailPage() {
     try {
       const saved = await apiFetch<{
         muxPlaybackIdClearedForPaidAccess?: boolean;
-        accessLevel?: AccessLevel;
-        videoProvider?: VideoProvider;
-        muxAssetId?: string | null;
-        muxPlaybackId?: string | null;
-        youtubeVideoId?: string | null;
+        accessLevel: AccessLevel;
+        videoProvider: VideoProvider;
+        muxAssetId: string | null;
+        muxPlaybackId: string | null;
+        youtubeVideoId: string | null;
       }>(`/admin/lessons/${lessonId}`, {
         method: 'PATCH',
         body: JSON.stringify({
@@ -276,18 +276,7 @@ export default function AdminLessonDetailPage() {
       // retired - so the reload is far too late to be the only thing that
       // reconciles them. The rule lives in `@diaz/shared` so it can be tested;
       // this app has no test runner.
-      setForm((prev) => {
-        const next = lessonEditorFieldsAfterSave(saved ?? {});
-
-        return {
-          ...prev,
-          accessLevel: (next.accessLevel as AccessLevel | null) ?? prev.accessLevel,
-          videoProvider: (next.videoProvider as VideoProvider | null) ?? prev.videoProvider,
-          muxAssetId: next.muxAssetId,
-          muxPlaybackId: next.muxPlaybackId,
-          youtubeVideoId: next.youtubeVideoId,
-        };
-      });
+      setForm((prev) => ({ ...prev, ...lessonEditorFieldsAfterSave(saved) }));
       await load();
     } catch (requestError) {
       setStatus(

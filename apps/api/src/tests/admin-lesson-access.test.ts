@@ -23,12 +23,22 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 const PUBLIC_PLAYBACK_ID = 'freePlaybackId00000000000000000001';
 const SIGNED_PLAYBACK_ID = 'signedPlaybackId0000000000000001';
 
-function freeMuxLesson(overrides: Record<string, unknown> = {}) {
+/** The video columns of a stored lesson; a Prisma row carries every one of them. */
+type LessonRow = {
+  accessLevel: AccessLevel;
+  videoProvider: VideoProvider;
+  muxAssetId: string | null;
+  muxPlaybackId: string | null;
+  youtubeVideoId: string | null;
+};
+
+function freeMuxLesson(overrides: Partial<LessonRow> = {}): LessonRow {
   return {
     accessLevel: AccessLevel.FREE,
     videoProvider: VideoProvider.MUX,
     muxAssetId: 'asset-free',
     muxPlaybackId: PUBLIC_PLAYBACK_ID,
+    youtubeVideoId: null,
     ...overrides,
   };
 }
@@ -252,16 +262,16 @@ describe('AdminService.updateLesson', () => {
  */
 describe('a second save before the editor reloads', () => {
   /** `prisma.lesson.update` semantics: an undefined field leaves the column alone. */
-  function applyUpdate(row: Record<string, unknown>, data: Record<string, unknown>) {
-    const next = { ...row };
+  function applyUpdate(row: LessonRow, data: Record<string, unknown>): LessonRow {
+    const next: Record<string, unknown> = { ...row };
     for (const [key, value] of Object.entries(data)) {
       if (value !== undefined) next[key] = value;
     }
-    return next;
+    return next as LessonRow;
   }
 
-  function save(row: Record<string, unknown>, body: Record<string, unknown>) {
-    const plan = planPaidAccessTransition(row as never, body as never);
+  function save(row: LessonRow, body: Record<string, unknown>) {
+    const plan = planPaidAccessTransition(row, body as never);
     return { row: applyUpdate(row, plan.data as Record<string, unknown>) };
   }
 

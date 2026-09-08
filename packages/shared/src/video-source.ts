@@ -330,16 +330,16 @@ export function clearsMuxPlaybackIdOnPaidTransition(transition: {
  * source are included because the clear can change `videoProvider` too, dropping
  * a lesson with no `muxAssetId` to fall back on to NONE.
  */
-export function lessonEditorFieldsAfterSave(saved: {
-  accessLevel?: string | null;
-  videoProvider?: string | null;
-  muxAssetId?: string | null;
-  muxPlaybackId?: string | null;
-  youtubeVideoId?: string | null;
+export function lessonEditorFieldsAfterSave<Access extends string, Provider extends string>(saved: {
+  accessLevel: Access;
+  videoProvider: Provider;
+  muxAssetId: string | null;
+  muxPlaybackId: string | null;
+  youtubeVideoId: string | null;
 }) {
   return {
-    accessLevel: saved.accessLevel ?? null,
-    videoProvider: saved.videoProvider ?? null,
+    accessLevel: saved.accessLevel,
+    videoProvider: saved.videoProvider,
     muxAssetId: saved.muxAssetId ?? '',
     muxPlaybackId: saved.muxPlaybackId ?? '',
     youtubeVideoId: saved.youtubeVideoId ?? '',
