@@ -9,16 +9,16 @@ import { AccessLevel } from '@diaz/shared';
  * have been configured - so the opening says what is true of all four and the
  * rest says what to do about the ones an admin can fix.
  *
- * The remedy differs by access level, and naming only the free one is how this
- * sends a premium operator at a step that cannot work: `syncMuxAsset` refuses an
- * asset carrying a public playback ID on a PAID lesson, so redelivering
- * `video.asset.ready` for one fails every time. Redelivery is still right once
- * the asset is signed-only, and the row cannot say which case it is in, so the
- * premium text states the rule, names redelivery for the case it works in, and
- * leaves re-creation as the unconditional fallback. A condition on that fallback
- * can only fail an operator it does not happen to describe - a lesson set PAID
- * with a public asset from the start is never free with it and never has an id
- * cleared, and it still needs the same remedy.
+ * The remedy differs by access level, because `syncMuxAsset` refuses an asset
+ * carrying a public playback ID on a PAID lesson and refuses one carrying no
+ * public ID on a FREE lesson, so redelivering `video.asset.ready` for the wrong
+ * kind of asset fails every time. Both branches therefore have the same shape:
+ * state the rule, name redelivery for the case it works in, then end with the
+ * remedy that always applies. The row cannot say which playback policy the asset
+ * carries, in either direction, and a conditional remedy can only fail an
+ * operator it does not happen to describe - a lesson set PAID with a public asset
+ * from the start was never free with it, and a lesson flipped PAID -> FREE keeps
+ * the signed-only asset it already had.
  *
  * It lives here because both admin surfaces show it and the two must not drift:
  * an operator who follows the course row and an operator who follows the lesson
@@ -40,7 +40,10 @@ export function AwaitingMuxPlaybackNote({
           'ID is refused. If it is already signed-only and Ready in Mux, redeliver that event ' +
           'from the Mux dashboard. Otherwise re-create it in Mux with a signed-only playback ' +
           'policy and save the new asset ID.'
-        : 'If the asset is already Ready in Mux, redeliver that event from the Mux dashboard.'}
+        : 'A free lesson is served over a plain, unsigned stream.mux.com url, so it needs an ' +
+          'asset carrying a public playback ID, and an asset without one is refused. If it is ' +
+          'already Ready in Mux with a public playback ID, redeliver that event from the Mux ' +
+          'dashboard. Otherwise give the asset a public playback policy in Mux.'}
     </p>
   );
 }
