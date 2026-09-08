@@ -230,14 +230,15 @@ export function hasUnplayableVideoIdentifier(lesson: {
  * already carrying.
  *
  * A FREE lesson publishes its `muxPlaybackId` to anonymous callers of
- * `/programs`, `/programs/:id` and `/courses/:id`, and that id is not a name for
- * the video, it is the whole address of one: on an asset with a public playback
- * policy, `https://stream.mux.com/<id>.m3u8` plays for anyone holding it, never
- * expires and asks for nothing. Flipping the lesson to PAID stops the API
- * handing that id out and changes nothing whatsoever for the people already
- * holding it, so the lesson stays free forever for everyone who read the
- * catalogue first. Withholding an identifier is not the same act as retiring
- * one, and only the second one closes this.
+ * `/programs`, `/programs/:id` and `/courses/:id` once it is published - every
+ * public read filters `isPublished` - and that id is not a name for the video,
+ * it is the whole address of one: on an asset with a public playback policy,
+ * `https://stream.mux.com/<id>.m3u8` plays for anyone holding it, never expires
+ * and asks for nothing. Flipping the lesson to PAID stops the API handing that
+ * id out and changes nothing whatsoever for the people already holding it, so
+ * the lesson stays free forever for everyone who read the catalogue first.
+ * Withholding an identifier is not the same act as retiring one, and only the
+ * second one closes this.
  *
  * `syncMuxAsset` gives a FREE lesson only a public playback id, but it is not
  * the only writer of that column: the admin access-level flip is a second one,
