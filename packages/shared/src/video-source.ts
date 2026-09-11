@@ -330,7 +330,6 @@ export function clearsMuxPlaybackIdOnPaidTransition(transition: {
  * source are included because the clear can change `videoProvider` too, dropping
  * a lesson with no `muxAssetId` to fall back on to NONE.
  *
- * The same rule covers the row the Mux webhooks write while the editor is open.
  * A direct upload ends with `video.asset.ready` writing the asset id, the
  * playback id and the measured `durationSeconds` onto the row behind the form,
  * and the editor polls for exactly that - so the fields it then holds are stale
@@ -339,7 +338,10 @@ export function clearsMuxPlaybackIdOnPaidTransition(transition: {
  * real one. `durationSeconds` is therefore adopted here too, as the string the
  * duration input is controlled with; a row that carries none leaves the field
  * alone, because the webhook never writes null there and a save answering the
- * form's own value has nothing to correct.
+ * form's own value has nothing to correct. A polled row goes through
+ * `lessonEditorFieldsAfterRowChange` rather than this function directly, because
+ * it answers a webhook write and not a save: only what that write changed is
+ * the row's to decide.
  */
 export function lessonEditorFieldsAfterSave<Access extends string, Provider extends string>(saved: {
   accessLevel: Access;
@@ -362,6 +364,31 @@ export function lessonEditorFieldsAfterSave<Access extends string, Provider exte
 }
 
 /**
+ * The form fields to adopt when a row changed behind the editor - the Mux
+ * webhooks writing during an upload, handed over by polling - as opposed to a
+ * save the operator asked for. A save answers every field it was sent, so
+ * `lessonEditorFieldsAfterSave` takes them all; a webhook writes a few columns
+ * and leaves the rest as they were, and adopting an unchanged stored value from
+ * such a row is nothing but a revert of whatever the operator has typed and not
+ * yet saved. The upload request itself, `video.upload.asset_created` and the
+ * failure events all carry the duration the row already had, and only
+ * `video.asset.ready` brings the measured one - so only that one reaches the
+ * input. The same holds for every field here, the access level included: no
+ * webhook writes it, so it is never adopted from a poll.
+ */
+export function lessonEditorFieldsAfterRowChange<Access extends string, Provider extends string>(
+  previous: Parameters<typeof lessonEditorFieldsAfterSave<Access, Provider>>[0],
+  next: Parameters<typeof lessonEditorFieldsAfterSave<Access, Provider>>[0],
+): Partial<ReturnType<typeof lessonEditorFieldsAfterSave<Access, Provider>>> {
+  const before: Record<string, string | undefined> = lessonEditorFieldsAfterSave(previous);
+  const after = lessonEditorFieldsAfterSave(next);
+
+  return Object.fromEntries(
+    Object.entries(after).filter(([field, value]) => before[field] !== value),
+  ) as Partial<typeof after>;
+}
+
+/**
  * The one video state a lesson is in, for the staff surfaces. Members never see
  * this; they see whether the lesson plays, which is `hasPlayableVideo`.
  *
@@ -375,7 +402,8 @@ export function lessonEditorFieldsAfterSave<Access extends string, Provider exte
  *
  * - FAILED first. `muxVideoError` is set by `video.upload.errored`,
  *   `video.upload.cancelled` and `video.asset.errored`, and cleared only when a
- *   new upload starts or an asset becomes ready. A failure that arrives while
+ *   new upload starts or a ready event brings a new playback id or completes
+ *   the upload the lesson was waiting on. A failure that arrives while
  *   the lesson still plays its previous video - a replacement whose new file
  *   Mux rejected - has to beat READY, or the operator sees "ready" and waits
  *   forever for the replacement.

@@ -28,6 +28,7 @@ import {
   hasUnplayableVideoIdentifier,
   isAwaitingMuxPlayback,
   isStoredIdentifierAbsent,
+  lessonEditorFieldsAfterRowChange,
   lessonEditorFieldsAfterSave,
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
@@ -206,31 +207,29 @@ export default function AdminLessonDetailPage() {
   /**
    * A row the Mux webhooks changed while this page was open, handed over by the
    * upload control's polling. The catalogue copy is updated in place so every
-   * badge reads the new row, and the form adopts the video fields for the
-   * reason `lessonEditorFieldsAfterSave` gives: until it does, a Save would
-   * PATCH the asset id the webhook just bound straight back off the row, and
-   * put a typed-in planned length back over the duration Mux measured. The
-   * access level is not adopted: no webhook writes it, so taking it from a
-   * polled row could only overwrite an unsaved edit.
+   * badge reads the new row, and the form adopts what the webhook changed, for
+   * the reason `lessonEditorFieldsAfterRowChange` gives: until it does, a Save
+   * would PATCH the asset id the webhook just bound straight back off the row,
+   * and put a typed-in planned length back over the duration Mux measured.
    */
-  const applyLessonRow = useCallback((next: AdminLessonSummary) => {
-    setPrograms((current) =>
-      current
-        ? current.map((entry) => ({
-            ...entry,
-            courses: entry.courses.map((course) => ({
-              ...course,
-              lessons: course.lessons.map((item) => (item.id === next.id ? next : item)),
-            })),
-          }))
-        : current,
-    );
-    setForm((prev) => ({
-      ...prev,
-      ...lessonEditorFieldsAfterSave(next),
-      accessLevel: prev.accessLevel,
-    }));
-  }, []);
+  const applyLessonRow = useCallback(
+    (next: AdminLessonSummary) => {
+      setPrograms((current) =>
+        current
+          ? current.map((entry) => ({
+              ...entry,
+              courses: entry.courses.map((course) => ({
+                ...course,
+                lessons: course.lessons.map((item) => (item.id === next.id ? next : item)),
+              })),
+            }))
+          : current,
+      );
+      const adopted = lessonEditorFieldsAfterRowChange(lesson ?? next, next);
+      setForm((prev) => ({ ...prev, ...adopted }));
+    },
+    [lesson],
+  );
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();

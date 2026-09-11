@@ -640,8 +640,10 @@ things about them are load-bearing. `muxUploadId` is held only between
 the same write that sets `muxAssetId`, and that clearing is what lets "holds an upload id" mean
 "Mux has not received the file" and nothing else. `muxVideoError` is written by
 `video.upload.errored`, `video.upload.cancelled` and `video.asset.errored` and cleared by exactly
-two things, a new upload request and a ready asset - never by a PATCH, because neither column is
-on `adminBaseLessonSchema`. `resolveLessonVideoState` in `@diaz/shared` is the only place that
+two things, a new upload request and a ready event that brings a new playback id or completes the
+upload the lesson was waiting on - never by a PATCH, because neither column is on
+`adminBaseLessonSchema`, and never by a redelivered ready for the asset already playing, which
+would erase the record of a failed replacement. `resolveLessonVideoState` in `@diaz/shared` is the only place that
 turns the five stored fields into NONE / UPLOADING / PROCESSING / READY / FAILED, with FAILED and
 UPLOADING outranking READY so a replacement in flight over a playing lesson is legible;
 `lesson-video-state.tsx` is the only place that words them, for both admin surfaces.
@@ -651,9 +653,11 @@ playback policy is chosen from the tier when the upload is created (`playbackPol
 and checked again by `syncMuxAsset` when the asset is ready, so a tier flipped mid-encode is
 refused rather than served. `syncMuxAsset` finds a lesson by asset id first and by the asset's
 `upload_id` second, because Mux orders nothing. The editor populates its form once per lesson id
-and adopts every polled row through `lessonEditorFieldsAfterSave`, duration included: the
-webhooks change the row behind the form, and a Save that resent it would blank the binding or
-overwrite the measured length with a planned one. `mux webhooks listen` needs a token with the
+and adopts from every polled row only what changed, through `lessonEditorFieldsAfterRowChange`,
+the measured duration included: the webhooks change the row behind the form, and a Save that
+resent it would blank the binding or overwrite the measured length with a planned one. An
+unchanged stored value is never adopted from a poll, because that is a revert of an unsaved edit
+- the upload request and `asset_created` carry the planned duration the row already had. `mux webhooks listen` needs a token with the
 webhooks permission; a `video:read, video:write` token prints the secret and exits, and README's
 "Video Notes" gives the signed-delivery alternative that exercises everything but the transport.
 

@@ -8,6 +8,7 @@ import {
   isStoredIdentifierAbsent,
   isValidMuxPlaybackId,
   isValidYouTubeVideoId,
+  lessonEditorFieldsAfterRowChange,
   lessonEditorFieldsAfterSave,
   LessonVideoState,
   resolveLessonVideoState,
@@ -583,5 +584,68 @@ describe('lessonEditorFieldsAfterSave adopts the measured duration', () => {
         durationSeconds: null,
       }),
     ).not.toHaveProperty('durationSeconds');
+  });
+});
+
+/**
+ * A row the webhooks changed behind the editor is not a save: only the columns
+ * the write touched are the row's to decide. Adopting an unchanged stored value
+ * from a poll is exactly a revert of the operator's unsaved edit - the case
+ * found was a typed planned duration silently replaced by the stored one when
+ * the upload request answered, and again at `asset_created`, neither of which
+ * writes a duration.
+ */
+describe('lessonEditorFieldsAfterRowChange', () => {
+  const stored = {
+    accessLevel: AccessLevel.FREE,
+    videoProvider: VideoProvider.NONE,
+    muxAssetId: null,
+    muxPlaybackId: null,
+    youtubeVideoId: null,
+    durationSeconds: 600,
+  };
+
+  it('adopts nothing from the upload request, which changes no form field', () => {
+    expect(lessonEditorFieldsAfterRowChange(stored, { ...stored })).toEqual({});
+  });
+
+  it('adopts the binding from asset_created and leaves the planned duration alone', () => {
+    expect(
+      lessonEditorFieldsAfterRowChange(stored, {
+        ...stored,
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: 'asset-1',
+      }),
+    ).toEqual({ videoProvider: VideoProvider.MUX, muxAssetId: 'asset-1' });
+  });
+
+  it('adopts the playback id and the measured duration from a ready asset', () => {
+    expect(
+      lessonEditorFieldsAfterRowChange(
+        { ...stored, videoProvider: VideoProvider.MUX, muxAssetId: 'asset-1' },
+        {
+          ...stored,
+          videoProvider: VideoProvider.MUX,
+          muxAssetId: 'asset-1',
+          muxPlaybackId: 'a1B2c3D4e5F6g7H8i9',
+          durationSeconds: 61,
+        },
+      ),
+    ).toEqual({ muxPlaybackId: 'a1B2c3D4e5F6g7H8i9', durationSeconds: '61' });
+  });
+
+  it('adopts a measured duration on a row that had none', () => {
+    expect(
+      lessonEditorFieldsAfterRowChange(
+        { ...stored, durationSeconds: null },
+        { ...stored, durationSeconds: 61 },
+      ),
+    ).toEqual({ durationSeconds: '61' });
+  });
+
+  it('never adopts an unchanged access level', () => {
+    expect(
+      lessonEditorFieldsAfterRowChange(stored, { ...stored, muxAssetId: 'asset-1' }),
+    ).not.toHaveProperty('accessLevel');
   });
 });
