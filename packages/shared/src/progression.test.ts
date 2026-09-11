@@ -146,23 +146,27 @@ describe('getResumePositionSeconds', () => {
     ).toBe(0);
   });
 
-  it('starts from the beginning inside the completion margin, and resumes just outside it', () => {
+  it('agrees with the save path at the completion boundary', () => {
+    // The web save path marks a lesson complete when fewer than
+    // LESSON_COMPLETION_MARGIN_SECONDS remain. A position exactly that far
+    // from the end is therefore saved as not complete, and must resume; one
+    // second closer is saved as complete, and restarts.
     const duration = 134;
-    const insideMargin = duration - LESSON_COMPLETION_MARGIN_SECONDS;
-    const outsideMargin = insideMargin - 1;
+    const exactlyMarginLeft = duration - LESSON_COMPLETION_MARGIN_SECONDS;
+    const insideMargin = exactlyMarginLeft + 1;
 
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: duration }),
+        progress({ lastPositionSeconds: exactlyMarginLeft }),
+      ),
+    ).toBe(exactlyMarginLeft);
     expect(
       getResumePositionSeconds(
         lesson({ id: lessonId, durationSeconds: duration }),
         progress({ lastPositionSeconds: insideMargin }),
       ),
     ).toBe(0);
-    expect(
-      getResumePositionSeconds(
-        lesson({ id: lessonId, durationSeconds: duration }),
-        progress({ lastPositionSeconds: outsideMargin }),
-      ),
-    ).toBe(outsideMargin);
   });
 
   it('resumes at the saved position when the lesson has no stored duration', () => {

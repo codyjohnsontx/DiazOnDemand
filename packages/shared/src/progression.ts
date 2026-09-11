@@ -126,8 +126,9 @@ export function getLessonProgressPercent(lesson: LessonSummary, progress?: Progr
  * no timestamp travels in the URL.
  *
  * Starts from the beginning when there is nothing to resume: no record, a
- * record marked complete, or a position inside the last
- * `LESSON_COMPLETION_MARGIN_SECONDS` of the stored duration. A lesson whose
+ * record marked complete, or a position with fewer than
+ * `LESSON_COMPLETION_MARGIN_SECONDS` left of the stored duration - the same
+ * boundary the save path uses to mark a lesson complete. A lesson whose
  * duration is unknown resumes at the saved position, because the save path
  * already marks it complete when it reached the end.
  */
@@ -145,7 +146,10 @@ export function getResumePositionSeconds(lesson: LessonSummary, progress?: Progr
   if (
     lesson.durationSeconds &&
     lesson.durationSeconds > 0 &&
-    position >= lesson.durationSeconds - LESSON_COMPLETION_MARGIN_SECONDS
+    // Strict: the save path marks a lesson complete when *fewer* than the
+    // margin remains, so a position exactly the margin from the end is not
+    // complete and must resume rather than restart.
+    position > lesson.durationSeconds - LESSON_COMPLETION_MARGIN_SECONDS
   ) {
     return 0;
   }
