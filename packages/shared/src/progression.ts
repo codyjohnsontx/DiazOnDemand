@@ -38,6 +38,15 @@ export type RecommendationModel = {
 
 const STARTED_LESSON_FALLBACK_PERCENT = 35;
 
+/**
+ * How close to the end a saved position has to be before the lesson counts as
+ * finished. The web player saves `completed: true` once fewer than this many
+ * seconds remain, and `getResumePositionSeconds` starts such a lesson from the
+ * beginning, so the two rules have to share the number or a position saved as
+ * "complete" would resume at the credits.
+ */
+export const LESSON_COMPLETION_MARGIN_SECONDS = 10;
+
 function sortLessons(lessons: LessonSummary[]) {
   return [...lessons].sort((left, right) => left.orderIndex - right.orderIndex);
 }
@@ -107,6 +116,41 @@ export function getLessonProgressPercent(lesson: LessonSummary, progress?: Progr
   }
 
   return progress.lastPositionSeconds > 0 ? STARTED_LESSON_FALLBACK_PERCENT : 0;
+}
+
+/**
+ * Where playback should start when a member returns to a lesson. Every route
+ * back to a lesson - the Resume link, the course queue, a pasted URL - lands on
+ * the same page, so the page asks this once per lesson load and hands the
+ * answer to the player as its start time. The saved record is the only input:
+ * no timestamp travels in the URL.
+ *
+ * Starts from the beginning when there is nothing to resume: no record, a
+ * record marked complete, or a position inside the last
+ * `LESSON_COMPLETION_MARGIN_SECONDS` of the stored duration. A lesson whose
+ * duration is unknown resumes at the saved position, because the save path
+ * already marks it complete when it reached the end.
+ */
+export function getResumePositionSeconds(lesson: LessonSummary, progress?: ProgressDto) {
+  if (!progress || progress.completed) {
+    return 0;
+  }
+
+  const position = Math.floor(progress.lastPositionSeconds);
+
+  if (!Number.isFinite(position) || position <= 0) {
+    return 0;
+  }
+
+  if (
+    lesson.durationSeconds &&
+    lesson.durationSeconds > 0 &&
+    position >= lesson.durationSeconds - LESSON_COMPLETION_MARGIN_SECONDS
+  ) {
+    return 0;
+  }
+
+  return position;
 }
 
 export function formatCurriculumLabel(lesson: LessonSummary) {

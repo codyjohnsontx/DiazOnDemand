@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import {
+  LESSON_COMPLETION_MARGIN_SECONDS,
   VideoProvider,
   getCurriculumPhaseLabel,
   getDisciplineLabel,
+  getResumePositionSeconds,
   hasPlayableVideo,
   type CourseDto,
   type FavoriteDto,
@@ -112,6 +114,10 @@ export default function LessonPage() {
   const [course, setCourse] = useState<CourseDto | null>(null);
   const [program, setProgram] = useState<ProgramWithContentDto | null>(null);
   const [progress, setProgress] = useState<ProgressDto[]>([]);
+  // Captured once per lesson load, not derived from `progress`: that list is
+  // rewritten every ten seconds while the lesson plays, and the player's start
+  // time is a load-time setting that must not track it.
+  const [resumeStartTime, setResumeStartTime] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -144,7 +150,10 @@ export default function LessonPage() {
 
     const current = Math.floor(playerRef.current.currentTime || 0);
     const duration = playerRef.current.duration;
-    const complete = Number.isFinite(duration) && duration > 0 ? duration - current < 10 : false;
+    const complete =
+      Number.isFinite(duration) && duration > 0
+        ? duration - current < LESSON_COMPLETION_MARGIN_SECONDS
+        : false;
 
     try {
       setSaveState('saving');
@@ -211,6 +220,12 @@ export default function LessonPage() {
         setCourse(nextCourse);
         setProgram(findProgramForCourse(programs, nextCourse.programId));
         setProgress(nextProgress);
+        setResumeStartTime(
+          getResumePositionSeconds(
+            nextLesson,
+            nextProgress.find((entry) => entry.lessonId === nextLesson.id),
+          ),
+        );
         setIsFavorite(favorites.some((favorite) => favorite.lessonId === nextLesson.id));
       } catch (requestError) {
         if (!active) {
@@ -430,6 +445,10 @@ export default function LessonPage() {
                 }
                 preferPlayback="mse"
                 src={video.playbackUrl ?? undefined}
+                // Resume from the saved progress record. 0 means start from
+                // the beginning; see `getResumePositionSeconds` in @diaz/shared
+                // for what counts as nothing to resume.
+                startTime={resumeStartTime > 0 ? resumeStartTime : undefined}
                 streamType="on-demand"
                 onError={() => setPlaybackError('Playback failed. Verify the Mux playback ID and signed playback configuration.')}
                 onTimeUpdate={(event) => {
