@@ -17,7 +17,10 @@ import { PremiumBadge } from '@/components/premium-badge';
  * never from the Mux dashboard, which is why FAILED carries Mux's own message
  * and the replacement case says outright that the previous video still plays.
  */
-const STATE_BADGES: Record<LessonVideoState, { label: string; tone: 'neutral' | 'premium' | 'accent' }> = {
+const STATE_BADGES: Record<
+  LessonVideoState,
+  { label: string; tone: 'neutral' | 'premium' | 'accent' }
+> = {
   [LessonVideoState.NONE]: { label: 'No video', tone: 'neutral' },
   [LessonVideoState.UPLOADING]: { label: 'Upload in progress', tone: 'neutral' },
   [LessonVideoState.PROCESSING]: { label: 'Waiting for Mux', tone: 'neutral' },
@@ -27,7 +30,12 @@ const STATE_BADGES: Record<LessonVideoState, { label: string; tone: 'neutral' | 
 
 type VideoStateLesson = Pick<
   AdminLessonSummary,
-  'accessLevel' | 'muxUploadId' | 'muxVideoError' | 'muxAssetId' | 'muxPlaybackId' | 'youtubeVideoId'
+  | 'accessLevel'
+  | 'muxUploadId'
+  | 'muxVideoError'
+  | 'muxAssetId'
+  | 'muxPlaybackId'
+  | 'youtubeVideoId'
 >;
 
 export function LessonVideoStateBadge({ lesson }: { lesson: VideoStateLesson }) {
@@ -65,8 +73,8 @@ export function LessonVideoStateNote({
   if (state === LessonVideoState.UPLOADING) {
     return (
       <p className={className}>
-        Mux is waiting for the file. If the upload was interrupted or the page was closed before
-        it finished, choose the file again - the earlier upload link expires on its own.
+        Mux is waiting for the file. If the upload was interrupted or the page was closed before it
+        finished, choose the file again - the earlier upload link expires on its own.
         {previous}
       </p>
     );

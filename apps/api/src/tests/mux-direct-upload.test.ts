@@ -145,7 +145,9 @@ describe('MuxDirectUploadService.createDirectUpload', () => {
 
 describe('uploadCorsOrigin', () => {
   it('reduces the web app url to its origin', () => {
-    expect(uploadCorsOrigin('https://app.example.com/some/path?x=1')).toBe('https://app.example.com');
+    expect(uploadCorsOrigin('https://app.example.com/some/path?x=1')).toBe(
+      'https://app.example.com',
+    );
   });
 
   it('falls back to the local web app', () => {
@@ -155,23 +157,25 @@ describe('uploadCorsOrigin', () => {
 
 describe('AdminService.createLessonUpload', () => {
   function service(lesson: Record<string, unknown> | null) {
-    const update = vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
-      id: 'lesson-1',
-      courseId: 'course-1',
-      title: 'Lesson',
-      orderIndex: 0,
-      isPublished: false,
-      accessLevel: AccessLevel.FREE,
-      videoProvider: VideoProvider.NONE,
-      muxAssetId: null,
-      muxPlaybackId: null,
-      youtubeVideoId: null,
-      muxVideoError: null,
-      durationSeconds: null,
-      tags: [],
-      ...lesson,
-      ...data,
-    }));
+    const update = vi
+      .fn()
+      .mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'lesson-1',
+        courseId: 'course-1',
+        title: 'Lesson',
+        orderIndex: 0,
+        isPublished: false,
+        accessLevel: AccessLevel.FREE,
+        videoProvider: VideoProvider.NONE,
+        muxAssetId: null,
+        muxPlaybackId: null,
+        youtubeVideoId: null,
+        muxVideoError: null,
+        durationSeconds: null,
+        tags: [],
+        ...lesson,
+        ...data,
+      }));
     const prisma = {
       client: { lesson: { findUnique: vi.fn().mockResolvedValue(lesson), update } },
     } as unknown as PrismaService;

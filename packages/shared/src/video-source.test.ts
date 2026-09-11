@@ -502,7 +502,11 @@ describe('resolveLessonVideoState', () => {
 
   it('is READY when a Mux playback id is stored', () => {
     expect(
-      resolveLessonVideoState({ ...empty, muxAssetId: 'asset-1', muxPlaybackId: 'a1B2c3D4e5F6g7H8i9' }),
+      resolveLessonVideoState({
+        ...empty,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: 'a1B2c3D4e5F6g7H8i9',
+      }),
     ).toEqual({ state: LessonVideoState.READY, previousVideoStillPlays: false });
   });
 
@@ -514,7 +518,11 @@ describe('resolveLessonVideoState', () => {
 
   it('is FAILED when Mux reported an error, whatever else the row holds', () => {
     expect(
-      resolveLessonVideoState({ ...empty, muxAssetId: 'asset-1', muxVideoError: 'Mux could not process the video.' }),
+      resolveLessonVideoState({
+        ...empty,
+        muxAssetId: 'asset-1',
+        muxVideoError: 'Mux could not process the video.',
+      }),
     ).toEqual({ state: LessonVideoState.FAILED, previousVideoStillPlays: false });
   });
 
@@ -545,9 +553,9 @@ describe('resolveLessonVideoState', () => {
 
   // Blank is the database's blank here too: a space-only error is no error.
   it('reads a space-only error and upload id as absent', () => {
-    expect(
-      resolveLessonVideoState({ ...empty, muxUploadId: '  ', muxVideoError: ' ' }).state,
-    ).toBe(LessonVideoState.NONE);
+    expect(resolveLessonVideoState({ ...empty, muxUploadId: '  ', muxVideoError: ' ' }).state).toBe(
+      LessonVideoState.NONE,
+    );
   });
 });
 

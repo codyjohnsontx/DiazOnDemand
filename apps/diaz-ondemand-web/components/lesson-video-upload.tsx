@@ -83,8 +83,7 @@ export function LessonVideoUpload({
   const onLessonChangedRef = useRef(onLessonChanged);
   const fingerprintRef = useRef(videoFingerprint(lesson));
   const { state } = resolveLessonVideoState(lesson);
-  const outstanding =
-    state === LessonVideoState.UPLOADING || state === LessonVideoState.PROCESSING;
+  const outstanding = state === LessonVideoState.UPLOADING || state === LessonVideoState.PROCESSING;
   const busy = phase.kind === 'requesting' || phase.kind === 'uploading';
   const disabled = busy || disabledReason !== undefined;
 
@@ -141,9 +140,12 @@ export function LessonVideoUpload({
     setPollRun((run) => run + 1);
 
     try {
-      const upload = await apiFetch<AdminLessonUploadDto>(`/admin/lessons/${lesson.id}/mux-upload`, {
-        method: 'POST',
-      });
+      const upload = await apiFetch<AdminLessonUploadDto>(
+        `/admin/lessons/${lesson.id}/mux-upload`,
+        {
+          method: 'POST',
+        },
+      );
       // The row now holds the upload id, so the editor shows "Upload in
       // progress" from the same rule the course list uses.
       onLessonChangedRef.current(upload.lesson);
@@ -213,9 +215,9 @@ export function LessonVideoUpload({
       ) : null}
       {state === LessonVideoState.READY && !busy ? (
         <p className="type-meta text-[var(--text-muted)]">
-          Replacing the video retires the current playback ID the moment Mux receives the new
-          file, and members see the not-filmed state until the new asset is ready. The previous
-          asset stays in the Mux account.
+          Replacing the video retires the current playback ID the moment Mux receives the new file,
+          and members see the not-filmed state until the new asset is ready. The previous asset
+          stays in the Mux account.
         </p>
       ) : null}
       <LessonVideoStateNote className="type-meta text-[var(--text-muted)]" lesson={lesson} />

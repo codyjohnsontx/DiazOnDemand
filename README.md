@@ -863,10 +863,10 @@ everything else stays permitted, and that the Clerk catch-all check in
   port, and each refusal names the variable and what breaks without it.
 
   `MUX_WEBHOOK_SECRET` used to carry an `MUX_TOKEN_ID` condition. That drifted, for the same
-  reason the signing-key rule's did: `MUX_TOKEN_ID` is read only by the env schema's own
-  pairing rule with `MUX_TOKEN_SECRET`, never by a serving path, so it is not a reliable
-  signal that Mux webhooks are wired, and a deployment serving Mux video without ever setting
-  it skipped the check. The condition is gone rather than replaced - a deployment cannot
+  reason the signing-key rule's did: nothing on the webhook or playback path reads
+  `MUX_TOKEN_ID` (its one runtime reader is the lesson editor's direct-upload route, which
+  answers 503 without it), so it is not a reliable signal that Mux webhooks are wired, and a
+  deployment serving Mux video without ever setting it skipped the check. The condition is gone rather than replaced - a deployment cannot
   ingest a Mux asset without this secret, so there is no configuration in which requiring it
   is wrong. `STRIPE_SECRET_KEY` stays as a condition on `STRIPE_WEBHOOK_SECRET` because it
   cannot drift the same way: it is exactly what `BillingService` and `WebhooksService`

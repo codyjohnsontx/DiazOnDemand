@@ -454,7 +454,9 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
           id: assetId,
           upload_id: uploadId,
           duration: 61.2,
-          playback_ids: [{ id: policy === 'signed' ? SIGNED_PLAYBACK_ID : PUBLIC_PLAYBACK_ID, policy }],
+          playback_ids: [
+            { id: policy === 'signed' ? SIGNED_PLAYBACK_ID : PUBLIC_PLAYBACK_ID, policy },
+          ],
         },
       };
     }
@@ -625,7 +627,9 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
       const { uploadId } = await admin.createLessonUpload(lesson.id);
       await service.handleMuxWebhook({ type: 'video.upload.cancelled', data: { id: uploadId } });
 
-      await service.handleMuxWebhook(assetReadyFromUpload(lesson.muxAssetId!, nextUploadId(), 'public'));
+      await service.handleMuxWebhook(
+        assetReadyFromUpload(lesson.muxAssetId!, nextUploadId(), 'public'),
+      );
       const redelivered = await reload(lesson.id);
 
       expect(redelivered.muxVideoError).toMatch(/cancelled/);
@@ -645,7 +649,10 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
 
       await service.handleMuxWebhook({
         type: 'video.upload.errored',
-        data: { id: uploadId, error: { type: 'invalid_input', message: 'Input file is not a video' } },
+        data: {
+          id: uploadId,
+          error: { type: 'invalid_input', message: 'Input file is not a video' },
+        },
       });
       const failed = await reload(lesson.id);
 
@@ -689,7 +696,9 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
       const failed = await reload(lesson.id);
 
       expect(failed.muxAssetId).toBe(assetId);
-      expect(failed.muxVideoError).toBe('Mux could not process the video: The input file is corrupt.');
+      expect(failed.muxVideoError).toBe(
+        'Mux could not process the video: The input file is corrupt.',
+      );
       expect(resolveLessonVideoState(failed).state).toBe(LessonVideoState.FAILED);
     });
 
@@ -759,7 +768,10 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
     it('clears the failure on the next upload and on a ready asset', async () => {
       const lesson = await createLesson();
       const first = await admin.createLessonUpload(lesson.id);
-      await service.handleMuxWebhook({ type: 'video.upload.cancelled', data: { id: first.uploadId } });
+      await service.handleMuxWebhook({
+        type: 'video.upload.cancelled',
+        data: { id: first.uploadId },
+      });
 
       const second = await admin.createLessonUpload(lesson.id);
       const retried = await reload(lesson.id);
