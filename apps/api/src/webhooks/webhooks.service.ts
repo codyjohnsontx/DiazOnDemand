@@ -972,18 +972,29 @@ export class WebhooksService {
     // no-op rather than a write that merely lands on the values already there.
     //
     // The asset id and the upload id are the direct-upload half of the same
-    // rule: a lesson found by its upload id takes the asset id now, and either
-    // way it stops waiting on the upload this asset came from. The error is
-    // cleared because a ready asset is the one outcome that settles it.
+    // rule: a lesson found by its upload id takes the asset id now, and it stops
+    // waiting on an upload only when this asset is the one that upload became -
+    // a lesson found by asset id may be waiting on a replacement this event says
+    // nothing about. The error is cleared when the ready event brings something
+    // new, a playback id or the upload the lesson waited on, because that is the
+    // outcome that settles it; a redelivery for the video already playing is
+    // not.
+    const uploadId = event.data?.upload_id;
+    const settlesPendingUpload =
+      !isStoredIdentifierAbsent(lesson.muxUploadId) && uploadId === lesson.muxUploadId;
+    const bringsPlaybackId = Boolean(playbackId) && playbackId !== lesson.muxPlaybackId;
     const data = {
-      ...(playbackId && playbackId !== lesson.muxPlaybackId ? { muxPlaybackId: playbackId } : {}),
+      ...(bringsPlaybackId ? { muxPlaybackId: playbackId } : {}),
       ...(durationSeconds !== null && durationSeconds !== lesson.durationSeconds
         ? { durationSeconds }
         : {}),
       ...(lesson.videoProvider === VideoProvider.MUX ? {} : { videoProvider: VideoProvider.MUX }),
-      ...(matchedByUpload ? { muxAssetId: assetId, muxUploadId: null } : {}),
-      ...(isStoredIdentifierAbsent(lesson.muxUploadId) ? {} : { muxUploadId: null }),
-      ...(isStoredIdentifierAbsent(lesson.muxVideoError) ? {} : { muxVideoError: null }),
+      ...(matchedByUpload ? { muxAssetId: assetId } : {}),
+      ...(settlesPendingUpload ? { muxUploadId: null } : {}),
+      ...((bringsPlaybackId || settlesPendingUpload) &&
+      !isStoredIdentifierAbsent(lesson.muxVideoError)
+        ? { muxVideoError: null }
+        : {}),
     };
 
     if (Object.keys(data).length === 0) {

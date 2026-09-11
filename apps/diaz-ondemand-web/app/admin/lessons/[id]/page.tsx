@@ -209,7 +209,9 @@ export default function AdminLessonDetailPage() {
    * badge reads the new row, and the form adopts the video fields for the
    * reason `lessonEditorFieldsAfterSave` gives: until it does, a Save would
    * PATCH the asset id the webhook just bound straight back off the row, and
-   * put a typed-in planned length back over the duration Mux measured.
+   * put a typed-in planned length back over the duration Mux measured. The
+   * access level is not adopted: no webhook writes it, so taking it from a
+   * polled row could only overwrite an unsaved edit.
    */
   const applyLessonRow = useCallback((next: AdminLessonSummary) => {
     setPrograms((current) =>
@@ -223,7 +225,11 @@ export default function AdminLessonDetailPage() {
           }))
         : current,
     );
-    setForm((prev) => ({ ...prev, ...lessonEditorFieldsAfterSave(next) }));
+    setForm((prev) => ({
+      ...prev,
+      ...lessonEditorFieldsAfterSave(next),
+      accessLevel: prev.accessLevel,
+    }));
   }, []);
 
   const onSave = async (event: FormEvent) => {
