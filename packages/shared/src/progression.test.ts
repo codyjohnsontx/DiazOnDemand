@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { AccessLevel, VideoProvider } from './enums.js';
-import { buildLessonQueue } from './progression.js';
-import type { CourseDto, LessonSummary } from './schemas.js';
+import {
+  LESSON_COMPLETION_MARGIN_SECONDS,
+  buildLessonQueue,
+  getResumePositionSeconds,
+} from './progression.js';
+import type { CourseDto, LessonSummary, ProgressDto } from './schemas.js';
 
 const courseId = '00000000-0000-4000-8000-000000000001';
 
@@ -77,5 +81,100 @@ describe('buildLessonQueue', () => {
     );
 
     expect(queued?.durationLabel).toBe('1h');
+  });
+});
+
+describe('getResumePositionSeconds', () => {
+  const lessonId = '00000000-0000-4000-8000-00000000000a';
+
+  function progress(overrides: Partial<ProgressDto>): ProgressDto {
+    return {
+      id: '00000000-0000-4000-8000-0000000000aa',
+      userId: '00000000-0000-4000-8000-0000000000ab',
+      lessonId,
+      lastPositionSeconds: 0,
+      completed: false,
+      updatedAt: new Date('2026-09-11T00:00:00Z'),
+      ...overrides,
+    };
+  }
+
+  it('resumes at the saved position of a lesson stopped part way through', () => {
+    // The reproduced defect: 38 seconds saved into a 134-second video, and
+    // Resume started playback at 0.
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 38 }),
+      ),
+    ).toBe(38);
+  });
+
+  it('starts from the beginning when there is no saved progress', () => {
+    expect(
+      getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: 134 }), undefined),
+    ).toBe(0);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 0 }),
+      ),
+    ).toBe(0);
+  });
+
+  it('starts from the beginning for a lesson marked complete', () => {
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 60, completed: true }),
+      ),
+    ).toBe(0);
+  });
+
+  it('starts from the beginning when the saved position is at or past the end', () => {
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 134 }),
+      ),
+    ).toBe(0);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 500 }),
+      ),
+    ).toBe(0);
+  });
+
+  it('agrees with the save path at the completion boundary', () => {
+    // The web save path marks a lesson complete when fewer than
+    // LESSON_COMPLETION_MARGIN_SECONDS remain. A position exactly that far
+    // from the end is therefore saved as not complete, and must resume; one
+    // second closer is saved as complete, and restarts.
+    const duration = 134;
+    const exactlyMarginLeft = duration - LESSON_COMPLETION_MARGIN_SECONDS;
+    const insideMargin = exactlyMarginLeft + 1;
+
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: duration }),
+        progress({ lastPositionSeconds: exactlyMarginLeft }),
+      ),
+    ).toBe(exactlyMarginLeft);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: duration }),
+        progress({ lastPositionSeconds: insideMargin }),
+      ),
+    ).toBe(0);
+  });
+
+  it('resumes at the saved position when the lesson has no stored duration', () => {
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: null }),
+        progress({ lastPositionSeconds: 38 }),
+      ),
+    ).toBe(38);
   });
 });
