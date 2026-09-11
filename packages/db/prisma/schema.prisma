@@ -100,6 +100,12 @@ model Lesson {
   muxAssetId       String?
   muxPlaybackId    String?
   youtubeVideoId   String?
+  // The direct upload the lesson is waiting on, and the last Mux failure it
+  // saw. Both are Mux-issued facts rather than a status column: the video
+  // state is derived from these two plus the three identifiers above - see
+  // resolveLessonVideoState in @diaz/shared.
+  muxUploadId      String?
+  muxVideoError    String?
   durationSeconds  Int?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt

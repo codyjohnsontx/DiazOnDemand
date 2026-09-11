@@ -9,13 +9,12 @@ import {
   formatCurriculumLabel,
   getDisciplineLabel,
   hasUnplayableVideoIdentifier,
-  isAwaitingMuxPlayback,
   programDisciplineToCurriculumDiscipline,
   type AdminProgramWithContentDto,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
-import { AwaitingMuxPlaybackNote } from '@/components/awaiting-mux-playback-note';
 import { EmptyState } from '@/components/empty-state';
+import { LessonVideoStateBadge, LessonVideoStateNote } from '@/components/lesson-video-state';
 import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
 
@@ -199,13 +198,19 @@ export default function AdminCourseDetailPage() {
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{lesson.title}</h3>
-                      <PremiumBadge label={VIDEO_PROVIDER_LABELS[lesson.videoProvider] ?? 'No video'} />
+                      {/*
+                        The provider badge names where the video comes from; the
+                        state badge beside it says whether there is one. A lesson
+                        with no source has nothing for the first to name, and two
+                        "No video" badges in a row read as a rendering mistake.
+                      */}
+                      {lesson.videoProvider !== VideoProvider.NONE ? (
+                        <PremiumBadge label={VIDEO_PROVIDER_LABELS[lesson.videoProvider]} />
+                      ) : null}
                       {hasUnplayableVideoIdentifier(lesson) ? (
                         <PremiumBadge label="Video ID will not play" tone="premium" />
                       ) : null}
-                      {isAwaitingMuxPlayback(lesson) ? (
-                        <PremiumBadge label="Waiting for Mux" />
-                      ) : null}
+                      <LessonVideoStateBadge lesson={lesson} />
                       <PremiumBadge label={lesson.accessLevel === 'PAID' ? 'Premium' : 'Free'} tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'} />
                       <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
                     </div>
@@ -220,12 +225,10 @@ export default function AdminCourseDetailPage() {
                         not-filmed state.
                       </p>
                     ) : null}
-                    {isAwaitingMuxPlayback(lesson) ? (
-                      <AwaitingMuxPlaybackNote
-                        accessLevel={lesson.accessLevel}
-                        className="text-sm text-[var(--text-muted)]"
-                      />
-                    ) : null}
+                    <LessonVideoStateNote
+                      className="text-sm text-[var(--text-muted)]"
+                      lesson={lesson}
+                    />
                   </div>
                   <div className="flex items-center gap-2">
                     <button

@@ -590,10 +590,11 @@ be invisible and the next save would blank it.
 The webhook may be late, may repeat, may already have been delivered before any lesson held the
 asset id, and may never arrive at all - none of those are error paths. `syncMuxAsset` writes
 only fields that would actually change, so a redelivery does not even bump `updatedAt`. The
-early-delivery case is the likely default, because there is no in-app upload UI: the admin
-uploads in Mux, `video.asset.ready` is delivered while no lesson holds the asset id, the handler
-logs "No lesson matches" and answers 201 so Mux never retries, and the id is pasted in
-afterwards. Nothing re-reconciles that, on purpose - resolving the asset from Mux at save time
+early-delivery case is the likely default for the manual path, where the admin uploads in Mux
+and pastes the asset id in afterwards: `video.asset.ready` is delivered while no lesson holds
+the asset id, the handler logs "No lesson matches" and answers 201 so Mux never retries. The
+lesson editor's direct upload (below) stores the upload id before the file exists, so it does
+not have this window. Nothing re-reconciles that, on purpose - resolving the asset from Mux at save time
 is the separately tracked `diaz-mux-id-write-validation`. Both admin surfaces name the remedy
 instead, from one shared component (`AwaitingMuxPlaybackNote`) so they cannot drift: redeliver
 `video.asset.ready` from the Mux dashboard, which only completes an asset whose playback policy
@@ -632,6 +633,29 @@ violation become an endless Mux retry. Blank is stored as NULL and never as an e
 a query for the waiting lessons misses exactly the rows it is looking for -
 `adminUpdateLessonSchema` normalises it at the admin PATCH boundary, so that holds for every
 writer rather than only for the lesson editor.
+
+Direct upload from the lesson editor adds two Lesson columns and one derived state, and four
+things about them are load-bearing. `muxUploadId` is held only between
+`POST /admin/lessons/:id/mux-upload` and `video.upload.asset_created`; the binding clears it in
+the same write that sets `muxAssetId`, and that clearing is what lets "holds an upload id" mean
+"Mux has not received the file" and nothing else. `muxVideoError` is written by
+`video.upload.errored`, `video.upload.cancelled` and `video.asset.errored` and cleared by exactly
+two things, a new upload request and a ready asset - never by a PATCH, because neither column is
+on `adminBaseLessonSchema`. `resolveLessonVideoState` in `@diaz/shared` is the only place that
+turns the five stored fields into NONE / UPLOADING / PROCESSING / READY / FAILED, with FAILED and
+UPLOADING outranking READY so a replacement in flight over a playing lesson is legible;
+`lesson-video-state.tsx` is the only place that words them, for both admin surfaces.
+Replacement retires the old playback id at `asset_created`, not at the upload request, for the
+reason the FREE -> PAID flip retires it; the previous asset is deliberately left in Mux. The
+playback policy is chosen from the tier when the upload is created (`playbackPolicyForAccessLevel`)
+and checked again by `syncMuxAsset` when the asset is ready, so a tier flipped mid-encode is
+refused rather than served. `syncMuxAsset` finds a lesson by asset id first and by the asset's
+`upload_id` second, because Mux orders nothing. The editor populates its form once per lesson id
+and adopts every polled row through `lessonEditorFieldsAfterSave`, duration included: the
+webhooks change the row behind the form, and a Save that resent it would blank the binding or
+overwrite the measured length with a planned one. `mux webhooks listen` needs a token with the
+webhooks permission; a `video:read, video:write` token prints the secret and exits, and README's
+"Video Notes" gives the signed-delivery alternative that exercises everything but the transport.
 
 `mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
 one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would

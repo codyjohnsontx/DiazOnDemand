@@ -44,12 +44,24 @@ type MuxPlaybackId = {
   policy?: string;
 };
 
+/**
+ * The fields this API reads off a Mux event. `data` is the Asset for
+ * `video.asset.*` events and the Direct Upload for `video.upload.*` events;
+ * both carry an `id`, and the rest is per type.
+ */
 type MuxWebhookEvent = {
   type?: string;
   data?: {
     id?: string;
+    // Asset fields.
     duration?: number;
     playback_ids?: MuxPlaybackId[];
+    upload_id?: string;
+    passthrough?: string;
+    errors?: { type?: string; messages?: string[] };
+    // Direct Upload fields.
+    asset_id?: string;
+    error?: { type?: string; message?: string };
   };
 };
 
@@ -664,17 +676,229 @@ export class WebhooksService {
     }
   }
 
+  /**
+   * The Mux events that move a lesson's video along, and nothing else.
+   *
+   * A direct upload from the lesson editor produces, in the usual order,
+   * `video.upload.asset_created` (the file arrived; the asset exists), then
+   * `video.asset.ready` or `video.asset.errored`. `video.upload.errored` and
+   * `video.upload.cancelled` end an upload before any asset exists. Mux
+   * guarantees none of that ordering and may deliver any of them more than
+   * once, so every handler finds the lesson by whichever Mux identifier it
+   * holds and writes only what would change.
+   */
   async handleMuxWebhook(event: MuxWebhookEvent) {
     switch (event?.type) {
       case 'video.asset.ready':
         await this.syncMuxAsset(event);
         break;
       case 'video.asset.errored':
-        this.logger.warn(`Mux asset errored: ${event.data?.id ?? 'unknown'}`);
+        await this.recordMuxAssetFailure(event);
+        break;
+      case 'video.upload.asset_created':
+        await this.bindMuxUploadAsset(event);
+        break;
+      case 'video.upload.errored':
+      case 'video.upload.cancelled':
+        await this.recordMuxUploadFailure(event);
         break;
       default:
         this.logger.log(`Ignoring Mux event type: ${event?.type ?? 'unknown'}`);
     }
+  }
+
+  /**
+   * The file reached Mux and an asset exists for it: the lesson exchanges the
+   * upload id it was holding for that asset id.
+   *
+   * This is also where a replaced video is retired. A lesson that already
+   * played something keeps playing it until this moment - a pending upload
+   * changes nothing for members - and now drops its playback id, exactly as the
+   * FREE -> PAID flip does: the old id is an address anyone who read the
+   * catalogue may hold, and withholding is not retiring. The lesson lands in
+   * the waiting-for-Mux state until `video.asset.ready` brings the new id.
+   * The previous asset is left in the Mux account; deleting it is destructive
+   * and is the owner's call in the dashboard.
+   *
+   * Finding no lesson is the normal outcome for an upload this app did not
+   * create, and for an upload whose `video.asset.ready` arrived first and
+   * already bound the asset - so it is logged and answered 201, never thrown.
+   */
+  private async bindMuxUploadAsset(event: MuxWebhookEvent) {
+    const uploadId = event.data?.id;
+    const assetId = event.data?.asset_id;
+
+    if (!uploadId || !assetId) {
+      this.logger.warn('Mux upload asset_created event missing the upload id or asset id');
+      return;
+    }
+
+    const lesson = await this.prisma.client.lesson.findFirst({ where: { muxUploadId: uploadId } });
+
+    if (!lesson) {
+      this.logger.log(`No lesson is waiting on Mux upload ${uploadId}; skipping`);
+      return;
+    }
+
+    this.refuseYouTubeLesson(lesson, `Mux upload ${uploadId}`);
+
+    await this.prisma.client.lesson.update({
+      where: { id: lesson.id },
+      data: {
+        muxAssetId: assetId,
+        muxUploadId: null,
+        muxVideoError: null,
+        // The retirement. The row stays storable because the asset id is set
+        // in the same write, which is the other identifier the constraint
+        // accepts on a MUX row.
+        ...(isStoredIdentifierAbsent(lesson.muxPlaybackId) ? {} : { muxPlaybackId: null }),
+        ...(lesson.videoProvider === VideoProvider.MUX ? {} : { videoProvider: VideoProvider.MUX }),
+      },
+    });
+
+    this.logger.log(`Bound Mux upload ${uploadId} to lesson ${lesson.id} as asset ${assetId}`);
+  }
+
+  /**
+   * The upload ended without an asset. The lesson stops waiting on it and
+   * records why, so the editor shows a failure rather than an upload that never
+   * completes. Anything the lesson already played is untouched: the file never
+   * became an asset, so there is nothing to replace it with.
+   */
+  private async recordMuxUploadFailure(event: MuxWebhookEvent) {
+    const uploadId = event.data?.id;
+
+    if (!uploadId) {
+      this.logger.warn(`Mux ${event.type} event missing the upload id`);
+      return;
+    }
+
+    const lesson = await this.prisma.client.lesson.findFirst({ where: { muxUploadId: uploadId } });
+
+    if (!lesson) {
+      this.logger.log(`No lesson is waiting on Mux upload ${uploadId}; skipping`);
+      return;
+    }
+
+    const error = event.data?.error;
+    const message =
+      event.type === 'video.upload.cancelled'
+        ? 'The upload was cancelled in Mux before the file was received.'
+        : `Mux could not accept the upload${error?.message ? `: ${error.message}` : '.'}`;
+
+    await this.prisma.client.lesson.update({
+      where: { id: lesson.id },
+      data: { muxUploadId: null, muxVideoError: message },
+    });
+
+    this.logger.warn(`Mux upload ${uploadId} for lesson ${lesson.id} ended: ${message}`);
+  }
+
+  /**
+   * Mux could not make a playable asset out of the file - a corrupt or
+   * unsupported source, usually. The lesson keeps the asset id as the record of
+   * which upload failed, gains the error so the editor can show it, and keeps
+   * whatever playback id it still holds: nothing arrived to replace it with.
+   */
+  private async recordMuxAssetFailure(event: MuxWebhookEvent) {
+    const assetId = event.data?.id;
+
+    if (!assetId) {
+      this.logger.warn('Mux asset errored event missing an asset id');
+      return;
+    }
+
+    const { lesson, matchedByUpload } = await this.findLessonForAsset(
+      assetId,
+      event.data?.upload_id,
+    );
+
+    if (!lesson) {
+      this.logger.warn(`Mux asset errored: ${assetId}; no lesson matches, skipping`);
+      return;
+    }
+
+    const messages = event.data?.errors?.messages?.filter(Boolean) ?? [];
+    const message = `Mux could not process the video${
+      messages.length > 0 ? `: ${messages.join(' ')}` : '.'
+    }`;
+
+    await this.prisma.client.lesson.update({
+      where: { id: lesson.id },
+      data: {
+        muxVideoError: message,
+        // Found by the upload it came from: the errored asset is still the
+        // record of which upload failed, and the lesson stops waiting on it.
+        ...(matchedByUpload ? { muxAssetId: assetId, muxUploadId: null } : {}),
+      },
+    });
+
+    this.logger.warn(`Mux asset ${assetId} for lesson ${lesson.id} errored: ${message}`);
+  }
+
+  /**
+   * By the asset id first, which is how a pasted id and every completed upload
+   * are found; by the upload id the asset came from otherwise, for a
+   * `video.asset.*` event that overtook `video.upload.asset_created`. Mux
+   * orders nothing, so the second lookup is what keeps a fast encode from
+   * leaving the lesson waiting on an upload that has already finished.
+   */
+  private async findLessonForAsset(assetId: string, uploadId: string | undefined) {
+    const byAsset = await this.prisma.client.lesson.findFirst({ where: { muxAssetId: assetId } });
+
+    if (byAsset) {
+      return { lesson: byAsset, matchedByUpload: false };
+    }
+
+    if (!uploadId) {
+      return { lesson: null, matchedByUpload: false };
+    }
+
+    const byUpload = await this.prisma.client.lesson.findFirst({ where: { muxUploadId: uploadId } });
+
+    return { lesson: byUpload, matchedByUpload: byUpload !== null };
+  }
+
+  /**
+   * A lesson cannot be served by two providers at once, and completing this
+   * one would write a Mux playback id onto a row still holding a YouTube video
+   * id - which `lesson_video_provider_consistency_chk` rejects, so the delivery
+   * would fail on an opaque database error that Mux retries forever. Refused
+   * explicitly instead, with the remedy named, so it fails visibly in the Mux
+   * dashboard next to the asset, the way a wrong playback policy does.
+   *
+   * "Holds" is the database's definition, `isStoredIdentifierAbsent`, and not
+   * `.trim()`: the constraint's `NULLIF(TRIM(...), '')` strips U+0020 only, so
+   * a tab-only id is *present* to it, and a guard that read it as blank waved
+   * through exactly the write the constraint rejects. This has to agree with
+   * what `isAwaitingMuxPlayback` asks, because the two have to agree about
+   * which rows are waiting.
+   *
+   * The remedy names the video-source switch rather than deleting the id,
+   * because deleting it is a save the editor refuses: a YOUTUBE row must hold
+   * a non-blank video id, there and in the constraint. Changing the source to
+   * Mux is what actually clears the column, and it keeps the asset id. An
+   * operator sent after a step the product blocks concludes the app is broken,
+   * so this has to name one that works.
+   */
+  private refuseYouTubeLesson(
+    lesson: { id: string; youtubeVideoId: string | null },
+    subject: string,
+  ) {
+    if (isStoredIdentifierAbsent(lesson.youtubeVideoId)) {
+      return;
+    }
+
+    this.logger.error(
+      `Refusing to attach ${subject} to lesson ${lesson.id}: the lesson still holds a YouTube ` +
+        `video id, so it is not a Mux lesson. Change the lesson's video source to Mux in the ` +
+        `lesson editor, then redeliver this webhook.`,
+    );
+
+    throw new Error(
+      `${subject} points at lesson ${lesson.id}, which still holds a YouTube video id - change ` +
+        `its video source to Mux in the lesson editor`,
+    );
   }
 
   private async syncMuxAsset(event: MuxWebhookEvent) {
@@ -685,9 +909,10 @@ export class WebhooksService {
       return;
     }
 
-    const lesson = await this.prisma.client.lesson.findFirst({
-      where: { muxAssetId: assetId },
-    });
+    const { lesson, matchedByUpload } = await this.findLessonForAsset(
+      assetId,
+      event.data?.upload_id,
+    );
 
     if (!lesson) {
       // Assets can exist in the Mux account that this app never created. Throwing
@@ -696,37 +921,7 @@ export class WebhooksService {
       return;
     }
 
-    if (!isStoredIdentifierAbsent(lesson.youtubeVideoId)) {
-      // A lesson cannot be served by two providers at once, and completing this
-      // one would write a Mux playback id onto a row still holding a YouTube
-      // video id - a combination the database refuses, which would turn every
-      // redelivery into an opaque 500 forever. Refused with the reason instead,
-      // in the Mux dashboard next to the asset, the way a wrong playback policy
-      // is.
-      //
-      // "Still holding" is `isStoredIdentifierAbsent`, the same rule
-      // `isAwaitingMuxPlayback` asks, because the two have to agree about which
-      // rows this handler completes. A local `.trim()` here looked equivalent
-      // and was not: it reads a tab as blank where Postgres does not, so the
-      // guard waved through exactly the write the constraint rejects.
-      //
-      // The remedy names the video-source switch rather than deleting the id,
-      // because deleting it is a save the editor refuses: a YOUTUBE row must
-      // hold a non-blank video id, there and in the constraint. Changing the
-      // source to Mux is what actually clears the column, and it keeps the
-      // asset id. An operator sent after a step the product blocks concludes
-      // the app is broken, so this has to name one that works.
-      this.logger.error(
-        `Refusing to sync Mux asset ${assetId} to lesson ${lesson.id}: the lesson still holds a ` +
-          `YouTube video id, so it is not a Mux lesson. Change the lesson's video source to Mux ` +
-          `in the lesson editor, then redeliver this webhook.`,
-      );
-
-      throw new Error(
-        `Mux asset ${assetId} points at lesson ${lesson.id}, which still holds a YouTube video ` +
-          `id - change its video source to Mux in the lesson editor`,
-      );
-    }
+    this.refuseYouTubeLesson(lesson, `Mux asset ${assetId}`);
 
     const playbackIds = event.data?.playback_ids ?? [];
     const signedPlaybackId = playbackIds.find((entry) => entry.policy === 'signed')?.id ?? null;
@@ -775,12 +970,20 @@ export class WebhooksService {
     // Every field is written only where it would actually change the row, so a
     // redelivery - Mux retries, and the same asset arrives more than once - is a
     // no-op rather than a write that merely lands on the values already there.
+    //
+    // The asset id and the upload id are the direct-upload half of the same
+    // rule: a lesson found by its upload id takes the asset id now, and either
+    // way it stops waiting on the upload this asset came from. The error is
+    // cleared because a ready asset is the one outcome that settles it.
     const data = {
       ...(playbackId && playbackId !== lesson.muxPlaybackId ? { muxPlaybackId: playbackId } : {}),
       ...(durationSeconds !== null && durationSeconds !== lesson.durationSeconds
         ? { durationSeconds }
         : {}),
       ...(lesson.videoProvider === VideoProvider.MUX ? {} : { videoProvider: VideoProvider.MUX }),
+      ...(matchedByUpload ? { muxAssetId: assetId, muxUploadId: null } : {}),
+      ...(isStoredIdentifierAbsent(lesson.muxUploadId) ? {} : { muxUploadId: null }),
+      ...(isStoredIdentifierAbsent(lesson.muxVideoError) ? {} : { muxVideoError: null }),
     };
 
     if (Object.keys(data).length === 0) {

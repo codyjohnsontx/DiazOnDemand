@@ -9,6 +9,8 @@ import {
   isValidMuxPlaybackId,
   isValidYouTubeVideoId,
   lessonEditorFieldsAfterSave,
+  LessonVideoState,
+  resolveLessonVideoState,
 } from './video-source.js';
 
 describe('isValidMuxPlaybackId', () => {
@@ -460,5 +462,126 @@ describe('lessonEditorFieldsAfterSave', () => {
       muxPlaybackId: '',
       youtubeVideoId: '',
     });
+  });
+});
+
+/**
+ * The one state the admin surfaces show for a lesson's video. Each input is a
+ * fact Mux issued or reported, and the precedence is what makes a replacement
+ * legible: an upload or a failure beats the playback id the lesson still holds.
+ */
+describe('resolveLessonVideoState', () => {
+  const empty = {
+    muxUploadId: null,
+    muxVideoError: null,
+    muxAssetId: null,
+    muxPlaybackId: null,
+    youtubeVideoId: null,
+  };
+
+  it('is NONE for a lesson holding nothing', () => {
+    expect(resolveLessonVideoState(empty)).toEqual({
+      state: LessonVideoState.NONE,
+      previousVideoStillPlays: false,
+    });
+  });
+
+  it('is UPLOADING while the lesson holds a direct upload id', () => {
+    expect(resolveLessonVideoState({ ...empty, muxUploadId: 'upload-1' }).state).toBe(
+      LessonVideoState.UPLOADING,
+    );
+  });
+
+  // The same rows `isAwaitingMuxPlayback` answers true for.
+  it('is PROCESSING once the asset is bound and no playback id has arrived', () => {
+    expect(resolveLessonVideoState({ ...empty, muxAssetId: 'asset-1' }).state).toBe(
+      LessonVideoState.PROCESSING,
+    );
+  });
+
+  it('is READY when a Mux playback id is stored', () => {
+    expect(
+      resolveLessonVideoState({ ...empty, muxAssetId: 'asset-1', muxPlaybackId: 'a1B2c3D4e5F6g7H8i9' }),
+    ).toEqual({ state: LessonVideoState.READY, previousVideoStillPlays: false });
+  });
+
+  it('is READY when a YouTube video id is stored', () => {
+    expect(resolveLessonVideoState({ ...empty, youtubeVideoId: 'dQw4w9WgXcQ' }).state).toBe(
+      LessonVideoState.READY,
+    );
+  });
+
+  it('is FAILED when Mux reported an error, whatever else the row holds', () => {
+    expect(
+      resolveLessonVideoState({ ...empty, muxAssetId: 'asset-1', muxVideoError: 'Mux could not process the video.' }),
+    ).toEqual({ state: LessonVideoState.FAILED, previousVideoStillPlays: false });
+  });
+
+  // A replacement in flight: the operator uploaded over a lesson that plays.
+  // Members are unaffected until the new asset is bound, and the copy has to
+  // say so rather than show "ready" while a new file is on its way.
+  it('reports an upload over a playing lesson as UPLOADING with the previous video intact', () => {
+    expect(
+      resolveLessonVideoState({
+        ...empty,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: 'a1B2c3D4e5F6g7H8i9',
+        muxUploadId: 'upload-2',
+      }),
+    ).toEqual({ state: LessonVideoState.UPLOADING, previousVideoStillPlays: true });
+  });
+
+  it('reports a failed replacement as FAILED with the previous video intact', () => {
+    expect(
+      resolveLessonVideoState({
+        ...empty,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: 'a1B2c3D4e5F6g7H8i9',
+        muxVideoError: 'Mux could not accept the upload.',
+      }),
+    ).toEqual({ state: LessonVideoState.FAILED, previousVideoStillPlays: true });
+  });
+
+  // Blank is the database's blank here too: a space-only error is no error.
+  it('reads a space-only error and upload id as absent', () => {
+    expect(
+      resolveLessonVideoState({ ...empty, muxUploadId: '  ', muxVideoError: ' ' }).state,
+    ).toBe(LessonVideoState.NONE);
+  });
+});
+
+/**
+ * The duration half of the adoption rule. `video.asset.ready` writes the
+ * length Mux measured, and the editor's duration input still holds whatever
+ * was typed as a planned length - so a Save after the poll would put the
+ * planned number back over the real one.
+ */
+describe('lessonEditorFieldsAfterSave adopts the measured duration', () => {
+  it('turns the row duration into the string the input is controlled with', () => {
+    expect(
+      lessonEditorFieldsAfterSave({
+        accessLevel: AccessLevel.FREE,
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: 'a1B2c3D4e5F6g7H8i9',
+        youtubeVideoId: null,
+        durationSeconds: 723,
+      }).durationSeconds,
+    ).toBe('723');
+  });
+
+  // Nothing writes null there, and a save answering the form's own value has
+  // nothing to correct - so a row without a duration leaves the input alone.
+  it('leaves the duration input alone when the row carries none', () => {
+    expect(
+      lessonEditorFieldsAfterSave({
+        accessLevel: AccessLevel.FREE,
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: 'asset-1',
+        muxPlaybackId: null,
+        youtubeVideoId: null,
+        durationSeconds: null,
+      }),
+    ).not.toHaveProperty('durationSeconds');
   });
 });

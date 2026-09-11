@@ -1,9 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import type { AdminProgramWithContentDto, CurriculumMetadata } from '@diaz/shared';
+import type {
+  AdminLessonSummary,
+  AdminProgramWithContentDto,
+  CurriculumMetadata,
+} from '@diaz/shared';
 import {
   // A value import, not a type-only one: the paid-YouTube note below compares
   // against it, and TypeScript refuses to compare a string enum with a bare
@@ -23,12 +27,14 @@ import {
   getDisciplineLabel,
   hasUnplayableVideoIdentifier,
   isAwaitingMuxPlayback,
+  isStoredIdentifierAbsent,
   lessonEditorFieldsAfterSave,
   programDisciplineToCurriculumDiscipline,
 } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
-import { AwaitingMuxPlaybackNote } from '@/components/awaiting-mux-playback-note';
 import { EmptyState } from '@/components/empty-state';
+import { LessonVideoStateBadge } from '@/components/lesson-video-state';
+import { LessonVideoUpload } from '@/components/lesson-video-upload';
 import { PremiumBadge } from '@/components/premium-badge';
 import { useApiClient } from '@/lib/api-client';
 
@@ -105,6 +111,11 @@ export default function AdminLessonDetailPage() {
   // A save is not instant and the form it was built from keeps accepting clicks
   // until it returns. See the guard at the top of `onSave`.
   const [saving, setSaving] = useState(false);
+  // Which lesson the form was last populated for. The form is built from the
+  // row once, when it first arrives; after that the row changes behind it - a
+  // save, a publish toggle, a Mux webhook - and only the fields those changes
+  // actually decide are adopted, so an operator's unsaved edits survive them.
+  const populatedForLessonId = useRef<string | null>(null);
   const [form, setForm] = useState<LessonEditorForm>({
     title: '',
     description: '',
@@ -173,7 +184,8 @@ export default function AdminLessonDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (!lesson) return;
+    if (!lesson || populatedForLessonId.current === lesson.id) return;
+    populatedForLessonId.current = lesson.id;
     setForm({
       title: lesson.title,
       description: lesson.description ?? '',
@@ -190,6 +202,29 @@ export default function AdminLessonDetailPage() {
         ),
     });
   }, [lesson, program]);
+
+  /**
+   * A row the Mux webhooks changed while this page was open, handed over by the
+   * upload control's polling. The catalogue copy is updated in place so every
+   * badge reads the new row, and the form adopts the video fields for the
+   * reason `lessonEditorFieldsAfterSave` gives: until it does, a Save would
+   * PATCH the asset id the webhook just bound straight back off the row, and
+   * put a typed-in planned length back over the duration Mux measured.
+   */
+  const applyLessonRow = useCallback((next: AdminLessonSummary) => {
+    setPrograms((current) =>
+      current
+        ? current.map((entry) => ({
+            ...entry,
+            courses: entry.courses.map((course) => ({
+              ...course,
+              lessons: course.lessons.map((item) => (item.id === next.id ? next : item)),
+            })),
+          }))
+        : current,
+    );
+    setForm((prev) => ({ ...prev, ...lessonEditorFieldsAfterSave(next) }));
+  }, []);
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
@@ -364,7 +399,7 @@ export default function AdminLessonDetailPage() {
             <div className="flex flex-wrap items-center gap-2">
               {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
               {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
-              {awaitingMuxPlayback ? <PremiumBadge label="Waiting for Mux" /> : null}
+              <LessonVideoStateBadge lesson={lesson} />
               <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
             </div>
           </div>
@@ -432,6 +467,25 @@ export default function AdminLessonDetailPage() {
               />
             </div>
           </div>
+          <div className="space-y-3">
+            <p className="type-kicker text-[var(--text-muted)]">Lesson video</p>
+            {/*
+              Against the saved row, not the form: the upload binds to the
+              lesson as stored, and the API refuses a lesson still holding a
+              YouTube id for the reason the webhook does. The form's provider is
+              checked too, so an operator halfway through switching to YouTube
+              is not offered an upload that would contradict the save.
+            */}
+            {isStoredIdentifierAbsent(lesson.youtubeVideoId) &&
+            form.videoProvider !== VideoProvider.YOUTUBE ? (
+              <LessonVideoUpload lesson={lesson} onLessonChanged={applyLessonRow} />
+            ) : (
+              <p className="type-meta text-[var(--text-muted)]">
+                This lesson uses a YouTube video. To upload a video to Mux instead, set Video source
+                to Mux playback and save, then the upload control appears here.
+              </p>
+            )}
+          </div>
           <div className="space-y-2">
             <label className="type-kicker text-[var(--text-muted)]" htmlFor={videoProviderInputId}>
               Video source
@@ -464,20 +518,10 @@ export default function AdminLessonDetailPage() {
                 }
               />
               <p className="type-meta text-[var(--text-muted)]">
-                Optional. Set this to let the Mux webhook fill in the playback ID and duration
-                automatically once the asset finishes encoding.
+                Filled in by an upload above, or paste the ID of an asset that already exists in
+                Mux. Either way the Mux webhook fills in the playback ID and duration once the
+                asset finishes encoding.
               </p>
-              {/*
-                Both derived from the saved row rather than the pending form: the
-                remedy has to describe the lesson the webhook will actually meet,
-                not the one this form would save.
-              */}
-              {awaitingMuxPlayback ? (
-                <AwaitingMuxPlaybackNote
-                  accessLevel={lesson.accessLevel}
-                  className="type-meta text-[var(--text-muted)]"
-                />
-              ) : null}
             </div>
           ) : null}
           {form.videoProvider === VideoProvider.MUX ? (

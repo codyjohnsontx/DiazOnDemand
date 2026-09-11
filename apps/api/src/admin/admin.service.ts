@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma, VideoProvider } from '@diaz/db';
-import type { CurriculumMetadata } from '@diaz/shared';
+import type { AdminLessonUploadDto, CurriculumMetadata } from '@diaz/shared';
 import {
   clearsMuxPlaybackIdOnPaidTransition,
   createCurriculumTags,
@@ -8,6 +8,7 @@ import {
 } from '@diaz/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { mapAdminLessonSummary } from '../content/lesson-presentation.js';
+import { MuxDirectUploadService } from '../mux/mux-direct-upload.service.js';
 
 /** The stored fields a paid-access transition has to reason about. */
 type LessonVideoRow = {
@@ -96,9 +97,21 @@ export function planPaidAccessTransition(
   };
 }
 
+/**
+ * The origin the browser uploads from, which Mux needs to answer the storage
+ * preflight. `WEB_APP_URL` is already the web app's address for billing
+ * redirects; only its origin is a CORS origin.
+ */
+export function uploadCorsOrigin(webAppUrl: string | undefined): string {
+  return new URL(webAppUrl || 'http://localhost:3000').origin;
+}
+
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly muxUploads: MuxDirectUploadService = new MuxDirectUploadService(),
+  ) {}
 
   async listPrograms() {
     const programs = await this.prisma.client.program.findMany({
@@ -215,6 +228,76 @@ export class AdminService {
 
   deleteLesson(id: string) {
     return this.prisma.client.lesson.delete({ where: { id } });
+  }
+
+  /**
+   * One lesson as the admin surfaces see it. The editor polls this while an
+   * upload is in flight, because the Mux webhooks change the row behind the
+   * form and `/admin/programs` is the whole catalogue.
+   */
+  async getLesson(id: string) {
+    const lesson = await this.prisma.client.lesson.findUnique({
+      where: { id },
+      include: { tags: { include: { tag: true } } },
+    });
+
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+
+    return mapAdminLessonSummary(lesson);
+  }
+
+  /**
+   * Starts a direct-to-Mux upload for a lesson and records that the lesson is
+   * waiting on it.
+   *
+   * The playback policy is the lesson's tier - signed for PAID, public for FREE
+   * - and is decided here, before the file exists, so the asset Mux creates is
+   * one `syncMuxAsset` will accept when it is ready. The upload id is stored so
+   * `video.upload.asset_created` can bind the asset to this lesson, and the
+   * previous error is cleared because a new attempt is the only thing that
+   * should clear it. Nothing else on the row changes: an existing asset and
+   * playback id keep serving members until the new asset is actually bound, and
+   * it is that binding, not this request, that retires them.
+   *
+   * A lesson still holding a YouTube video id is refused, for the reason
+   * `syncMuxAsset` refuses it: one lesson cannot be served by two providers,
+   * and `lesson_video_provider_consistency_chk` would reject the MUX row the
+   * asset binding writes. Refusing here, with the same remedy, keeps that from
+   * becoming a failed delivery the operator only finds in the Mux dashboard.
+   *
+   * A second request while one is pending simply replaces the stored upload
+   * id: the earlier signed URL was never used, Mux times it out on its own, and
+   * a `video.upload.cancelled` or `errored` for it no longer matches any lesson.
+   */
+  async createLessonUpload(id: string): Promise<AdminLessonUploadDto> {
+    const lesson = await this.prisma.client.lesson.findUnique({ where: { id } });
+
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+
+    if (!isStoredIdentifierAbsent(lesson.youtubeVideoId)) {
+      throw new BadRequestException(
+        'This lesson still holds a YouTube video ID, so it is not a Mux lesson. Change its video ' +
+          'source to Mux and save, then upload the video.',
+      );
+    }
+
+    const upload = await this.muxUploads.createDirectUpload({
+      lessonId: lesson.id,
+      accessLevel: lesson.accessLevel,
+      corsOrigin: uploadCorsOrigin(process.env.WEB_APP_URL),
+    });
+
+    const updated = await this.prisma.client.lesson.update({
+      where: { id: lesson.id },
+      data: { muxUploadId: upload.id, muxVideoError: null },
+      include: { tags: { include: { tag: true } } },
+    });
+
+    return { uploadId: upload.id, url: upload.url, lesson: mapAdminLessonSummary(updated) };
   }
 
   private async syncLessonCurriculumTags(lessonId: string, curriculum: CurriculumMetadata | null) {
