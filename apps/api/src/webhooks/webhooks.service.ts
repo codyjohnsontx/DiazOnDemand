@@ -818,20 +818,32 @@ export class WebhooksService {
       return;
     }
 
+    if (!matchedByUpload && !isStoredIdentifierAbsent(lesson.muxUploadId)) {
+      this.logger.log(
+        `Mux asset ${assetId} errored, but lesson ${lesson.id} has moved on to upload ` +
+          `${lesson.muxUploadId}; skipping`,
+      );
+      return;
+    }
+
     const messages = event.data?.errors?.messages?.filter(Boolean) ?? [];
     const message = `Mux could not process the video${
       messages.length > 0 ? `: ${messages.join(' ')}` : '.'
     }`;
 
-    await this.prisma.client.lesson.update({
-      where: { id: lesson.id },
-      data: {
-        muxVideoError: message,
-        // Found by the upload it came from: the errored asset is still the
-        // record of which upload failed, and the lesson stops waiting on it.
-        ...(matchedByUpload ? { muxAssetId: assetId, muxUploadId: null } : {}),
-      },
-    });
+    const data = {
+      ...(message === lesson.muxVideoError ? {} : { muxVideoError: message }),
+      // Found by the upload it came from: the errored asset is still the
+      // record of which upload failed, and the lesson stops waiting on it.
+      ...(matchedByUpload ? { muxAssetId: assetId, muxUploadId: null } : {}),
+    };
+
+    if (Object.keys(data).length === 0) {
+      this.logger.log(`Mux asset ${assetId} failure already recorded on lesson ${lesson.id}`);
+      return;
+    }
+
+    await this.prisma.client.lesson.update({ where: { id: lesson.id }, data });
 
     this.logger.warn(`Mux asset ${assetId} for lesson ${lesson.id} errored: ${message}`);
   }

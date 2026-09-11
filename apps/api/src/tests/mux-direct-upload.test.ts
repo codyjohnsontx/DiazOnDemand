@@ -76,7 +76,7 @@ describe('MuxDirectUploadService.createDirectUpload', () => {
       }),
     );
 
-    expect(upload).toEqual({ id: 'upload-1', url: UPLOAD_URL, timeout: 3600 });
+    expect(upload).toEqual({ id: 'upload-1', url: UPLOAD_URL });
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -87,7 +87,6 @@ describe('MuxDirectUploadService.createDirectUpload', () => {
     );
     expect(JSON.parse(init.body as string)).toEqual({
       cors_origin: 'http://localhost:3000',
-      timeout: 3600,
       new_asset_settings: {
         playback_policies: ['signed'],
         // The lesson id rides on the asset, so every later asset event names
@@ -177,7 +176,7 @@ describe('AdminService.createLessonUpload', () => {
       client: { lesson: { findUnique: vi.fn().mockResolvedValue(lesson), update } },
     } as unknown as PrismaService;
     const mux = {
-      createDirectUpload: vi.fn().mockResolvedValue({ id: 'upload-1', url: UPLOAD_URL, timeout: 3600 }),
+      createDirectUpload: vi.fn().mockResolvedValue({ id: 'upload-1', url: UPLOAD_URL }),
     } as unknown as MuxDirectUploadService;
 
     return { admin: new AdminService(prisma, mux), update, mux };

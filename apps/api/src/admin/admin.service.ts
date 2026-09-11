@@ -98,6 +98,32 @@ export function planPaidAccessTransition(
 }
 
 /**
+ * A lesson saved as a YouTube lesson stops carrying a Mux upload it was waiting
+ * on and the last failure Mux reported. Neither column is on the PATCH schema,
+ * so nothing a client sends can touch them; this is the write path's own rule.
+ * Without it the row keeps driving the Upload in progress or Upload failed
+ * badge over a working YouTube video, the editor offers no upload control for a
+ * YouTube lesson to clear it from, and the late `asset_created` for that upload
+ * is refused rather than binding, so nothing else ever would.
+ */
+export function planYouTubeUploadStateClear(
+  lesson: { videoProvider: string; muxUploadId: string | null; muxVideoError: string | null },
+  data: Prisma.LessonUpdateInput,
+): Prisma.LessonUpdateInput {
+  const videoProvider = nextStoredValue(nextFieldValue(data.videoProvider), lesson.videoProvider);
+
+  if (videoProvider !== VideoProvider.YOUTUBE) {
+    return data;
+  }
+
+  return {
+    ...data,
+    ...(isStoredIdentifierAbsent(lesson.muxUploadId) ? {} : { muxUploadId: null }),
+    ...(lesson.muxVideoError === null ? {} : { muxVideoError: null }),
+  };
+}
+
+/**
  * The origin the browser uploads from, which Mux needs to answer the storage
  * preflight. `WEB_APP_URL` is already the web app's address for billing
  * redirects; only its origin is a CORS origin.
@@ -199,7 +225,7 @@ export class AdminService {
     const transition = planPaidAccessTransition(lesson, data);
     const updated = await this.prisma.client.lesson.update({
       where: { id },
-      data: transition.data,
+      data: planYouTubeUploadStateClear(lesson, transition.data),
     });
     if (curriculum !== undefined) {
       await this.syncLessonCurriculumTags(id, curriculum);

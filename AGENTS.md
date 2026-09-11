@@ -641,9 +641,14 @@ the same write that sets `muxAssetId`, and that clearing is what lets "holds an 
 "Mux has not received the file" and nothing else. `muxVideoError` is written by
 `video.upload.errored`, `video.upload.cancelled` and `video.asset.errored` and cleared by exactly
 two things, a new upload request and a ready event that brings a new playback id or completes the
-upload the lesson was waiting on - never by a PATCH, because neither column is on
-`adminBaseLessonSchema`, and never by a redelivered ready for the asset already playing, which
-would erase the record of a failed replacement. `resolveLessonVideoState` in `@diaz/shared` is the only place that
+upload the lesson was waiting on. Neither column is on `adminBaseLessonSchema`, so no client can
+set or clear them; the one PATCH-side write is `planYouTubeUploadStateClear` in
+`admin.service.ts`, which clears both when the saved lesson is a YouTube lesson, because a YouTube
+row has nothing for them to describe and the badges they drive would otherwise outrank a working
+video with nothing in the app able to clear them. A redelivered ready for the asset already
+playing never clears the error, because that would erase the record of a failed replacement, and
+a `video.asset.errored` for an asset the lesson has already moved on from - it holds a newer
+upload id - is skipped rather than re-raising FAILED over the retry. `resolveLessonVideoState` in `@diaz/shared` is the only place that
 turns the five stored fields into NONE / UPLOADING / PROCESSING / READY / FAILED, with FAILED and
 UPLOADING outranking READY so a replacement in flight over a playing lesson is legible;
 `lesson-video-state.tsx` is the only place that words them, for both admin surfaces.

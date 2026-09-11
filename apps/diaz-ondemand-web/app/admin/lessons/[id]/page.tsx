@@ -89,6 +89,35 @@ type LessonEditorForm = {
   curriculum: CurriculumMetadata;
 };
 
+/**
+ * The identifiers a save sends for the form as it stands against a given row.
+ * A function of both rather than of the render, because the save re-reads the
+ * row right before it PATCHes and has to derive them again from what it finds.
+ */
+function outgoingVideoIdentifiers(
+  form: LessonEditorForm,
+  lesson: Parameters<typeof isAwaitingMuxPlayback>[0] | undefined,
+) {
+  // The asset ID is not a playback identifier: the webhook matches on it
+  // whatever the stored provider says, and the database allows it on any row.
+  // Gating the field on the form provider hid it on exactly the rows the
+  // "Waiting for Mux" badge points at, and the next save then blanked the id the
+  // badge was about.
+  const showMuxAssetIdField =
+    form.videoProvider === VideoProvider.MUX ||
+    (isAwaitingMuxPlayback(lesson ?? {}) && form.videoProvider !== VideoProvider.YOUTUBE);
+
+  // Blank is stored as NULL, never as an empty string: "no playback id yet"
+  // needs one spelling, or a query for the lessons still waiting on Mux misses
+  // exactly the ones saved here.
+  return {
+    showMuxAssetIdField,
+    muxPlaybackId:
+      form.videoProvider === VideoProvider.MUX ? form.muxPlaybackId.trim() || null : null,
+    muxAssetId: showMuxAssetIdField ? form.muxAssetId.trim() || null : null,
+  };
+}
+
 export default function AdminLessonDetailPage() {
   const params = useParams<{ id: string }>();
   const lessonId = params.id;
@@ -149,21 +178,10 @@ export default function AdminLessonDetailPage() {
   // Derived from the saved row, not from the form: the point is to show which
   // lessons the webhook has not completed, including the ones where it never
   // will because the upload failed or the delivery was lost.
-  const awaitingMuxPlayback = isAwaitingMuxPlayback(lesson ?? {});
-  // The asset ID is not a playback identifier: the webhook matches on it
-  // whatever the stored provider says, and the database allows it on any row.
-  // Gating the field on the form provider hid it on exactly the rows the
-  // "Waiting for Mux" badge points at, and the next save then blanked the id the
-  // badge was about.
-  const showMuxAssetIdField =
-    form.videoProvider === VideoProvider.MUX ||
-    (awaitingMuxPlayback && form.videoProvider !== VideoProvider.YOUTUBE);
-  // Blank is stored as NULL, never as an empty string: "no playback id yet"
-  // needs one spelling, or a query for the lessons still waiting on Mux misses
-  // exactly the ones saved here.
-  const outgoingMuxPlaybackId =
-    form.videoProvider === VideoProvider.MUX ? form.muxPlaybackId.trim() || null : null;
-  const outgoingMuxAssetId = showMuxAssetIdField ? form.muxAssetId.trim() || null : null;
+  const { showMuxAssetIdField, muxPlaybackId: outgoingMuxPlaybackId } = outgoingVideoIdentifiers(
+    form,
+    lesson,
+  );
 
   const load = async () => {
     try {
@@ -244,25 +262,33 @@ export default function AdminLessonDetailPage() {
     if (saving) return;
     setSaving(true);
 
-    const normalizedYoutubeVideoId = form.youtubeVideoId.trim();
-
-    // An asset id on its own is a complete Mux lesson that is not playable yet:
-    // Mux issues the playback id later, on `video.asset.ready`, and the webhook
-    // finds the lesson by exactly this asset id. Demanding a playback id here
-    // was what left ingestion with no entrance at all.
-    if (form.videoProvider === VideoProvider.MUX && !outgoingMuxPlaybackId && !outgoingMuxAssetId) {
-      setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
-      setSaving(false);
-      return;
-    }
-
-    if (form.videoProvider === VideoProvider.YOUTUBE && !normalizedYoutubeVideoId) {
-      setStatus('YouTube video ID is required when the lesson uses YouTube.');
-      setSaving(false);
-      return;
-    }
-
     try {
+      // The row as it is now, not as the last poll saw it. A webhook that landed
+      // inside the poll window - `video.asset.ready` writing the playback id and
+      // the measured duration - would otherwise be PATCHed straight back off the
+      // row by the fields this form still holds from before it.
+      const fresh = await apiFetch<AdminLessonSummary>(`/admin/lessons/${lessonId}`);
+      const adopted = lessonEditorFieldsAfterRowChange(lesson ?? fresh, fresh);
+      const current = { ...form, ...adopted };
+      if (Object.keys(adopted).length > 0) applyLessonRow(fresh);
+
+      const outgoing = outgoingVideoIdentifiers(current, fresh);
+      const normalizedYoutubeVideoId = current.youtubeVideoId.trim();
+
+      // An asset id on its own is a complete Mux lesson that is not playable yet:
+      // Mux issues the playback id later, on `video.asset.ready`, and the webhook
+      // finds the lesson by exactly this asset id. Demanding a playback id here
+      // was what left ingestion with no entrance at all.
+      if (current.videoProvider === VideoProvider.MUX && !outgoing.muxPlaybackId && !outgoing.muxAssetId) {
+        setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
+        return;
+      }
+
+      if (current.videoProvider === VideoProvider.YOUTUBE && !normalizedYoutubeVideoId) {
+        setStatus('YouTube video ID is required when the lesson uses YouTube.');
+        return;
+      }
+
       const saved = await apiFetch<{
         muxPlaybackIdClearedForPaidAccess?: boolean;
         accessLevel: AccessLevel;
@@ -273,18 +299,18 @@ export default function AdminLessonDetailPage() {
       }>(`/admin/lessons/${lessonId}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-          accessLevel: form.accessLevel,
-          videoProvider: form.videoProvider,
-          muxAssetId: outgoingMuxAssetId,
-          muxPlaybackId: outgoingMuxPlaybackId,
+          title: current.title,
+          description: current.description,
+          accessLevel: current.accessLevel,
+          videoProvider: current.videoProvider,
+          muxAssetId: outgoing.muxAssetId,
+          muxPlaybackId: outgoing.muxPlaybackId,
           youtubeVideoId:
-            form.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
-          durationSeconds: form.durationSeconds ? Number(form.durationSeconds) : null,
+            current.videoProvider === VideoProvider.YOUTUBE ? normalizedYoutubeVideoId : null,
+          durationSeconds: current.durationSeconds ? Number(current.durationSeconds) : null,
           curriculum: {
-            ...form.curriculum,
-            skill: form.curriculum.skill || undefined,
+            ...current.curriculum,
+            skill: current.curriculum.skill || undefined,
           },
         }),
       });
@@ -483,7 +509,17 @@ export default function AdminLessonDetailPage() {
             */}
             {isStoredIdentifierAbsent(lesson.youtubeVideoId) &&
             form.videoProvider !== VideoProvider.YOUTUBE ? (
-              <LessonVideoUpload lesson={lesson} onLessonChanged={applyLessonRow} />
+              <LessonVideoUpload
+                lesson={lesson}
+                onLessonChanged={applyLessonRow}
+                disabledReason={
+                  form.accessLevel !== lesson.accessLevel
+                    ? 'Save the access level first. The upload takes its playback policy from ' +
+                      'the saved tier, and a premium video created under the free tier would be ' +
+                      'public.'
+                    : undefined
+                }
+              />
             ) : (
               <p className="type-meta text-[var(--text-muted)]">
                 This lesson uses a YouTube video. To upload a video to Mux instead, set Video source

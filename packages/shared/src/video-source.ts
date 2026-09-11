@@ -402,8 +402,9 @@ export function lessonEditorFieldsAfterRowChange<Access extends string, Provider
  *
  * - FAILED first. `muxVideoError` is set by `video.upload.errored`,
  *   `video.upload.cancelled` and `video.asset.errored`, and cleared only when a
- *   new upload starts or a ready event brings a new playback id or completes
- *   the upload the lesson was waiting on. A failure that arrives while
+ *   new upload starts, a ready event brings a new playback id or completes
+ *   the upload the lesson was waiting on, or the lesson is saved as a YouTube
+ *   lesson. A failure that arrives while
  *   the lesson still plays its previous video - a replacement whose new file
  *   Mux rejected - has to beat READY, or the operator sees "ready" and waits
  *   forever for the replacement.

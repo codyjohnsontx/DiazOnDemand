@@ -2,14 +2,10 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 
 const MUX_API_BASE_URL = 'https://api.mux.com';
 
-/** How long the signed upload URL stays usable; Mux's own default. */
-const DIRECT_UPLOAD_TIMEOUT_SECONDS = 3600;
-
 /** The subset of Mux's Direct Upload object this API reads back. */
 export type MuxDirectUpload = {
   id: string;
   url: string;
-  timeout: number;
 };
 
 /**
@@ -65,9 +61,9 @@ export class MuxDirectUploadService {
    * later `video.asset.*` event names the lesson it belongs to even if the
    * upload id were lost. `cors_origin` is the web app's origin, because the
    * signed URL is used from the browser and Google Cloud Storage answers the
-   * preflight from it. `video_quality` is deliberately not set: that is an
-   * account-level choice with billing consequences, and the account default
-   * applies.
+   * preflight from it. `video_quality` and `timeout` are deliberately not set:
+   * the first is an account-level choice with billing consequences, and the
+   * account default applies to both.
    */
   async createDirectUpload(input: {
     lessonId: string;
@@ -77,7 +73,6 @@ export class MuxDirectUploadService {
     const authorization = this.credentials();
     const body = {
       cors_origin: input.corsOrigin,
-      timeout: DIRECT_UPLOAD_TIMEOUT_SECONDS,
       new_asset_settings: {
         playback_policies: [playbackPolicyForAccessLevel(input.accessLevel)],
         passthrough: input.lessonId,
@@ -120,6 +115,6 @@ export class MuxDirectUploadService {
       throw new ServiceUnavailableException('Mux answered without an upload URL.');
     }
 
-    return { id: upload.id, url: upload.url, timeout: upload.timeout ?? DIRECT_UPLOAD_TIMEOUT_SECONDS };
+    return { id: upload.id, url: upload.url };
   }
 }

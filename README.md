@@ -288,7 +288,8 @@ The lesson editor uploads straight to Mux, so filling the catalogue no longer ne
 dashboard. **Upload video** on `/admin/lessons/:id` asks `POST /admin/lessons/:id/mux-upload`
 for a Mux direct upload, sends the file from the browser to the one-off signed URL Mux answers
 (a single `PUT` with progress, no upload library), and then polls `GET /admin/lessons/:id` until
-the webhooks have finished. The API chooses the asset's playback policy from the lesson's tier
+the webhooks have finished - every 4 seconds for the first two minutes, every 30 seconds after
+that, and not at all after 30 minutes, when the editor says so and asks for a reload. The API chooses the asset's playback policy from the lesson's tier
 before the file exists - `signed` for `PAID`, `public` for `FREE` - and sets the lesson id as the
 asset's `passthrough`. No Mux credential reaches the browser; the route sits behind the same
 `ADMIN`/`COACH` guards as every other admin route, and `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` are
@@ -323,10 +324,15 @@ first; every handler writes only what would change, so redeliveries stay no-ops.
 still checked at the end: an upload created signed-only for a paid lesson that was flipped free
 while encoding is refused with the same remedy as a pasted asset id.
 
-The webhooks also write the row behind an open editor, so the editor adopts the video fields
-and the measured `durationSeconds` from every polled row (`lessonEditorFieldsAfterSave`) - a
-Save that resent the form would otherwise blank the asset id the webhook just bound, or put a
-typed-in planned length back over the real one. Uploads that never send a file (the tab was
+The webhooks also write the row behind an open editor, so the editor adopts only what the
+webhook changed from every polled row (`lessonEditorFieldsAfterRowChange`), the measured
+`durationSeconds` included, and re-reads the row the same way right before every Save - a Save
+that resent the form would otherwise blank the asset id the webhook just bound, or put a
+typed-in planned length back over the real one, and an unchanged stored value is never adopted
+because that would revert an unsaved edit. The upload control is withheld while the form's access
+level differs from the saved one, because the upload's playback policy comes from the saved tier.
+Saving a lesson as a YouTube lesson clears both upload columns on the server, so a switch away
+from Mux cannot leave a working YouTube video badged as uploading or failed. Uploads that never send a file (the tab was
 closed) leave the lesson in Upload in progress until the operator chooses the file again; Mux
 times the unused URL out on its own and no event announces that.
 

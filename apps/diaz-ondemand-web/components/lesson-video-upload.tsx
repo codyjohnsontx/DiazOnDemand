@@ -12,8 +12,17 @@ import { ProgressBar } from '@/components/progress-bar';
 import { useApiClient } from '@/lib/api-client';
 import { uploadFileToMux } from '@/lib/mux-direct-upload';
 
-/** How often the editor asks the API whether Mux has moved the lesson along. */
-const POLL_INTERVAL_MS = 4000;
+/**
+ * How often the editor asks the API whether Mux has moved the lesson along:
+ * every 4 seconds while an answer is likely, every 30 seconds after two minutes,
+ * and not at all after half an hour - a lesson can wait on Mux forever when its
+ * ready event was delivered before any lesson held the asset id, and a tab left
+ * open on one should not cost a request every 4 seconds indefinitely.
+ */
+const POLL_FAST_MS = 4_000;
+const POLL_FAST_WINDOW_MS = 2 * 60_000;
+const POLL_SLOW_MS = 30_000;
+const POLL_LIMIT_MS = 30 * 60_000;
 
 /** The columns the Mux webhooks write; a poll that changes none of them is noise. */
 const WATCHED_FIELDS = [
@@ -50,17 +59,26 @@ type Phase =
  *
  * Polling runs whenever the row says an upload or an encode is outstanding,
  * not only after a PUT from this tab: an operator who reloads mid-encode is
- * looking at the same state and deserves the same answer.
+ * looking at the same state and deserves the same answer. Choosing a file
+ * starts a fresh run, so an upload requested after the limit is watched again.
+ *
+ * `disabledReason` withholds the control with the reason shown in place of
+ * the tier caption: the upload's playback policy is chosen from the saved row,
+ * so it must not be offered while the form describes a different tier.
  */
 export function LessonVideoUpload({
   lesson,
   onLessonChanged,
+  disabledReason,
 }: {
   lesson: AdminLessonSummary;
   onLessonChanged: (lesson: AdminLessonSummary) => void;
+  disabledReason?: string;
 }) {
   const apiFetch = useApiClient();
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
+  const [pollRun, setPollRun] = useState(0);
+  const [pollingExpired, setPollingExpired] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const onLessonChangedRef = useRef(onLessonChanged);
   const fingerprintRef = useRef(videoFingerprint(lesson));
@@ -68,6 +86,7 @@ export function LessonVideoUpload({
   const outstanding =
     state === LessonVideoState.UPLOADING || state === LessonVideoState.PROCESSING;
   const busy = phase.kind === 'requesting' || phase.kind === 'uploading';
+  const disabled = busy || disabledReason !== undefined;
 
   useEffect(() => {
     onLessonChangedRef.current = onLessonChanged;
@@ -78,27 +97,48 @@ export function LessonVideoUpload({
     if (!outstanding) return;
 
     let cancelled = false;
-    const timer = setInterval(async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const startedAt = Date.now();
+
+    const schedule = () => {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= POLL_LIMIT_MS) {
+        setPollingExpired(true);
+        return;
+      }
+      timer = setTimeout(
+        () => void tick(),
+        elapsed < POLL_FAST_WINDOW_MS ? POLL_FAST_MS : POLL_SLOW_MS,
+      );
+    };
+
+    const tick = async () => {
       try {
         const next = await apiFetch<AdminLessonSummary>(`/admin/lessons/${lesson.id}`);
-        if (cancelled || videoFingerprint(next) === fingerprintRef.current) return;
-        onLessonChangedRef.current(next);
+        if (cancelled) return;
+        if (videoFingerprint(next) !== fingerprintRef.current) onLessonChangedRef.current(next);
       } catch {
         // A missed poll is not a failure of the upload; the next tick asks again.
+      } finally {
+        if (!cancelled) schedule();
       }
-    }, POLL_INTERVAL_MS);
+    };
+
+    schedule();
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
-  }, [apiFetch, lesson.id, outstanding]);
+  }, [apiFetch, lesson.id, outstanding, pollRun]);
 
   const onFileChosen = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || busy) return;
+    if (!file || disabled) return;
 
     setPhase({ kind: 'requesting' });
+    setPollingExpired(false);
+    setPollRun((run) => run + 1);
 
     try {
       const upload = await apiFetch<AdminLessonUploadDto>(`/admin/lessons/${lesson.id}/mux-upload`, {
@@ -140,7 +180,7 @@ export function LessonVideoUpload({
         <label
           className={[
             'inline-flex cursor-pointer items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10',
-            busy ? 'cursor-not-allowed opacity-60' : '',
+            disabled ? 'cursor-not-allowed opacity-60' : '',
           ].join(' ')}
         >
           {buttonLabel}
@@ -148,15 +188,16 @@ export function LessonVideoUpload({
             ref={inputRef}
             accept="video/*"
             className="sr-only"
-            disabled={busy}
+            disabled={disabled}
             onChange={(event) => void onFileChosen(event)}
             type="file"
           />
         </label>
         <span className="type-meta text-[var(--text-muted)]">
-          {lesson.accessLevel === 'PAID'
-            ? 'Premium lesson: the asset is created signed-only.'
-            : 'Free lesson: the asset is created with a public playback policy.'}
+          {disabledReason ??
+            (lesson.accessLevel === 'PAID'
+              ? 'Premium lesson: the asset is created signed-only.'
+              : 'Free lesson: the asset is created with a public playback policy.')}
         </span>
       </div>
       {phase.kind === 'uploading' ? (
@@ -164,6 +205,11 @@ export function LessonVideoUpload({
       ) : null}
       {phase.kind === 'error' ? (
         <p className="type-meta text-[var(--danger)]">{phase.message}</p>
+      ) : null}
+      {outstanding && pollingExpired ? (
+        <p className="type-meta text-[var(--text-muted)]">
+          Mux is still processing this video. Reload the page to check again.
+        </p>
       ) : null}
       {state === LessonVideoState.READY && !busy ? (
         <p className="type-meta text-[var(--text-muted)]">

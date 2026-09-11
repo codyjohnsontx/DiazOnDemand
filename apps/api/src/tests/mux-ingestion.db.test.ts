@@ -693,6 +693,67 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
       expect(resolveLessonVideoState(failed).state).toBe(LessonVideoState.FAILED);
     });
 
+    it('records the same failure once, so a redelivered asset errored event changes nothing', async () => {
+      const lesson = await createLesson();
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      const assetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(uploadId, assetId));
+      const errored = {
+        type: 'video.asset.errored',
+        data: { id: assetId, upload_id: uploadId, errors: { messages: ['bad'] } },
+      };
+
+      await service.handleMuxWebhook(errored);
+      const failed = await reload(lesson.id);
+      await service.handleMuxWebhook(errored);
+      const redelivered = await reload(lesson.id);
+
+      expect(redelivered.updatedAt).toEqual(failed.updatedAt);
+      expect(resolveLessonVideoState(redelivered).state).toBe(LessonVideoState.FAILED);
+    });
+
+    it('does not re-raise a failure over a retry the operator already started', async () => {
+      const lesson = await createLesson();
+      const first = await admin.createLessonUpload(lesson.id);
+      const assetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(first.uploadId, assetId));
+      const errored = {
+        type: 'video.asset.errored',
+        data: { id: assetId, upload_id: first.uploadId, errors: { messages: ['bad'] } },
+      };
+      await service.handleMuxWebhook(errored);
+
+      const second = await admin.createLessonUpload(lesson.id);
+      await service.handleMuxWebhook(errored);
+      const retrying = await reload(lesson.id);
+
+      expect(retrying.muxUploadId).toBe(second.uploadId);
+      expect(retrying.muxVideoError).toBeNull();
+      expect(resolveLessonVideoState(retrying).state).toBe(LessonVideoState.UPLOADING);
+    });
+
+    // A YouTube row has nothing for the upload columns to describe, and the
+    // editor offers no upload control on one to clear them from - so the save
+    // that makes the lesson a YouTube lesson is what retires them.
+    it('clears the upload state when the lesson is saved as a YouTube lesson', async () => {
+      const lesson = await createLesson({
+        muxUploadId: nextUploadId(),
+        muxVideoError: 'Mux could not accept the upload.',
+      });
+
+      await admin.updateLesson(lesson.id, {
+        videoProvider: VideoProvider.YOUTUBE,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        muxAssetId: null,
+        muxPlaybackId: null,
+      });
+      const saved = await reload(lesson.id);
+
+      expect(saved.muxUploadId).toBeNull();
+      expect(saved.muxVideoError).toBeNull();
+      expect(resolveLessonVideoState(saved).state).toBe(LessonVideoState.READY);
+    });
+
     // A new attempt is what clears a failure, and a ready asset is what settles
     // it - so the error never outlives the thing it describes.
     it('clears the failure on the next upload and on a ready asset', async () => {
