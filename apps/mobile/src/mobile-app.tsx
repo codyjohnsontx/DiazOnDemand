@@ -219,7 +219,7 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
   // is rewritten every ten seconds while the lesson plays.
   const [resumePositionSeconds, setResumePositionSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const positionRef = useRef(0);
+  const positionRef = useRef<number | null>(null);
   const durationRef = useRef(0);
   const saveInFlightRef = useRef(false);
   const pendingSaveRef = useRef(false);
@@ -228,7 +228,9 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
     setError(null);
     api<LessonDetailDto>(`/lessons/${lessonId}`)
       .then(async (nextLesson) => {
-        const nextCourse = await api<CourseDto>(`/courses/${nextLesson.courseId}`);
+        const nextCourse = await api<CourseDto>(`/courses/${nextLesson.courseId}`).catch(
+          () => null,
+        );
         const nextProgress = await api<ProgressDto[]>('/progress').catch(() => []);
         const resumePosition = getResumePositionSeconds(
           nextLesson,
@@ -238,9 +240,10 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
         // The player mounts with the lesson, so the start position has to be
         // known by then: expo-av applies `positionMillis` when the source
         // loads, and a value supplied afterwards is a seek, not a start.
-        // Seeding the ref means a save that fires before the first status
-        // update - backing out during load - writes the position being
-        // resumed rather than 0 over it.
+        // Until the ref is seeded there is nothing to save and `saveProgress`
+        // skips, so a save that fires before the first status update -
+        // backing out during load - either does nothing or writes the
+        // position being resumed, never 0 over it.
         positionRef.current = resumePosition;
         setResumePositionSeconds(resumePosition);
         setProgress(nextProgress);
@@ -254,6 +257,12 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
 
   useEffect(() => {
     async function saveProgress() {
+      const position = positionRef.current;
+
+      if (position === null) {
+        return;
+      }
+
       if (saveInFlightRef.current) {
         pendingSaveRef.current = true;
         return;
@@ -264,11 +273,11 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
       try {
         const completed =
           durationRef.current > 0 &&
-          durationRef.current - positionRef.current < LESSON_COMPLETION_MARGIN_SECONDS;
+          durationRef.current - position < LESSON_COMPLETION_MARGIN_SECONDS;
         await api(`/progress/${lessonId}`, {
           method: 'POST',
           body: JSON.stringify({
-            lastPositionSeconds: Math.max(0, Math.floor(positionRef.current)),
+            lastPositionSeconds: Math.max(0, Math.floor(position)),
             completed,
           }),
         });
