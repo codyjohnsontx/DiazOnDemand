@@ -9,10 +9,12 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { ActivityIndicator, AppState, Button, FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  LESSON_COMPLETION_MARGIN_SECONDS,
   VideoProvider,
   buildCourseProgress,
   buildLessonQueue,
   formatCurriculumLabel,
+  getResumePositionSeconds,
   type CourseDto,
   type FavoriteDto,
   type LessonDetailDto,
@@ -212,6 +214,10 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
   const [lesson, setLesson] = useState<LessonDetailDto | null>(null);
   const [course, setCourse] = useState<CourseDto | null>(null);
   const [progress, setProgress] = useState<ProgressDto[]>([]);
+  // Captured once per lesson load, not derived from `progress`: the player's
+  // start position is a load-time setting, and the saved record it comes from
+  // is rewritten every ten seconds while the lesson plays.
+  const [resumePositionSeconds, setResumePositionSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const positionRef = useRef(0);
   const durationRef = useRef(0);
@@ -222,9 +228,24 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
     setError(null);
     api<LessonDetailDto>(`/lessons/${lessonId}`)
       .then(async (nextLesson) => {
+        const nextCourse = await api<CourseDto>(`/courses/${nextLesson.courseId}`);
+        const nextProgress = await api<ProgressDto[]>('/progress').catch(() => []);
+        const resumePosition = getResumePositionSeconds(
+          nextLesson,
+          nextProgress.find((entry) => entry.lessonId === nextLesson.id),
+        );
+
+        // The player mounts with the lesson, so the start position has to be
+        // known by then: expo-av applies `positionMillis` when the source
+        // loads, and a value supplied afterwards is a seek, not a start.
+        // Seeding the ref means a save that fires before the first status
+        // update - backing out during load - writes the position being
+        // resumed rather than 0 over it.
+        positionRef.current = resumePosition;
+        setResumePositionSeconds(resumePosition);
+        setProgress(nextProgress);
+        setCourse(nextCourse);
         setLesson(nextLesson);
-        setCourse(await api<CourseDto>(`/courses/${nextLesson.courseId}`));
-        setProgress(await api<ProgressDto[]>('/progress').catch(() => []));
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : String(err));
@@ -241,7 +262,9 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
       saveInFlightRef.current = true;
 
       try {
-        const completed = durationRef.current > 0 && durationRef.current - positionRef.current < 10;
+        const completed =
+          durationRef.current > 0 &&
+          durationRef.current - positionRef.current < LESSON_COMPLETION_MARGIN_SECONDS;
         await api(`/progress/${lessonId}`, {
           method: 'POST',
           body: JSON.stringify({
@@ -321,6 +344,10 @@ function LessonScreen({ route }: NativeStackScreenProps<RootStackParamList, 'Les
           source={{ uri: source }}
           useNativeControls
           resizeMode={ResizeMode.CONTAIN}
+          // Resume from the saved progress record. 0 means start from the
+          // beginning; see `getResumePositionSeconds` in @diaz/shared for what
+          // counts as nothing to resume.
+          positionMillis={resumePositionSeconds > 0 ? resumePositionSeconds * 1000 : undefined}
           onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
             if (!status.isLoaded) {
               return;
