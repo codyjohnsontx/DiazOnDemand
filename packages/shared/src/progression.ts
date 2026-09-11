@@ -127,10 +127,15 @@ export function getLessonProgressPercent(lesson: LessonSummary, progress?: Progr
  *
  * Starts from the beginning when there is nothing to resume: no record, a
  * record marked complete, or a position with fewer than
- * `LESSON_COMPLETION_MARGIN_SECONDS` left of the stored duration - the same
- * boundary the save path uses to mark a lesson complete. A lesson whose
- * duration is unknown resumes at the saved position, because the save path
- * already marks it complete when it reached the end.
+ * `LESSON_COMPLETION_MARGIN_SECONDS` left of the stored lesson duration - the
+ * same boundary the save path uses to mark a lesson complete.
+ *
+ * Two durations are involved. This rule reads the stored lesson duration
+ * (`durationSeconds` on the lesson row), which can be null. The save path
+ * reads the player's media duration at save time, which does not depend on
+ * that column. So a lesson with no stored duration is still saved as complete
+ * when playback reaches the end and restarts through the `completed` branch
+ * above; a not-complete record on such a lesson resumes at the saved position.
  */
 export function getResumePositionSeconds(lesson: LessonSummary, progress?: ProgressDto) {
   if (!progress || progress.completed) {

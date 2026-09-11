@@ -202,10 +202,13 @@ After seed:
    `getResumePositionSeconds` in `packages/shared` decides what starts from the beginning
    instead: no record, a completed record, a position at or past the stored duration, or a
    position with fewer than `LESSON_COMPLETION_MARGIN_SECONDS` left of it - the same boundary
-   the save path uses to mark a lesson complete. A lesson with no stored duration resumes at
-   the saved position, because the save path already marks it complete at the end. The seeded
-   YouTube demos save no time-based progress, so this step needs a lesson with a Mux playback
-   id.
+   the save path uses to mark a lesson complete. Two different durations are involved: the
+   resume rule reads the stored lesson duration (`durationSeconds` on the row), while the save
+   path reads the player's media duration at save time. So a lesson whose stored duration is
+   null still gets `completed: true` when playback reaches the end, and the resume rule
+   restarts it through the completed record; a not-complete record on such a lesson resumes at
+   the saved position. The seeded YouTube demos save no time-based progress, so this step needs
+   a lesson with a Mux playback id.
 4. Open admin at `http://localhost:3000/admin/programs`.
 5. Create/edit/publish content.
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).
