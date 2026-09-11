@@ -61,11 +61,6 @@ export function TopNav() {
             </nav>
 
             <div className="hidden items-center gap-3 lg:flex">
-              {me ? (
-                <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                  {me.entitlementTier === 'PREMIUM' ? 'Premium active' : 'Member access'}
-                </div>
-              ) : null}
               <Link
                 className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 sm:text-sm"
                 href={me ? '/account' : '/sign-in'}

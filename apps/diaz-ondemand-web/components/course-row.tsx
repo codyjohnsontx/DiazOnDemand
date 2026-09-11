@@ -27,9 +27,6 @@ export function CourseRow({ course }: { course: CourseCardModel }) {
         {course.accessLabel === 'Includes premium lessons' ? (
           <PremiumBadge label="Premium" tone="premium" />
         ) : null}
-        {course.isFeaturedDemo ? (
-          <PremiumBadge label="Demo" tone="accent" />
-        ) : null}
         <span className="hidden text-sm text-white/55 sm:inline">
           {course.totalDurationLabel ?? `${course.lessonCount} lessons`}
         </span>

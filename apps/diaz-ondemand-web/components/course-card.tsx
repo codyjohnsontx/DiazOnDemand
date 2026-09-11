@@ -18,7 +18,6 @@ export function CourseCard({ course }: { course: CourseCardModel }) {
           <div className="flex items-start justify-between gap-3 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <PremiumBadge label={course.disciplineLabel} />
-              {course.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
             </div>
             <PremiumBadge
               label={course.accessLabel}
