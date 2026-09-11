@@ -21,7 +21,8 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 ## MVP Features Included
 - Browse Programs/Courses/Lessons (published only)
 - Lesson playback on web and mobile using Mux playback IDs
-- Progress upsert (`lastPositionSeconds`, `completed`)
+- Progress upsert (`lastPositionSeconds`, `completed`), and the web player resumes a lesson at
+  its saved position
 - Favorites create/list/remove
 - Admin CRUD + publish/unpublish for programs/courses/lessons
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
@@ -196,7 +197,12 @@ After seed:
 2. Open a lesson in the Instructor Showcase program and play it. Those three carry real
    YouTube demonstration clips and are the only seeded lessons with a video; the other 64
    show the not-yet-filmed state, which is deliberate - see "Catalogue video states" below.
-3. Progress saves every ~10 seconds and before unload.
+3. On a Mux-backed lesson, progress saves every ~10 seconds and before unload, and reopening
+   the lesson - from Resume or any other route - starts playback at the saved position.
+   `getResumePositionSeconds` in `packages/shared` decides what starts from the beginning
+   instead (no record, a completed record, or a position inside the last
+   `LESSON_COMPLETION_MARGIN_SECONDS` of the stored duration). The seeded YouTube demos
+   save no time-based progress, so this step needs a lesson with a Mux playback id.
 4. Open admin at `http://localhost:3000/admin/programs`.
 5. Create/edit/publish content.
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).

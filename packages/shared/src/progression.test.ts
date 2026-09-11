@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { AccessLevel, VideoProvider } from './enums.js';
-import { LESSON_COMPLETION_MARGIN_SECONDS, buildLessonQueue, getResumePositionSeconds } from './progression.js';
+import {
+  LESSON_COMPLETION_MARGIN_SECONDS,
+  buildLessonQueue,
+  getResumePositionSeconds,
+} from './progression.js';
 import type { CourseDto, LessonSummary, ProgressDto } from './schemas.js';
 
 const courseId = '00000000-0000-4000-8000-000000000001';
@@ -98,21 +102,48 @@ describe('getResumePositionSeconds', () => {
   it('resumes at the saved position of a lesson stopped part way through', () => {
     // The reproduced defect: 38 seconds saved into a 134-second video, and
     // Resume started playback at 0.
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: 134 }), progress({ lastPositionSeconds: 38 }))).toBe(38);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 38 }),
+      ),
+    ).toBe(38);
   });
 
   it('starts from the beginning when there is no saved progress', () => {
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: 134 }), undefined)).toBe(0);
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: 134 }), progress({ lastPositionSeconds: 0 }))).toBe(0);
+    expect(
+      getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: 134 }), undefined),
+    ).toBe(0);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 0 }),
+      ),
+    ).toBe(0);
   });
 
   it('starts from the beginning for a lesson marked complete', () => {
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: 134 }), progress({ lastPositionSeconds: 60, completed: true }))).toBe(0);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 60, completed: true }),
+      ),
+    ).toBe(0);
   });
 
   it('starts from the beginning when the saved position is at or past the end', () => {
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: 134 }), progress({ lastPositionSeconds: 134 }))).toBe(0);
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: 134 }), progress({ lastPositionSeconds: 500 }))).toBe(0);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 134 }),
+      ),
+    ).toBe(0);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: 134 }),
+        progress({ lastPositionSeconds: 500 }),
+      ),
+    ).toBe(0);
   });
 
   it('starts from the beginning inside the completion margin, and resumes just outside it', () => {
@@ -120,11 +151,26 @@ describe('getResumePositionSeconds', () => {
     const insideMargin = duration - LESSON_COMPLETION_MARGIN_SECONDS;
     const outsideMargin = insideMargin - 1;
 
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: duration }), progress({ lastPositionSeconds: insideMargin }))).toBe(0);
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: duration }), progress({ lastPositionSeconds: outsideMargin }))).toBe(outsideMargin);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: duration }),
+        progress({ lastPositionSeconds: insideMargin }),
+      ),
+    ).toBe(0);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: duration }),
+        progress({ lastPositionSeconds: outsideMargin }),
+      ),
+    ).toBe(outsideMargin);
   });
 
   it('resumes at the saved position when the lesson has no stored duration', () => {
-    expect(getResumePositionSeconds(lesson({ id: lessonId, durationSeconds: null }), progress({ lastPositionSeconds: 38 }))).toBe(38);
+    expect(
+      getResumePositionSeconds(
+        lesson({ id: lessonId, durationSeconds: null }),
+        progress({ lastPositionSeconds: 38 }),
+      ),
+    ).toBe(38);
   });
 });
