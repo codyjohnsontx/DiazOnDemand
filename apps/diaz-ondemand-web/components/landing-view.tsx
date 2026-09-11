@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { AppShell } from './app-shell';
 import { PageHeader } from './page-header';
-import { PremiumBadge } from './premium-badge';
 
 export function LandingView() {
   return (
@@ -13,11 +12,6 @@ export function LandingView() {
       />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="surface-panel space-y-6 p-8">
-          <div className="flex flex-wrap gap-2">
-            <PremiumBadge label="Free lessons" tone="accent" />
-            <PremiumBadge label="Premium courses" tone="premium" />
-            <PremiumBadge label="Progress tracking" />
-          </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="surface-panel-muted p-4 text-sm leading-7 text-[var(--text-muted)]">
               Start with free content and see how the guided library is organized before you commit.

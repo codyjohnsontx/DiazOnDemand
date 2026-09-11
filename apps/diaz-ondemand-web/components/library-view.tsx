@@ -55,7 +55,6 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
       <div className="space-y-6">
         <PageHeader
           description="A guided on-demand library built around disciplined progression, repeatable modules, and quick return-to-training paths."
-          eyebrow="Student Library"
           title="Train On Demand"
         />
         <div className="flex flex-wrap gap-2">
@@ -118,7 +117,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
 
       {featuredPrograms.length > 0 ? (
         <section className="space-y-5">
-          <SectionHeader detail="Instructor walkthrough" eyebrow="Featured demo" title="Showcase click-through" />
+          <SectionHeader detail="Instructor walkthrough" title="Showcase click-through" />
           <div className="space-y-1">
             {featuredPrograms.flatMap((program) =>
               program.courses.map((course) => (

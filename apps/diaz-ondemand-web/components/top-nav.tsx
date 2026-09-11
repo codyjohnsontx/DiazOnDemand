@@ -31,26 +31,59 @@ export function TopNav() {
   }, [apiFetch]);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[rgba(8,9,11,0.82)] backdrop-blur-xl">
-      <div className="student-shell">
-        <div className="flex min-h-[72px] items-center justify-between gap-4">
-          <Link className="min-w-0" href="/library">
-            <div className="space-y-1">
-              <p className="font-display text-xl leading-none tracking-[0.04em] text-[var(--text)] sm:text-2xl">
-                Diaz
-              </p>
-              <p className="type-kicker text-[10px] text-[var(--text-muted)] sm:text-xs">On Demand</p>
-            </div>
-          </Link>
+    <>
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[rgba(8,9,11,0.82)] backdrop-blur-xl">
+        <div className="student-shell">
+          <div className="flex min-h-[72px] items-center justify-between gap-4">
+            <Link className="min-w-0" href="/library">
+              <div className="space-y-1">
+                <p className="font-display text-xl leading-none tracking-[0.04em] text-[var(--text)] sm:text-2xl">
+                  Diaz
+                </p>
+                <p className="type-kicker text-[10px] text-[var(--text-muted)] sm:text-xs">On Demand</p>
+              </div>
+            </Link>
 
-          <nav className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 md:flex">
+            <nav className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 md:flex">
+              {links.map((link) => {
+                const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+
+                return (
+                  <Link
+                    key={link.href}
+                    className={['nav-link', active ? 'nav-link-active' : ''].filter(Boolean).join(' ')}
+                    href={link.href}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <div className="hidden items-center gap-3 lg:flex">
+              <Link
+                className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 sm:text-sm"
+                href={me ? '/account' : '/sign-in'}
+              >
+                {me ? 'Account' : 'Sign In'}
+              </Link>
+              {me ? <SignOutControl /> : null}
+            </div>
+          </div>
+
+          <nav className="flex gap-2 overflow-x-auto pb-3 md:hidden">
             {links.map((link) => {
               const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
 
               return (
                 <Link
                   key={link.href}
-                  className={['nav-link', active ? 'nav-link-active' : ''].filter(Boolean).join(' ')}
+                  className={[
+                    'shrink-0 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
+                    active
+                      ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]'
+                      : 'border-white/10 bg-white/5 text-[var(--text-muted)]',
+                  ].join(' ')}
                   href={link.href}
                 >
                   {link.label}
@@ -58,44 +91,10 @@ export function TopNav() {
               );
             })}
           </nav>
-
-          <div className="hidden items-center gap-3 lg:flex">
-            {me ? (
-              <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                {me.entitlementTier === 'PREMIUM' ? 'Premium active' : 'Member access'}
-              </div>
-            ) : null}
-            <Link
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 sm:text-sm"
-              href={me ? '/account' : '/sign-in'}
-            >
-              {me ? 'Account' : 'Sign In'}
-            </Link>
-            {me ? <SignOutControl /> : null}
-          </div>
         </div>
-
-        <nav className="flex gap-2 overflow-x-auto pb-3 md:hidden">
-          {links.map((link) => {
-            const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
-
-            return (
-              <Link
-                key={link.href}
-                className={[
-                  'shrink-0 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
-                  active
-                    ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]'
-                    : 'border-white/10 bg-white/5 text-[var(--text-muted)]',
-                ].join(' ')}
-                href={link.href}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
+      </header>
+      {/* Kept outside <header>: its backdrop-blur makes it the containing block for
+          fixed descendants, which pinned this bar to the header instead of the viewport. */}
       <nav className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-4 gap-2 rounded-[28px] border border-white/10 bg-[rgba(12,14,18,0.92)] p-2 shadow-[0_18px_48px_rgba(0,0,0,0.38)] md:hidden">
         {links.map((link) => {
           const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
@@ -116,6 +115,6 @@ export function TopNav() {
           );
         })}
       </nav>
-    </header>
+    </>
   );
 }
