@@ -50,6 +50,11 @@ function clerkAnswer(code: string, message: string) {
 const unknownIdentifier = "Couldn't find your account.";
 const incorrectCode = 'Incorrect code.';
 
+// The address the screen echoes back is the one thing two of these screens may
+// legitimately differ by, so it is normalised out and everything else has to match.
+const withoutAddress = (text: string) =>
+  text.replace(/member@diazmartialarts\.com|stranger@example\.com/g, '<address>');
+
 function memberAttempt() {
   return {
     supportedFirstFactors: [{ strategy: 'email_code', emailAddressId: 'idn_member' }],
@@ -110,6 +115,43 @@ async function render(): Promise<ReactTestRenderer> {
   return tree;
 }
 
+// The two ways the code step can refuse a code, each driven to the screen that
+// refusal leaves behind. Clerk rejecting a member's code reaches `verifyCode`'s
+// catch; a code typed against an address Clerk refused never gets that far, because
+// `preparedIdentifier` turns it away first. Whichever one happened has to be
+// unreadable from the screen, so the two are compared against each other.
+async function codeRejectedByClerk(): Promise<ReactTestRenderer> {
+  mockSignIn.create.mockResolvedValueOnce(memberAttempt());
+  const tree = await render();
+  await type(tree, 'member@diazmartialarts.com');
+  await press(tree, 'Send sign-in code');
+
+  mockSignIn.attemptFirstFactor.mockRejectedValueOnce(
+    clerkAnswer('form_code_incorrect', incorrectCode),
+  );
+  await type(tree, '424242');
+  await press(tree, 'Verify and continue');
+  return tree;
+}
+
+async function codeTypedAgainstAnAddressClerkRefused(): Promise<ReactTestRenderer> {
+  mockSignIn.create.mockResolvedValueOnce(memberAttempt());
+  const tree = await render();
+  await type(tree, 'member@diazmartialarts.com');
+  await press(tree, 'Send sign-in code');
+
+  await press(tree, 'Use a different email');
+  mockSignIn.create.mockRejectedValueOnce(
+    clerkAnswer('form_identifier_not_found', unknownIdentifier),
+  );
+  await type(tree, 'stranger@example.com');
+  await press(tree, 'Send sign-in code');
+
+  await type(tree, '424242');
+  await press(tree, 'Verify and continue');
+  return tree;
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
 });
@@ -127,9 +169,6 @@ describe('the email step never says whether an address belongs to a member', () 
     const stranger = await render();
     await type(stranger, 'stranger@example.com');
     await press(stranger, 'Send sign-in code');
-
-    const withoutAddress = (text: string) =>
-      text.replace(/member@diazmartialarts\.com|stranger@example\.com/g, '<address>');
 
     expect(visibleText(stranger)).toContain('Check your email.');
     expect(withoutAddress(visibleText(stranger))).toBe(withoutAddress(visibleText(member)));
@@ -152,44 +191,31 @@ describe('the email step never says whether an address belongs to a member', () 
 // on the Clerk resource, so a code they already held verified against an address
 // Clerk had refused - success meaning "not a member", failure meaning "a member".
 it('never verifies a code against an address Clerk did not prepare', async () => {
-  mockSignIn.create.mockResolvedValueOnce(memberAttempt());
-  const tree = await render();
-  await type(tree, 'member@diazmartialarts.com');
-  await press(tree, 'Send sign-in code');
-
-  await press(tree, 'Use a different email');
-  mockSignIn.create.mockRejectedValueOnce(
-    clerkAnswer('form_identifier_not_found', unknownIdentifier),
-  );
-  await type(tree, 'stranger@example.com');
-  await press(tree, 'Send sign-in code');
-
-  await type(tree, '424242');
-  await press(tree, 'Verify and continue');
+  const refused = await codeTypedAgainstAnAddressClerkRefused();
 
   expect(mockSignIn.attemptFirstFactor).not.toHaveBeenCalled();
   expect(mockSetActive).not.toHaveBeenCalled();
-  expect(visibleText(tree)).toContain('We could not verify that code.');
+  expect(visibleText(refused)).toContain('We could not verify that code.');
+  expect(visibleText(refused)).not.toContain(unknownIdentifier);
+
+  const rejected = await codeRejectedByClerk();
+  expect(withoutAddress(visibleText(refused))).toBe(withoutAddress(visibleText(rejected)));
 });
 
 // The same rule one step later. `verifyCode`'s catch is all that stands between a
 // member's rejected code and Clerk's own wording for it, and rendering that wording
 // would make a member's wrong code read differently from a code typed against an
 // address with no account - the membership bit again, at the step the email fix
-// pushed it to. The provider's text has to be absent, not merely outranked.
+// pushed it to. Absent provider text is the floor: anything appended to one path and
+// not the other, a diagnostic included, reads as the same bit, so the screens are
+// compared whole.
 it("answers a code Clerk rejected in the app's own words", async () => {
-  mockSignIn.create.mockResolvedValueOnce(memberAttempt());
-  const tree = await render();
-  await type(tree, 'member@diazmartialarts.com');
-  await press(tree, 'Send sign-in code');
-
-  mockSignIn.attemptFirstFactor.mockRejectedValueOnce(
-    clerkAnswer('form_code_incorrect', incorrectCode),
-  );
-  await type(tree, '424242');
-  await press(tree, 'Verify and continue');
+  const rejected = await codeRejectedByClerk();
 
   expect(mockSignIn.attemptFirstFactor).toHaveBeenCalledTimes(1);
-  expect(visibleText(tree)).toContain('We could not verify that code.');
-  expect(visibleText(tree)).not.toContain(incorrectCode);
+  expect(visibleText(rejected)).toContain('We could not verify that code.');
+  expect(visibleText(rejected)).not.toContain(incorrectCode);
+
+  const refused = await codeTypedAgainstAnAddressClerkRefused();
+  expect(withoutAddress(visibleText(rejected))).toBe(withoutAddress(visibleText(refused)));
 });
