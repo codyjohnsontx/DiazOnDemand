@@ -459,17 +459,21 @@ the reason it exists is stated with it.
   on the identifier. Known residual, not closable from this repository: the known path makes two
   round trips and the unknown path one, so response timing still differs. Clerk's Strict user
   enumeration protection is the owner's half of it - see "Clerk Setup Notes" in README.md.
-  `apps/mobile/src/sign-in-screen.test.tsx` guards the email step of both, and a third test guards
-  the path the enumeration defect came back through once inside PR #17: an attempt prepared for one
-  address stayed on the Clerk resource, so "Use a different email" let a code the attacker
-  already held verify against an address Clerk had refused, and success against failure was the
-  same membership bit again. `preparedIdentifier` in `sign-in-screen.tsx` is what closes it, and
-  a test that only drives the email step does not see it. A failed sign-out is guarded the same
+  `apps/mobile/src/sign-in-screen.test.tsx` guards both, at both steps - one test drives
+  `verifyCode`'s catch, because the rule there is only as good as the one message it sets and
+  swapping in the provider's wording moves the same membership bit to the code step with every
+  other test still green. A fourth guards the path the enumeration defect came back through once
+  inside PR #17: an attempt prepared for one address stayed on the Clerk resource, so "Use a
+  different email" let a code the attacker already held verify against an address Clerk had
+  refused, and success against failure was the same membership bit again. `preparedIdentifier` in
+  `sign-in-screen.tsx` is what closes it, and a test that only drives the email step does not see
+  it. A failed sign-out, and the in-flight guard that refuses a second revoke, are pinned the same
   way in `account-sign-out.test.tsx`, which is the only reason `AccountScreen` is exported from
-  `mobile-app.tsx`. All five were confirmed to fail against the pre-fix code before being
-  committed; a sign-in test that passes against `0077aae` or `c9bcf79` is not guarding anything.
-  Not guarded, and the one place left to hand-check: nothing reaches `verifyCode`'s catch, so the
-  code step's one-message-for-every-failure rule is pinned only on the `preparedIdentifier` path.
+  `mobile-app.tsx`. All six were watched failing before being committed - the sign-in ones against
+  `0077aae` and `c9bcf79`, the code-step one against a catch edited to render Clerk's message -
+  because a test that passes against the broken code is not guarding anything. `visibleText` in
+  `src/test-support.ts` is the one oracle every text assertion reads through, and a second copy of
+  it is how a security assertion goes blind while still passing.
 
 ## Mobile app (Expo SDK)
 

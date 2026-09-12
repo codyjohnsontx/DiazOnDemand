@@ -2,7 +2,8 @@
  * Regression tests for the two sign-in security properties closed in PR #17 and
  * recorded in the Security Invariants section of AGENTS.md. The enumeration
  * defect regressed once inside that PR - closed at the email step, then reachable
- * again through "Use a different email" - so all three paths are pinned here.
+ * again through "Use a different email" - so every path it has taken is pinned
+ * here, and so is the code step, where the same rule has to hold one step later.
  *
  * `@clerk/clerk-expo` is mocked rather than loaded: the real package pulls in
  * clerk-js, which Babel has to transform in full and which turns a unit test into
@@ -15,6 +16,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 // Babel hoists the `jest.mock` calls below above this import, so the screen is
 // loaded against them.
 import { SignInScreen } from './sign-in-screen';
+import { visibleText } from './test-support';
 
 // jest.mock is hoisted above these, so the names have to start with `mock`.
 const mockSignIn = {
@@ -46,30 +48,13 @@ function clerkAnswer(code: string, message: string) {
 }
 
 const unknownIdentifier = "Couldn't find your account.";
+const incorrectCode = 'Incorrect code.';
 
 function memberAttempt() {
   return {
     supportedFirstFactors: [{ strategy: 'email_code', emailAddressId: 'idn_member' }],
     prepareFirstFactor: jest.fn().mockResolvedValue(undefined),
   };
-}
-
-function visibleText(tree: ReactTestRenderer): string {
-  const out: string[] = [];
-  const walk = (node: unknown) => {
-    if (node == null || node === false) return;
-    if (typeof node === 'string' || typeof node === 'number') {
-      out.push(String(node));
-      return;
-    }
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
-    walk((node as { children?: unknown }).children);
-  };
-  walk(tree.toJSON());
-  return out.join('\n');
 }
 
 function instanceText(instance: ReactTestInstance): string {
@@ -185,4 +170,26 @@ it('never verifies a code against an address Clerk did not prepare', async () =>
   expect(mockSignIn.attemptFirstFactor).not.toHaveBeenCalled();
   expect(mockSetActive).not.toHaveBeenCalled();
   expect(visibleText(tree)).toContain('We could not verify that code.');
+});
+
+// The same rule one step later. `verifyCode`'s catch is all that stands between a
+// member's rejected code and Clerk's own wording for it, and rendering that wording
+// would make a member's wrong code read differently from a code typed against an
+// address with no account - the membership bit again, at the step the email fix
+// pushed it to. The provider's text has to be absent, not merely outranked.
+it("answers a code Clerk rejected in the app's own words", async () => {
+  mockSignIn.create.mockResolvedValueOnce(memberAttempt());
+  const tree = await render();
+  await type(tree, 'member@diazmartialarts.com');
+  await press(tree, 'Send sign-in code');
+
+  mockSignIn.attemptFirstFactor.mockRejectedValueOnce(
+    clerkAnswer('form_code_incorrect', incorrectCode),
+  );
+  await type(tree, '424242');
+  await press(tree, 'Verify and continue');
+
+  expect(mockSignIn.attemptFirstFactor).toHaveBeenCalledTimes(1);
+  expect(visibleText(tree)).toContain('We could not verify that code.');
+  expect(visibleText(tree)).not.toContain(incorrectCode);
 });

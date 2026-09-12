@@ -1327,9 +1327,12 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 
 `pnpm test` runs everything: vitest in `apps/api` and `packages/shared`, and Jest with the
 `jest-expo` preset in `apps/mobile`, because vitest does not carry React Native's transform. The
-remaining workspaces still have no runner at all. The mobile suite is deliberately small, five
-tests: the two sign-in security properties in "Security Invariants", the regression path the
-first of them came back through, and the failed sign-out recorded in that same entry. None of
+remaining workspaces still have no runner at all. The mobile suite is deliberately small, six
+tests, every one of them from the sign-in entry in "Security Invariants": an unknown address
+reaching the same screen a member reaches, the one deliberate asymmetry for a failure the
+provider never answered, the regression path the enumeration defect came back through, the code
+step answering a rejected code in the app's own words, a failed sign-out reporting that the user
+is still signed in, and the guard that refuses a second revoke while one is in flight. None of
 them needs a simulator, an emulator or a device. Run the suite alone with
 `pnpm --filter mobile test`.
 

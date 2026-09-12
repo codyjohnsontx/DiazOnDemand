@@ -10,6 +10,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 // Babel hoists the `jest.mock` calls below above this import, so the screen is
 // loaded against them.
 import { AccountScreen } from './mobile-app';
+import { visibleText } from './test-support';
 
 const mockSignOut = jest.fn();
 // One stable object: the screen's API client is memoised on `getToken`, so a fresh
@@ -34,24 +35,6 @@ jest.mock('react-native-safe-area-context', () => {
 });
 
 const stillSignedIn = 'We could not sign you out, so you are still signed in on this device.';
-
-function visibleText(tree: ReactTestRenderer): string {
-  const out: string[] = [];
-  const walk = (node: unknown) => {
-    if (node == null || node === false) return;
-    if (typeof node === 'string' || typeof node === 'number') {
-      out.push(String(node));
-      return;
-    }
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
-    walk((node as { children?: unknown }).children);
-  };
-  walk(tree.toJSON());
-  return out.join('\n');
-}
 
 function signOutButton(root: ReactTestInstance): ReactTestInstance {
   const [button] = root.findAll(
