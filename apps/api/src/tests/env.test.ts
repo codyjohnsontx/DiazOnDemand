@@ -371,9 +371,9 @@ describe('Mux signing key startup refusal', () => {
   });
 
   // The refusal is keyed on the deployment, never on an "is Mux enabled" proxy:
-  // MUX_TOKEN_ID is read only by the pairing rule, never by a serving path, so a
-  // deployment can serve Mux video without it and would otherwise slip past this
-  // check.
+  // nothing on the playback path reads MUX_TOKEN_ID (only the lesson editor's
+  // direct-upload route does), so a deployment can serve Mux video without it
+  // and would otherwise slip past this check.
   it('refuses a deployed database with no Mux access token set at all', () => {
     expect(() =>
       validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB, MUX_WEBHOOK_SECRET: 'whsec' })),
@@ -491,8 +491,8 @@ describe('existing startup refusals', () => {
   });
 
   // MUX_TOKEN_ID used to gate the webhook secret, and it is not a reliable signal
-  // that Mux webhooks are wired - only the pairing rule reads it - so a deployment
-  // that set neither passed. It is the same drift the signing key rule was rescued
+  // that Mux webhooks are wired - nothing on the webhook path reads it - so a
+  // deployment that set neither passed. It is the same drift the signing key rule was rescued
   // from, one rule over.
   it('requires the Mux webhook secret on a deployment that sets no Mux access token', () => {
     expect(() =>

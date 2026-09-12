@@ -18,6 +18,7 @@ import { BillingService } from './billing/billing.service.js';
 import { BILLING_ALERTER, LoggingBillingAlerter } from './billing/billing-alerter.js';
 import { WebhooksController } from './webhooks/webhooks.controller.js';
 import { WebhooksService } from './webhooks/webhooks.service.js';
+import { MuxDirectUploadService } from './mux/mux-direct-upload.service.js';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule],
@@ -37,6 +38,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     FavoritesService,
     MeService,
     AdminService,
+    MuxDirectUploadService,
     BillingService,
     WebhooksService,
     { provide: BILLING_ALERTER, useClass: LoggingBillingAlerter },

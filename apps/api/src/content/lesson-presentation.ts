@@ -25,6 +25,8 @@ type LessonLike = {
   muxAssetId?: string | null;
   muxPlaybackId?: string | null;
   youtubeVideoId?: string | null;
+  muxUploadId?: string | null;
+  muxVideoError?: string | null;
   durationSeconds?: number | null;
   tags?: LessonTagLike[];
 };
@@ -215,6 +217,12 @@ export function mapAdminLessonSummary(lesson: LessonLike): AdminLessonSummary {
     muxPlaybackId: lesson.muxPlaybackId ?? null,
     youtubeVideoId: lesson.youtubeVideoId ?? null,
     muxAssetId: lesson.muxAssetId ?? null,
+    // Admin-only like the asset id, and for the same reason: an upload id is an
+    // ingestion handle, and the error is Mux's account of an operator's upload.
+    // Neither is on `LessonLike`'s public projections, so neither can reach a
+    // member payload.
+    muxUploadId: lesson.muxUploadId ?? null,
+    muxVideoError: lesson.muxVideoError ?? null,
   };
 }
 

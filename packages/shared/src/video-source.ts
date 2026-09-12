@@ -329,13 +329,27 @@ export function clearsMuxPlaybackIdOnPaidTransition(transition: {
  * operator's unsaved edits to fields it did not touch. Access level and video
  * source are included because the clear can change `videoProvider` too, dropping
  * a lesson with no `muxAssetId` to fall back on to NONE.
+ *
+ * A direct upload ends with `video.asset.ready` writing the asset id, the
+ * playback id and the measured `durationSeconds` onto the row behind the form,
+ * and the editor polls for exactly that - so the fields it then holds are stale
+ * in the same way as after a save, and a Save that resent them would blank the
+ * asset id the webhook just bound or put a typed-in planned length back over the
+ * real one. `durationSeconds` is therefore adopted here too, as the string the
+ * duration input is controlled with; a row that carries none leaves the field
+ * alone, because the webhook never writes null there and a save answering the
+ * form's own value has nothing to correct. A polled row goes through
+ * `lessonEditorFieldsAfterRowChange` rather than this function directly, because
+ * it answers a webhook write and not a save: only what that write changed is
+ * the row's to decide.
  */
 export function lessonEditorFieldsAfterSave<Access extends string, Provider extends string>(saved: {
   accessLevel: Access;
   videoProvider: Provider;
-  muxAssetId: string | null;
-  muxPlaybackId: string | null;
-  youtubeVideoId: string | null;
+  muxAssetId?: string | null;
+  muxPlaybackId?: string | null;
+  youtubeVideoId?: string | null;
+  durationSeconds?: number | null;
 }) {
   return {
     accessLevel: saved.accessLevel,
@@ -343,5 +357,106 @@ export function lessonEditorFieldsAfterSave<Access extends string, Provider exte
     muxAssetId: saved.muxAssetId ?? '',
     muxPlaybackId: saved.muxPlaybackId ?? '',
     youtubeVideoId: saved.youtubeVideoId ?? '',
+    ...(typeof saved.durationSeconds === 'number'
+      ? { durationSeconds: String(saved.durationSeconds) }
+      : {}),
   };
+}
+
+/**
+ * The form fields to adopt when a row changed behind the editor - the Mux
+ * webhooks writing during an upload, handed over by polling - as opposed to a
+ * save the operator asked for. A save answers every field it was sent, so
+ * `lessonEditorFieldsAfterSave` takes them all; a webhook writes a few columns
+ * and leaves the rest as they were, and adopting an unchanged stored value from
+ * such a row is nothing but a revert of whatever the operator has typed and not
+ * yet saved. The upload request itself, `video.upload.asset_created` and the
+ * failure events all carry the duration the row already had, and only
+ * `video.asset.ready` brings the measured one - so only that one reaches the
+ * input. The same holds for every field here, the access level included: no
+ * webhook writes it, so it is never adopted from a poll.
+ */
+export function lessonEditorFieldsAfterRowChange<Access extends string, Provider extends string>(
+  previous: Parameters<typeof lessonEditorFieldsAfterSave<Access, Provider>>[0],
+  next: Parameters<typeof lessonEditorFieldsAfterSave<Access, Provider>>[0],
+): Partial<ReturnType<typeof lessonEditorFieldsAfterSave<Access, Provider>>> {
+  const before: Record<string, string | undefined> = lessonEditorFieldsAfterSave(previous);
+  const after = lessonEditorFieldsAfterSave(next);
+
+  return Object.fromEntries(
+    Object.entries(after).filter(([field, value]) => before[field] !== value),
+  ) as Partial<typeof after>;
+}
+
+/**
+ * The one video state a lesson is in, for the staff surfaces. Members never see
+ * this; they see whether the lesson plays, which is `hasPlayableVideo`.
+ *
+ * Derived from the row and never stored, for the reason given on
+ * `isAwaitingMuxPlayback`: every input is a fact Mux issued or reported -
+ * the upload it is waiting on, the asset it was given, the playback id that
+ * makes it watchable, the error it last reported - and a status column beside
+ * them would be a second record of the same facts with nothing to arbitrate.
+ *
+ * Precedence, and why it is in this order:
+ *
+ * - FAILED first. `muxVideoError` is set by `video.upload.errored`,
+ *   `video.upload.cancelled` and `video.asset.errored`, and cleared only when a
+ *   new upload starts, a ready event brings a new playback id or completes
+ *   the upload the lesson was waiting on, or the lesson is saved as a YouTube
+ *   lesson. A failure that arrives while
+ *   the lesson still plays its previous video - a replacement whose new file
+ *   Mux rejected - has to beat READY, or the operator sees "ready" and waits
+ *   forever for the replacement.
+ * - UPLOADING next. `muxUploadId` is held only between the editor requesting a
+ *   direct upload and `video.upload.asset_created` exchanging it for the asset
+ *   id, so a lesson holding one is waiting for the file to reach Mux, whatever
+ *   else it holds. It also beats READY, for the same replacement reason.
+ * - READY when a playback identifier is stored. Not "when it plays": the
+ *   `hasUnplayableVideoIdentifier` hint sits beside this and says so.
+ * - PROCESSING is `isAwaitingMuxPlayback`: the asset exists and Mux has not
+ *   sent its playback id yet.
+ * - NONE otherwise.
+ *
+ * `previousVideoStillPlays` is the replacement case spelled out for the copy:
+ * FAILED or UPLOADING while a playback identifier is still stored means the
+ * catalogue is unaffected until the new asset is bound. The operator needs that
+ * sentence, and the two admin surfaces must say it the same way.
+ */
+export enum LessonVideoState {
+  NONE = 'NONE',
+  UPLOADING = 'UPLOADING',
+  PROCESSING = 'PROCESSING',
+  READY = 'READY',
+  FAILED = 'FAILED',
+}
+
+export function resolveLessonVideoState(lesson: {
+  muxUploadId?: string | null;
+  muxVideoError?: string | null;
+  muxAssetId?: string | null;
+  muxPlaybackId?: string | null;
+  youtubeVideoId?: string | null;
+}): { state: LessonVideoState; previousVideoStillPlays: boolean } {
+  const playbackStored =
+    !isStoredIdentifierAbsent(lesson.muxPlaybackId) ||
+    !isStoredIdentifierAbsent(lesson.youtubeVideoId);
+
+  if (!isStoredIdentifierAbsent(lesson.muxVideoError)) {
+    return { state: LessonVideoState.FAILED, previousVideoStillPlays: playbackStored };
+  }
+
+  if (!isStoredIdentifierAbsent(lesson.muxUploadId)) {
+    return { state: LessonVideoState.UPLOADING, previousVideoStillPlays: playbackStored };
+  }
+
+  if (playbackStored) {
+    return { state: LessonVideoState.READY, previousVideoStillPlays: false };
+  }
+
+  if (isAwaitingMuxPlayback(lesson)) {
+    return { state: LessonVideoState.PROCESSING, previousVideoStillPlays: false };
+  }
+
+  return { state: LessonVideoState.NONE, previousVideoStillPlays: false };
 }

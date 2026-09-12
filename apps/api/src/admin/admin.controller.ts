@@ -92,6 +92,23 @@ export class AdminController {
     }, curriculum);
   }
 
+  @Get('lessons/:id')
+  getLesson(@Param('id') id: string) {
+    return this.adminService.getLesson(id);
+  }
+
+  /**
+   * Creates a Mux direct upload for the lesson and answers its one-off signed
+   * upload URL. Same guards as every other admin route: the class-level
+   * `AuthGuard` + `RolesGuard(ADMIN, COACH)`, so a member gets the same 403.
+   * No Mux credential is on the response - the browser sends the file to the
+   * URL and nothing else.
+   */
+  @Post('lessons/:id/mux-upload')
+  createLessonUpload(@Param('id') id: string) {
+    return this.adminService.createLessonUpload(id);
+  }
+
   @Patch('lessons/:id')
   updateLesson(@Param('id') id: string, @Body() body: unknown) {
     const payload = adminUpdateLessonSchema.parse(body);

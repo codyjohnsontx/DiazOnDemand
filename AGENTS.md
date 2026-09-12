@@ -296,10 +296,11 @@ the reason it exists is stated with it.
   Stripe delivery and every internal entitlement lookup. It now exits without opening a port.
   One condition was removed and one kept, and the distinction is the point. A condition may
   only stay if it is a reliable signal that the thing it gates is actually in use.
-  `MUX_TOKEN_ID` is not: the only code that reads it is the env schema's own
-  MUX_TOKEN_ID/MUX_TOKEN_SECRET pairing rule, never a serving path, so it says nothing about
-  whether Mux webhooks are wired, and gating the webhook secret on it let a deployment
-  serving Mux video skip the check - the same drift the signing-key rule was rescued from.
+  `MUX_TOKEN_ID` is not: nothing on the webhook or playback path reads it - its one runtime
+  reader is `MuxDirectUploadService`, which answers the lesson editor's upload route 503
+  without it - so it says nothing about whether Mux webhooks are wired, and gating the webhook
+  secret on it let a deployment serving Mux video skip the check - the same drift the
+  signing-key rule was rescued from.
   `STRIPE_SECRET_KEY` is: it is exactly what `BillingService` and `WebhooksService` construct
   the Stripe client from, so it stays.
 - Every `.env.example` in the repo - root, `apps/api`, `apps/diaz-ondemand-web`,
@@ -402,8 +403,9 @@ the reason it exists is stated with it.
   half of the same rule and is keyed on the same fact: `MUX_SIGNING_KEY_ID` +
   `MUX_SIGNING_KEY_PRIVATE` are required whenever the run is a deployment - `NODE_ENV`
   production *or* a non-loopback database - unconditionally, with no "is Mux enabled" proxy.
-  It used to be gated on `MUX_TOKEN_ID`; that drifted, because no runtime code reads that
-  variable, so a deployment serving Mux video without it skipped the check and answered 500
+  It used to be gated on `MUX_TOKEN_ID`; that drifted, because nothing that serves or ingests
+  video reads that variable (only the lesson editor's direct-upload route does), so a
+  deployment serving Mux video without it skipped the check and answered 500
   on every paid lesson with no boot-time signal. Any proxy can drift the same way; the
   signing key pair cannot, because it is exactly what `createMuxPlaybackToken` reads. Do not
   reintroduce a condition here. Verified against the built API with `NODE_ENV` unset
@@ -600,10 +602,11 @@ be invisible and the next save would blank it.
 The webhook may be late, may repeat, may already have been delivered before any lesson held the
 asset id, and may never arrive at all - none of those are error paths. `syncMuxAsset` writes
 only fields that would actually change, so a redelivery does not even bump `updatedAt`. The
-early-delivery case is the likely default, because there is no in-app upload UI: the admin
-uploads in Mux, `video.asset.ready` is delivered while no lesson holds the asset id, the handler
-logs "No lesson matches" and answers 201 so Mux never retries, and the id is pasted in
-afterwards. Nothing re-reconciles that, on purpose - resolving the asset from Mux at save time
+early-delivery case is the likely default for the manual path, where the admin uploads in Mux
+and pastes the asset id in afterwards: `video.asset.ready` is delivered while no lesson holds
+the asset id, the handler logs "No lesson matches" and answers 201 so Mux never retries. The
+lesson editor's direct upload (below) stores the upload id before the file exists, so it does
+not have this window. Nothing re-reconciles that, on purpose - resolving the asset from Mux at save time
 is the separately tracked `diaz-mux-id-write-validation`. Both admin surfaces name the remedy
 instead, from one shared component (`AwaitingMuxPlaybackNote`) so they cannot drift: redeliver
 `video.asset.ready` from the Mux dashboard, which only completes an asset whose playback policy
@@ -642,6 +645,38 @@ violation become an endless Mux retry. Blank is stored as NULL and never as an e
 a query for the waiting lessons misses exactly the rows it is looking for -
 `adminUpdateLessonSchema` normalises it at the admin PATCH boundary, so that holds for every
 writer rather than only for the lesson editor.
+
+Direct upload from the lesson editor adds two Lesson columns and one derived state, and four
+things about them are load-bearing. `muxUploadId` is held only between
+`POST /admin/lessons/:id/mux-upload` and `video.upload.asset_created`; the binding clears it in
+the same write that sets `muxAssetId`, and that clearing is what lets "holds an upload id" mean
+"Mux has not received the file" and nothing else. `muxVideoError` is written by
+`video.upload.errored`, `video.upload.cancelled` and `video.asset.errored` and cleared by a new
+upload request, a ready event that brings a new playback id or completes the upload the lesson was
+waiting on, and the YouTube save below. Neither column is on `adminBaseLessonSchema`, so no client can
+set or clear them; the one PATCH-side write is `planYouTubeUploadStateClear` in
+`admin.service.ts`, which clears both when the saved lesson is a YouTube lesson, because a YouTube
+row has nothing for them to describe and the badges they drive would otherwise outrank a working
+video with nothing in the app able to clear them. A redelivered ready for the asset already
+playing never clears the error, because that would erase the record of a failed replacement, and
+a `video.asset.errored` for an asset the lesson has already moved on from - it holds a newer
+upload id - is skipped rather than re-raising FAILED over the retry. `resolveLessonVideoState` in `@diaz/shared` is the only place that
+turns the five stored fields into NONE / UPLOADING / PROCESSING / READY / FAILED, with FAILED and
+UPLOADING outranking READY so a replacement in flight over a playing lesson is legible;
+`lesson-video-state.tsx` is the only place that words them, for both admin surfaces.
+Replacement retires the old playback id at `asset_created`, not at the upload request, for the
+reason the FREE -> PAID flip retires it; the previous asset is deliberately left in Mux. The
+playback policy is chosen from the tier when the upload is created (`playbackPolicyForAccessLevel`)
+and checked again by `syncMuxAsset` when the asset is ready, so a tier flipped mid-encode is
+refused rather than served. `syncMuxAsset` finds a lesson by asset id first and by the asset's
+`upload_id` second, because Mux orders nothing. The editor populates its form once per lesson id
+and adopts from every polled row only what changed, through `lessonEditorFieldsAfterRowChange`,
+the measured duration included: the webhooks change the row behind the form, and a Save that
+resent it would blank the binding or overwrite the measured length with a planned one. An
+unchanged stored value is never adopted from a poll, because that is a revert of an unsaved edit
+- the upload request and `asset_created` carry the planned duration the row already had. `mux webhooks listen` needs a token with the
+webhooks permission; a `video:read, video:write` token prints the secret and exits, and README's
+"Video Notes" gives the signed-delivery alternative that exercises everything but the transport.
 
 `mapAdminLessonSummary` deliberately reports the *stored* provider instead of the resolved
 one. The lesson editor loads that payload straight into its form, so a resolved `NONE` would

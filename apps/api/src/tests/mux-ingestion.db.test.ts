@@ -19,9 +19,10 @@
  * only coverage this constraint has.
  */
 import { AccessLevel, PrismaClient, VideoProvider } from '@diaz/db';
-import { isAwaitingMuxPlayback } from '@diaz/shared';
+import { LessonVideoState, isAwaitingMuxPlayback, resolveLessonVideoState } from '@diaz/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AdminService } from '../admin/admin.service.js';
+import type { MuxDirectUploadService } from '../mux/mux-direct-upload.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 
@@ -40,6 +41,7 @@ const prismaClient = databaseUrl
 const prisma = { client: prismaClient } as unknown as PrismaService;
 
 const PUBLIC_PLAYBACK_ID = 'DS00Spx1CV902MCtPj5WknGlR102V5HFkDe';
+const SIGNED_PLAYBACK_ID = 'signed00Spx1CV902MCtPj5WknGlR102V5HF';
 
 /**
  * A fresh asset id per test. `syncMuxAsset` looks a lesson up by asset id alone,
@@ -393,6 +395,426 @@ describe.skipIf(!prismaClient)('Mux ingestion (database-backed)', () => {
       const after = await prismaClient!.lesson.findUniqueOrThrow({ where: { id: lesson.id } });
 
       expect(after.muxPlaybackId).toBeNull();
+    });
+  });
+
+  /**
+   * Direct-to-Mux upload from the lesson editor, driven through the same
+   * service the real deliveries reach, against the real constraint.
+   *
+   * The API stores the upload id when the editor asks for an upload; the
+   * webhooks do the rest. Every one of these writes lands on a row
+   * `lesson_video_provider_consistency_chk` has an opinion about - the binding
+   * sets MUX on a row that may have been NONE, the replacement clears a
+   * playback id in the same write that sets the asset id - so they are proved
+   * here rather than against a mock that would accept anything.
+   */
+  describe('a direct upload from the lesson editor', () => {
+    let uploadCounter = 0;
+
+    function nextUploadId() {
+      uploadCounter += 1;
+      return `mux00ingestion00test00upload0000000${uploadCounter}`;
+    }
+
+    /** A Mux that always issues the upload; the request to it is covered in the mocked suite. */
+    const mux = {
+      async createDirectUpload(input: { lessonId: string }) {
+        return {
+          id: nextUploadId(),
+          url: `https://storage.googleapis.com/upload/${input.lessonId}`,
+          timeout: 3600,
+        };
+      },
+    } as unknown as MuxDirectUploadService;
+    const admin = new AdminService(prisma, mux);
+
+    async function createLesson(overrides: Record<string, unknown> = {}) {
+      const course = await createCourse();
+
+      return prismaClient!.lesson.create({
+        data: {
+          courseId: course.id,
+          title: 'mux-ingestion-test lesson',
+          orderIndex: 0,
+          videoProvider: VideoProvider.NONE,
+          ...overrides,
+        },
+      });
+    }
+
+    function uploadAssetCreated(uploadId: string, assetId: string) {
+      return { type: 'video.upload.asset_created', data: { id: uploadId, asset_id: assetId } };
+    }
+
+    function assetReadyFromUpload(assetId: string, uploadId: string, policy: 'public' | 'signed') {
+      return {
+        type: 'video.asset.ready',
+        data: {
+          id: assetId,
+          upload_id: uploadId,
+          duration: 61.2,
+          playback_ids: [
+            { id: policy === 'signed' ? SIGNED_PLAYBACK_ID : PUBLIC_PLAYBACK_ID, policy },
+          ],
+        },
+      };
+    }
+
+    async function reload(id: string) {
+      return prismaClient!.lesson.findUniqueOrThrow({ where: { id } });
+    }
+
+    it('starts by storing the upload id on a lesson that holds no video at all', async () => {
+      const lesson = await createLesson();
+
+      const answer = await admin.createLessonUpload(lesson.id);
+      const stored = await reload(lesson.id);
+
+      expect(stored.muxUploadId).toBe(answer.uploadId);
+      expect(stored.videoProvider).toBe(VideoProvider.NONE);
+      expect(resolveLessonVideoState(stored).state).toBe(LessonVideoState.UPLOADING);
+    });
+
+    // The whole chain for a free lesson: upload id -> asset id -> playback id,
+    // the provider set along the way, the measured duration written over the
+    // planned one.
+    it('binds the asset, then completes it, on a free lesson', async () => {
+      const lesson = await createLesson({ durationSeconds: 900 });
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      const assetId = nextAssetId();
+
+      await service.handleMuxWebhook(uploadAssetCreated(uploadId, assetId));
+      const bound = await reload(lesson.id);
+
+      expect(bound.muxUploadId).toBeNull();
+      expect(bound.muxAssetId).toBe(assetId);
+      expect(bound.videoProvider).toBe(VideoProvider.MUX);
+      expect(resolveLessonVideoState(bound).state).toBe(LessonVideoState.PROCESSING);
+
+      await service.handleMuxWebhook(assetReadyFromUpload(assetId, uploadId, 'public'));
+      const ready = await reload(lesson.id);
+
+      expect(ready.muxPlaybackId).toBe(PUBLIC_PLAYBACK_ID);
+      expect(ready.durationSeconds).toBe(61);
+      expect(resolveLessonVideoState(ready).state).toBe(LessonVideoState.READY);
+    });
+
+    // Mux orders nothing. A fast encode can deliver `video.asset.ready` before
+    // `video.upload.asset_created`; the lesson is then found by the upload id
+    // the asset names, and the late binding event has nothing left to do.
+    it('completes a lesson whose ready event overtook the asset_created event', async () => {
+      const lesson = await createLesson({ accessLevel: AccessLevel.PAID });
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      const assetId = nextAssetId();
+
+      await service.handleMuxWebhook(assetReadyFromUpload(assetId, uploadId, 'signed'));
+      const ready = await reload(lesson.id);
+
+      expect(ready.muxAssetId).toBe(assetId);
+      expect(ready.muxUploadId).toBeNull();
+      expect(ready.muxPlaybackId).toBe(SIGNED_PLAYBACK_ID);
+      expect(ready.videoProvider).toBe(VideoProvider.MUX);
+
+      await service.handleMuxWebhook(uploadAssetCreated(uploadId, assetId));
+      const after = await reload(lesson.id);
+
+      expect(after).toEqual(ready);
+    });
+
+    // The tier rule is checked at the end as well as chosen at the start. An
+    // upload created for a PAID lesson asks Mux for a signed-only asset, but the
+    // operator can flip the lesson FREE while it encodes, and a signed-only
+    // asset cannot back a free lesson - so the delivery is refused with the
+    // remedy, exactly as a pasted asset id is.
+    it('still refuses an asset whose policy the lesson no longer accepts', async () => {
+      const lesson = await createLesson({ accessLevel: AccessLevel.PAID });
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      const assetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(uploadId, assetId));
+      await prismaClient!.lesson.update({
+        where: { id: lesson.id },
+        data: { accessLevel: AccessLevel.FREE },
+      });
+
+      await expect(
+        service.handleMuxWebhook(assetReadyFromUpload(assetId, uploadId, 'signed')),
+      ).rejects.toThrow(/has no public playback id/);
+
+      expect((await reload(lesson.id)).muxPlaybackId).toBeNull();
+    });
+
+    /**
+     * Replacing a video that plays. Nothing changes for members until Mux has
+     * the file; the moment it does, the old playback id is retired the way the
+     * FREE -> PAID flip retires it, and the lesson waits for the new one.
+     */
+    it('retires the old playback id only once the new asset exists', async () => {
+      const lesson = await createLesson({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: nextAssetId(),
+        muxPlaybackId: PUBLIC_PLAYBACK_ID,
+      });
+      const oldAssetId = lesson.muxAssetId!;
+
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      const pending = await reload(lesson.id);
+
+      expect(pending.muxAssetId).toBe(oldAssetId);
+      expect(pending.muxPlaybackId).toBe(PUBLIC_PLAYBACK_ID);
+      expect(resolveLessonVideoState(pending)).toEqual({
+        state: LessonVideoState.UPLOADING,
+        previousVideoStillPlays: true,
+      });
+
+      const newAssetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(uploadId, newAssetId));
+      const replaced = await reload(lesson.id);
+
+      expect(replaced.muxAssetId).toBe(newAssetId);
+      expect(replaced.muxPlaybackId).toBeNull();
+      expect(replaced.muxUploadId).toBeNull();
+      expect(replaced.videoProvider).toBe(VideoProvider.MUX);
+      expect(resolveLessonVideoState(replaced).state).toBe(LessonVideoState.PROCESSING);
+
+      // The old asset's own ready event, redelivered or late, no longer finds
+      // this lesson: it is bound to the new asset now.
+      await service.handleMuxWebhook(assetReady(oldAssetId));
+      expect((await reload(lesson.id)).muxPlaybackId).toBeNull();
+    });
+
+    // Mux may redeliver the playing asset's own ready event at any time, and a
+    // lesson found by that asset id can be waiting on a replacement upload the
+    // event knows nothing about. Dropping the upload id there orphaned the
+    // replacement: its asset_created then matched no lesson and it never bound.
+    it('keeps a pending replacement upload when the playing asset is redelivered', async () => {
+      const oldUploadId = nextUploadId();
+      const lesson = await createLesson({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: nextAssetId(),
+        muxPlaybackId: PUBLIC_PLAYBACK_ID,
+        durationSeconds: 61,
+      });
+      const oldAssetId = lesson.muxAssetId!;
+
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      const pending = await reload(lesson.id);
+
+      await service.handleMuxWebhook(assetReadyFromUpload(oldAssetId, oldUploadId, 'public'));
+      const redelivered = await reload(lesson.id);
+
+      expect(redelivered.muxUploadId).toBe(uploadId);
+      expect(redelivered.muxAssetId).toBe(oldAssetId);
+      expect(redelivered.updatedAt).toEqual(pending.updatedAt);
+      expect(resolveLessonVideoState(redelivered).state).toBe(LessonVideoState.UPLOADING);
+
+      const newAssetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(uploadId, newAssetId));
+      await service.handleMuxWebhook(assetReadyFromUpload(newAssetId, uploadId, 'public'));
+      const replaced = await reload(lesson.id);
+
+      expect(replaced.muxAssetId).toBe(newAssetId);
+      expect(replaced.muxUploadId).toBeNull();
+      expect(resolveLessonVideoState(replaced).state).toBe(LessonVideoState.READY);
+    });
+
+    it('keeps a failed replacement on record when the playing asset is redelivered', async () => {
+      const lesson = await createLesson({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: nextAssetId(),
+        muxPlaybackId: PUBLIC_PLAYBACK_ID,
+      });
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      await service.handleMuxWebhook({ type: 'video.upload.cancelled', data: { id: uploadId } });
+
+      await service.handleMuxWebhook(
+        assetReadyFromUpload(lesson.muxAssetId!, nextUploadId(), 'public'),
+      );
+      const redelivered = await reload(lesson.id);
+
+      expect(redelivered.muxVideoError).toMatch(/cancelled/);
+      expect(resolveLessonVideoState(redelivered)).toEqual({
+        state: LessonVideoState.FAILED,
+        previousVideoStillPlays: true,
+      });
+    });
+
+    it('records an upload Mux could not accept, leaving the current video intact', async () => {
+      const lesson = await createLesson({
+        videoProvider: VideoProvider.MUX,
+        muxAssetId: nextAssetId(),
+        muxPlaybackId: PUBLIC_PLAYBACK_ID,
+      });
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+
+      await service.handleMuxWebhook({
+        type: 'video.upload.errored',
+        data: {
+          id: uploadId,
+          error: { type: 'invalid_input', message: 'Input file is not a video' },
+        },
+      });
+      const failed = await reload(lesson.id);
+
+      expect(failed.muxUploadId).toBeNull();
+      expect(failed.muxVideoError).toBe(
+        'Mux could not accept the upload: Input file is not a video',
+      );
+      expect(failed.muxPlaybackId).toBe(PUBLIC_PLAYBACK_ID);
+      expect(resolveLessonVideoState(failed)).toEqual({
+        state: LessonVideoState.FAILED,
+        previousVideoStillPlays: true,
+      });
+    });
+
+    it('records a cancelled upload', async () => {
+      const lesson = await createLesson();
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+
+      await service.handleMuxWebhook({ type: 'video.upload.cancelled', data: { id: uploadId } });
+      const cancelled = await reload(lesson.id);
+
+      expect(cancelled.muxUploadId).toBeNull();
+      expect(cancelled.muxVideoError).toMatch(/cancelled/);
+      expect(resolveLessonVideoState(cancelled).state).toBe(LessonVideoState.FAILED);
+    });
+
+    it('records an asset Mux could not process', async () => {
+      const lesson = await createLesson();
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      const assetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(uploadId, assetId));
+
+      await service.handleMuxWebhook({
+        type: 'video.asset.errored',
+        data: {
+          id: assetId,
+          upload_id: uploadId,
+          errors: { type: 'invalid_input', messages: ['The input file is corrupt.'] },
+        },
+      });
+      const failed = await reload(lesson.id);
+
+      expect(failed.muxAssetId).toBe(assetId);
+      expect(failed.muxVideoError).toBe(
+        'Mux could not process the video: The input file is corrupt.',
+      );
+      expect(resolveLessonVideoState(failed).state).toBe(LessonVideoState.FAILED);
+    });
+
+    it('records the same failure once, so a redelivered asset errored event changes nothing', async () => {
+      const lesson = await createLesson();
+      const { uploadId } = await admin.createLessonUpload(lesson.id);
+      const assetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(uploadId, assetId));
+      const errored = {
+        type: 'video.asset.errored',
+        data: { id: assetId, upload_id: uploadId, errors: { messages: ['bad'] } },
+      };
+
+      await service.handleMuxWebhook(errored);
+      const failed = await reload(lesson.id);
+      await service.handleMuxWebhook(errored);
+      const redelivered = await reload(lesson.id);
+
+      expect(redelivered.updatedAt).toEqual(failed.updatedAt);
+      expect(resolveLessonVideoState(redelivered).state).toBe(LessonVideoState.FAILED);
+    });
+
+    it('does not re-raise a failure over a retry the operator already started', async () => {
+      const lesson = await createLesson();
+      const first = await admin.createLessonUpload(lesson.id);
+      const assetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(first.uploadId, assetId));
+      const errored = {
+        type: 'video.asset.errored',
+        data: { id: assetId, upload_id: first.uploadId, errors: { messages: ['bad'] } },
+      };
+      await service.handleMuxWebhook(errored);
+
+      const second = await admin.createLessonUpload(lesson.id);
+      await service.handleMuxWebhook(errored);
+      const retrying = await reload(lesson.id);
+
+      expect(retrying.muxUploadId).toBe(second.uploadId);
+      expect(retrying.muxVideoError).toBeNull();
+      expect(resolveLessonVideoState(retrying).state).toBe(LessonVideoState.UPLOADING);
+    });
+
+    // A YouTube row has nothing for the upload columns to describe, and the
+    // editor offers no upload control on one to clear them from - so the save
+    // that makes the lesson a YouTube lesson is what retires them.
+    it('clears the upload state when the lesson is saved as a YouTube lesson', async () => {
+      const lesson = await createLesson({
+        muxUploadId: nextUploadId(),
+        muxVideoError: 'Mux could not accept the upload.',
+      });
+
+      await admin.updateLesson(lesson.id, {
+        videoProvider: VideoProvider.YOUTUBE,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+        muxAssetId: null,
+        muxPlaybackId: null,
+      });
+      const saved = await reload(lesson.id);
+
+      expect(saved.muxUploadId).toBeNull();
+      expect(saved.muxVideoError).toBeNull();
+      expect(resolveLessonVideoState(saved).state).toBe(LessonVideoState.READY);
+    });
+
+    // A new attempt is what clears a failure, and a ready asset is what settles
+    // it - so the error never outlives the thing it describes.
+    it('clears the failure on the next upload and on a ready asset', async () => {
+      const lesson = await createLesson();
+      const first = await admin.createLessonUpload(lesson.id);
+      await service.handleMuxWebhook({
+        type: 'video.upload.cancelled',
+        data: { id: first.uploadId },
+      });
+
+      const second = await admin.createLessonUpload(lesson.id);
+      const retried = await reload(lesson.id);
+
+      expect(retried.muxVideoError).toBeNull();
+      expect(retried.muxUploadId).toBe(second.uploadId);
+
+      const assetId = nextAssetId();
+      await service.handleMuxWebhook(uploadAssetCreated(second.uploadId, assetId));
+      await service.handleMuxWebhook({
+        type: 'video.asset.errored',
+        data: { id: assetId, errors: { messages: ['bad'] } },
+      });
+      expect((await reload(lesson.id)).muxVideoError).not.toBeNull();
+
+      // Mux re-ran the asset, or the operator redelivered a ready event for it.
+      await service.handleMuxWebhook(assetReadyFromUpload(assetId, second.uploadId, 'public'));
+      const ready = await reload(lesson.id);
+
+      expect(ready.muxVideoError).toBeNull();
+      expect(ready.muxPlaybackId).toBe(PUBLIC_PLAYBACK_ID);
+    });
+
+    it('refuses to start an upload for a lesson still holding a YouTube video id', async () => {
+      const lesson = await createLesson({
+        videoProvider: VideoProvider.YOUTUBE,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+      });
+
+      await expect(admin.createLessonUpload(lesson.id)).rejects.toThrow(/video source to Mux/);
+      expect((await reload(lesson.id)).muxUploadId).toBeNull();
+    });
+
+    // An upload event for an upload no lesson holds - one this app never
+    // created, or one whose ready event already consumed it - is answered
+    // quietly, so Mux does not retry it forever.
+    it('ignores upload events that match no lesson', async () => {
+      await expect(
+        service.handleMuxWebhook(uploadAssetCreated('unknown-upload', nextAssetId())),
+      ).resolves.toBeUndefined();
+      await expect(
+        service.handleMuxWebhook({ type: 'video.upload.errored', data: { id: 'unknown-upload' } }),
+      ).resolves.toBeUndefined();
     });
   });
 });

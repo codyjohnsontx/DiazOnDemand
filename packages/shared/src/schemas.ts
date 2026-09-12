@@ -143,6 +143,25 @@ export const programWithContentSchema = programSchema.extend({
 // defect worth closing.
 export const adminLessonSummarySchema = lessonSummarySchema.extend({
   muxAssetId: z.string().nullable().optional(),
+  // The direct upload the lesson is waiting on and the last Mux failure it
+  // reported. API-owned: the upload route and the Mux webhooks are their only
+  // writers, and neither appears on `adminBaseLessonSchema`, so a PATCH cannot
+  // set or clear them. They are read by `resolveLessonVideoState`.
+  muxUploadId: z.string().nullable().optional(),
+  muxVideoError: z.string().nullable().optional(),
+});
+
+/**
+ * What `POST /admin/lessons/:id/mux-upload` answers: the direct upload Mux
+ * issued, and the lesson row as it stands now that it holds the upload id. The
+ * `url` is the only thing the browser needs to send the file - it is a
+ * time-limited signed URL scoped to one upload, and no Mux credential is ever
+ * on this payload.
+ */
+export const adminLessonUploadSchema = z.object({
+  uploadId: z.string().min(1),
+  url: z.string().url(),
+  lesson: adminLessonSummarySchema,
 });
 
 export const adminProgramWithContentSchema = programSchema.extend({
@@ -309,6 +328,7 @@ export type ProgramDto = z.infer<typeof programSchema>;
 export type ProgramWithContentDto = z.infer<typeof programWithContentSchema>;
 export type AdminLessonSummary = z.infer<typeof adminLessonSummarySchema>;
 export type AdminProgramWithContentDto = z.infer<typeof adminProgramWithContentSchema>;
+export type AdminLessonUploadDto = z.infer<typeof adminLessonUploadSchema>;
 export type ProgressUpsertPayload = z.infer<typeof progressUpsertSchema>;
 export type ProgressDto = z.infer<typeof progressSchema>;
 export type FavoriteTogglePayload = z.infer<typeof favoriteToggleSchema>;
