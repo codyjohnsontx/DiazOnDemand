@@ -427,7 +427,8 @@ function FavoritesScreen() {
   );
 }
 
-function AccountScreen() {
+// Exported for account-sign-out.test.tsx; nothing else imports it.
+export function AccountScreen() {
   const api = useApiClient();
   const { isDevelopmentBypass, signOut } = useAuthToken();
   const [me, setMe] = useState<MeDto | null>(null);

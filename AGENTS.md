@@ -459,10 +459,37 @@ the reason it exists is stated with it.
   on the identifier. Known residual, not closable from this repository: the known path makes two
   round trips and the unknown path one, so response timing still differs. Clerk's Strict user
   enumeration protection is the owner's half of it - see "Clerk Setup Notes" in README.md.
-  No automated test guards either property: `apps/mobile` has no test runner at all (its
-  `test` script is an echo), so anything changed on this screen has to be re-checked by hand.
+  `apps/mobile/src/sign-in-screen.test.tsx` guards both, at both steps, and the oracle is whole
+  screens rather than a message lookup. The unknown address is asserted to render what the
+  member's does, and so are the two ways the code step can refuse a code: Clerk rejecting a
+  member's code inside `verifyCode`'s catch, and `preparedIdentifier` turning away a code typed
+  against an address Clerk refused. Asserting the app's message is present and the provider's
+  absent is the floor, and it is not enough on its own - a diagnostic appended to one path and not
+  the other passes both of those and is the same membership bit. The `preparedIdentifier` test is
+  also the path the enumeration defect came back through once inside PR #17: an attempt prepared
+  for one address stayed on the Clerk resource, so "Use a different email" let a code the attacker
+  already held verify against an address Clerk had refused. A test that only drives the email step
+  does not see it. A failed sign-out, and the in-flight guard that refuses a second revoke, are
+  pinned the same way in `account-sign-out.test.tsx`, which is the only reason `AccountScreen` is
+  exported from `mobile-app.tsx`. All six were watched failing before being committed - the two
+  email-step ones against `0077aae`, the `preparedIdentifier` one against `c9bcf79`, the code-step
+  one against a catch edited to render Clerk's message, both sign-out ones against the pre-fix
+  `AccountScreen` - because a test that passes against the broken code is not guarding anything.
+  `visibleText` in `src/test-support.ts` is the one oracle every text assertion reads through, and
+  a second copy of it is how a security assertion goes blind while still passing.
 
 ## Mobile app (Expo SDK)
+
+Tests run on Jest with the `jest-expo` preset, the runner Expo documents for this SDK, through
+`pnpm --filter mobile test` or the repository-wide `pnpm test`; the only other workspaces with a
+runner, `apps/api` and `packages/shared`, use vitest, which does not carry React Native's
+transform. `jest.config.js` maps `@diaz/shared` to its TypeScript source because Jest's CommonJS
+resolver cannot follow that package's ESM-only `exports`, and sets no `testMatch`, so Jest's own
+defaults pick up a `.test.ts` as readily as a `.test.tsx`.
+Two things a new test here runs into: `@clerk/clerk-expo` has to be mocked rather than loaded,
+because Babel transforms clerk-js in full and the suite goes from seconds to minutes, and a hook
+mock must return one stable object, or a screen whose API client is memoised on `getToken` re-runs
+its effect forever and the test times out rather than failing.
 
 `apps/mobile` targets Expo SDK 54 on purpose, not the newest SDK. Store-installed Expo Go has been
 frozen at SDK 54 since May 2026 (Expo's "Expo Go and the App Store in May 2026" changelog) while the
