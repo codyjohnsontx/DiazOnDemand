@@ -1325,8 +1325,14 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 
 ## Tests
 
-`pnpm test` runs everything. Most of the API suite mocks Prisma. Two suites deliberately do not,
-because what they cover is invisible to a mocked client:
+`pnpm test` runs everything: vitest everywhere except `apps/mobile`, which runs Jest with the
+`jest-expo` preset because vitest does not carry React Native's transform. The mobile suite is
+deliberately small - the two sign-in security properties in "Security Invariants" and the
+regression path the first of them came back through - and needs no simulator, no emulator and no
+device. Run it alone with `pnpm --filter mobile test`.
+
+Most of the API suite mocks Prisma. Two suites deliberately do not, because what they cover is
+invisible to a mocked client:
 
 - `apps/api/src/tests/billing-lifecycle.db.test.ts` - the resubscribe and double-subscription
   defects were unique-constraint violations that a mocked client cannot raise.
