@@ -1327,10 +1327,11 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 
 `pnpm test` runs everything: vitest in `apps/api` and `packages/shared`, and Jest with the
 `jest-expo` preset in `apps/mobile`, because vitest does not carry React Native's transform. The
-remaining workspaces still have no runner at all. The mobile suite is
-deliberately small - the two sign-in security properties in "Security Invariants" and the
-regression path the first of them came back through - and needs no simulator, no emulator and no
-device. Run it alone with `pnpm --filter mobile test`.
+remaining workspaces still have no runner at all. The mobile suite is deliberately small, five
+tests: the two sign-in security properties in "Security Invariants", the regression path the
+first of them came back through, and the failed sign-out recorded in that same entry. None of
+them needs a simulator, an emulator or a device. Run the suite alone with
+`pnpm --filter mobile test`.
 
 Most of the API suite mocks Prisma. Two suites deliberately do not, because what they cover is
 invisible to a mocked client:
