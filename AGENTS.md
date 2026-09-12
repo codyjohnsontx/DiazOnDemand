@@ -459,8 +459,8 @@ the reason it exists is stated with it.
   on the identifier. Known residual, not closable from this repository: the known path makes two
   round trips and the unknown path one, so response timing still differs. Clerk's Strict user
   enumeration protection is the owner's half of it - see "Clerk Setup Notes" in README.md.
-  `apps/mobile/src/sign-in-screen.test.tsx` guards both properties, and a third test guards the
-  path the enumeration defect came back through once inside PR #17: an attempt prepared for one
+  `apps/mobile/src/sign-in-screen.test.tsx` guards the email step of both, and a third test guards
+  the path the enumeration defect came back through once inside PR #17: an attempt prepared for one
   address stayed on the Clerk resource, so "Use a different email" let a code the attacker
   already held verify against an address Clerk had refused, and success against failure was the
   same membership bit again. `preparedIdentifier` in `sign-in-screen.tsx` is what closes it, and
@@ -468,13 +468,17 @@ the reason it exists is stated with it.
   way in `account-sign-out.test.tsx`, which is the only reason `AccountScreen` is exported from
   `mobile-app.tsx`. All five were confirmed to fail against the pre-fix code before being
   committed; a sign-in test that passes against `0077aae` or `c9bcf79` is not guarding anything.
+  Not guarded, and the one place left to hand-check: nothing reaches `verifyCode`'s catch, so the
+  code step's one-message-for-every-failure rule is pinned only on the `preparedIdentifier` path.
 
 ## Mobile app (Expo SDK)
 
 Tests run on Jest with the `jest-expo` preset, the runner Expo documents for this SDK, through
-`pnpm --filter mobile test` or the repository-wide `pnpm test`; the rest of the workspace uses
-vitest, which does not carry React Native's transform. `jest.config.js` maps `@diaz/shared` to its
-TypeScript source because Jest's CommonJS resolver cannot follow that package's ESM-only `exports`.
+`pnpm --filter mobile test` or the repository-wide `pnpm test`; the only other workspaces with a
+runner, `apps/api` and `packages/shared`, use vitest, which does not carry React Native's
+transform. `jest.config.js` maps `@diaz/shared` to its TypeScript source because Jest's CommonJS
+resolver cannot follow that package's ESM-only `exports`, and sets no `testMatch`, so Jest's own
+defaults pick up a `.test.ts` as readily as a `.test.tsx`.
 Two things a new test here runs into: `@clerk/clerk-expo` has to be mocked rather than loaded,
 because Babel transforms clerk-js in full and the suite goes from seconds to minutes, and a hook
 mock must return one stable object, or a screen whose API client is memoised on `getToken` re-runs
