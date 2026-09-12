@@ -484,6 +484,16 @@ Three things that bite on an SDK bump here:
   all, and SDK 54 makes Android edge-to-edge, which leaves content under the status bar. Moving
   that import back reads as a harmless cleanup and shows nothing wrong on an iOS simulator.
 
+Before trusting a device measurement of a mobile change, confirm the bundle Metro serves carries
+it: `curl -s 'http://localhost:8081/apps/mobile/index.bundle?platform=ios&dev=true' | grep -c
+<new symbol>`. Measured on the mobile resume fix with no watchman installed: Metro answered a
+one-module HMR delta after the edit and then served a full bundle without it to a cold-started
+Expo Go, so a working fix measured as broken. `expo start --clear` fixes it. Two more things
+from that session: `pnpm dev` and every lane's API bind port 4000, so on a shared machine set
+`PORT` in `.env` and check `lsof -nP -iTCP:4000 -sTCP:LISTEN` before trusting `curl localhost:4000`,
+or admin PATCHes land in another checkout's database; and `idb ui tap` (brew `idb-companion` +
+pip `fb-idb`) drives the simulator without the macOS Accessibility permission AppleScript needs.
+
 ## Clerk route shape on the web app
 
 Every Clerk UI component that does path routing owns sub-paths under where it is mounted, so it
