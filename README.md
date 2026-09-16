@@ -706,12 +706,11 @@ are recorded with the condition each one needs, because "affected by version ran
   (a single `fetch()` over `apiBaseUrl` plus a path), whose host is `NEXT_PUBLIC_API_URL` from the
   environment and never from the request; nothing reads `headers()`, `host` or
   `x-forwarded-host` to build a URL.
-  The `Response.redirect(req.nextUrl.clone())` in `middleware.ts` looks similar and is not the
-  same shape: no destination template, no external host, and `pathname`/`search` overwritten with
-  constants. Measured - a poisoned `Host:` or `X-Forwarded-Host:` still yields the server's own
-  origin. Re-running that needs the coming-soon redirect to emit a `Location` at all, and on
-  shipped code it emits none: with `VOD_COMING_SOON=true` every path except `/` answers 500,
-  a separate pre-existing defect that is filed on its own and is not this advisory.
+  The coming-soon `NextResponse.redirect(req.nextUrl.clone())` in `middleware.ts` looks similar
+  and is not the same shape: no destination template, no external host, and `pathname`/`search`
+  overwritten with constants. Measured - a poisoned `Host:` or `X-Forwarded-Host:` still yields
+  the server's own origin in the `Location` of the 302 every path except `/` answers with
+  `VOD_COMING_SOON=true`.
 - **GHSA-2xp9-vwfh-vxw4** - critical, unauthenticated RCE in the Image Optimization API via
   libheif/`sharp` when Next optimizes an attacker-controlled AVIF. Fixed in 15.5.24 / 16.3.3,
   which is outside the 15.2 line. **Not reachable here, and for exactly one reason** - stated
@@ -1325,9 +1324,12 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 
 ## Tests
 
-`pnpm test` runs everything: vitest in `apps/api` and `packages/shared`, and Jest with the
-`jest-expo` preset in `apps/mobile`, because vitest does not carry React Native's transform. The
-remaining workspaces still have no runner at all. The mobile suite is deliberately small, six
+`pnpm test` runs everything: vitest in `apps/api`, `packages/shared` and `apps/diaz-ondemand-web`,
+and Jest with the `jest-expo` preset in `apps/mobile`, because vitest does not carry React Native's
+transform. The remaining workspaces still have no runner at all. The web suite covers only
+`middleware.ts`: with the coming-soon wall on, every path but `/` must redirect there rather than
+answer 500, which it did while the redirect was a `Response.redirect` whose headers Clerk could
+not append to. The mobile suite is deliberately small, six
 tests, every one of them from the sign-in entry in "Security Invariants": an unknown address
 reaching the same screen a member reaches, the one deliberate asymmetry for a failure the
 provider never answered, the regression path the enumeration defect came back through, the code

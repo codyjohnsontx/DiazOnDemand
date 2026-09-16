@@ -383,9 +383,9 @@ the reason it exists is stated with it.
   `/admin/programs`, and a second Save in that window PATCHes it back onto a row that is PAID by
   then: the transition is PAID -> PAID, no clear is due, and the identifier is written straight
   back under a plain "Lesson saved.". An in-flight guard on submit closes the same window from the
-  other side. `apps/diaz-ondemand-web` has no test runner, so nothing mechanical guards this: an
-  agent deleting the adoption as a redundant pre-reload write re-opens the leak with every check
-  still green, which is why the rule and its tests live in `packages/shared` and pin the rule
+  other side. `apps/diaz-ondemand-web`'s only tests cover `middleware.ts`, so nothing mechanical
+  guards this: an agent deleting the adoption as a redundant pre-reload write re-opens the leak
+  with every check still green, which is why the rule and its tests live in `packages/shared` and pin the rule
   rather than the wiring.
   `youtubeVideoId` is deliberately not cleared, and the asymmetry is a conclusion rather than an
   omission. A Mux playback id is rotatable; a YouTube video id is the video's permanent name on
@@ -482,8 +482,8 @@ the reason it exists is stated with it.
 
 Tests run on Jest with the `jest-expo` preset, the runner Expo documents for this SDK, through
 `pnpm --filter mobile test` or the repository-wide `pnpm test`; the only other workspaces with a
-runner, `apps/api` and `packages/shared`, use vitest, which does not carry React Native's
-transform. `jest.config.js` maps `@diaz/shared` to its TypeScript source because Jest's CommonJS
+runner, `apps/api`, `packages/shared` and `apps/diaz-ondemand-web`, use vitest, which does not
+carry React Native's transform. `jest.config.js` maps `@diaz/shared` to its TypeScript source because Jest's CommonJS
 resolver cannot follow that package's ESM-only `exports`, and sets no `testMatch`, so Jest's own
 defaults pick up a `.test.ts` as readily as a `.test.tsx`.
 Two things a new test here runs into: `@clerk/clerk-expo` has to be mocked rather than loaded,
@@ -550,6 +550,17 @@ complete; the `config.matcher` must still cover it, or the handshake never gets 
 Neither announces itself. Both are pathname-only decisions, so a route-shape change cannot alter
 them by itself - assert it rather than assume it, by running the two matchers from `middleware.ts`
 over the paths directly.
+
+Anything `middleware.ts` returns, `clerkMiddleware` then writes headers onto, so build responses
+with `NextResponse`; a `Response.redirect` has immutable headers and turned every coming-soon
+path into a 500. `apps/diaz-ondemand-web/tests/middleware.test.ts` drives it with made-up keys.
+The live server can be measured with no real Clerk account too: a made-up `pk_test_` whose base64
+decodes to a nonexistent `<host>$`, any `sk_test_`, and `CLERK_API_URL` pointed at a local stub
+serving `/v1/jwks` for a key you hold. A session JWT you sign with that key, sent with
+`__session`, a matching `__client_uat` and any `__clerk_db_jwt`, is then signed in. The SDK
+ignores `CLERK_JWT_KEY`. A curl without `Sec-Fetch-Dest: document` skips the dev handshake.
+Signed-out and expired-token requests carry Clerk auth headers and a fresh valid token does not,
+so they can fail differently. Test both.
 
 ## The web app's Next.js pin
 
