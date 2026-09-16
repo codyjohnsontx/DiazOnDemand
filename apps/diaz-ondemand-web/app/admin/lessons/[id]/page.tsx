@@ -337,7 +337,7 @@ export default function AdminLessonDetailPage() {
       // round trip lands the form still holds the playback ID this save just
       // retired - so the reload is far too late to be the only thing that
       // reconciles them. The rule lives in `@diaz/shared` so it can be tested;
-      // this app has no test runner.
+      // this app's only tests cover `middleware.ts`.
       setForm((prev) => ({ ...prev, ...lessonEditorFieldsAfterSave(saved) }));
       await load();
     } catch (requestError) {
