@@ -936,6 +936,19 @@ would skip in every environment. Behaviour, measurements and the incident that c
 "The migration deploy gate" in README.md; CI asserts both directions, because a gate that has
 stopped refusing looks exactly like one with nothing to refuse.
 
+`@diaz/db#build` is the one `build` task declared `cache: false` in `turbo.json`, and it has to
+stay that way. Its real output is not `dist/**`: `prisma generate` writes the client into the
+pnpm store, under `node_modules/.pnpm/@prisma+client@<resolution>/node_modules/.prisma/client`,
+which is outside the package and so outside anything turbo's `outputs` can name. A cache hit
+therefore replayed the generate log and produced no client at all, leaving `api#build` to
+compile against whatever `pnpm install` had left in the store. That is what failed every API
+deploy of `main` from `43beba5` on, and then PR #39: 50 `tsc` errors naming `muxUploadId` and
+`muxVideoError`, the columns PR #36 added, on commits that built locally because a cold cache
+ran the generate. A preview that happens to restore a store with a current client is green, so
+the check is intermittent by branch rather than by commit. Reproduce it by deleting that
+`.prisma` directory and re-running `pnpm exec turbo run build --filter=api` - cached, the client
+stays missing; uncached it is regenerated in about 250ms, which is the whole cost of the fix.
+
 Known and deliberately not worked around: `swagger-ui-dist` contributes only `absolute-path.js`
 and `package.json` to a `@vercel/nft` 1.10.0 trace of the entrypoint, so `/docs` will serve its
 HTML on Vercel and then fail to load its own CSS and JS. `/docs-json` is generated in-process
