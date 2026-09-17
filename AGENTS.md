@@ -778,6 +778,14 @@ under test, so nothing short of an install proves anything about it. A fresh ins
 picks the hoist itself and picked 19 every time this was run, so the adverse case has to be
 forced - inside the throwaway copy, where it costs nothing.
 
+The forcing step is what has since gone stale. It links the hoisted store at an
+`@types/react@18`, and nothing in this workspace resolves one any more - every range is a
+caret 19 and the override pins them to a single copy - so the glob matches nothing and the
+link dangles. Read the script below as the record of how the block was proven, not as a check
+to run today: a `FAIL` from it now reports a missing forcing target, not a block that has
+stopped working. Forcing it again means deliberately installing an out-of-range copy into the
+throwaway tree with `pnpm.overrides` deleted first, and that has not been measured.
+
 ```bash
 cat > /tmp/react-types-proof.sh <<'PROOF'
 set -euo pipefail
@@ -816,16 +824,26 @@ failure so there is something left to read. Build the web app's workspace depend
 or `tsc` fails on missing `@diaz/shared` types instead of on React. `git archive HEAD` copies
 committed state only, so commit a change to the block before testing it.
 
-Verified 2026-08-05 on pnpm 9.12.3: `PASS`, exit 0. Deleting `pnpm.packageExtensions` from the
-temp copy after the archive gives `FAIL: tsc did not complete`, exit 1, and an `$explain`
+Verified 2026-08-05 on pnpm 9.12.3, while `apps/mobile` still pinned react 18.3.1 and an
+`@types/react@18` was therefore resolvable: `PASS`, exit 0. Deleting `pnpm.packageExtensions`
+from the temp copy after the archive gives `FAIL: tsc did not complete`, exit 1, and an `$explain`
 holding 8 errors and 12 `@types+react@18` matches, the first of them the original
 `app/layout.tsx(29,13)`. A green build proves nothing on its own while the 19 copy happens to
 be the hoisted one; that is what hid `@clerk/shared`.
 
-Do not replace the block with a workspace-wide `pnpm.overrides` pin of `@types/react`. That
-is green on build, lint, typecheck and test today, but it types mobile's react 18.3.1 runtime
-with React 19 types, after which mobile's `tsc` accepts `use` and `useActionState`, neither of
-which exists at runtime there. Both approaches were verified end to end before choosing.
+The override and the block are not alternatives, and neither one covers the other's failure.
+The block decides *where* a dependency resolves `@types/react` from - its own consumer rather
+than the hoisted store - and it is the only thing standing between `next` or `@clerk/shared`
+and whichever copy pnpm happened to hoist. The override decides *which version* the workspace
+shares, and it exists because every range here is a caret: satisfying all of them is not the
+same as staying inside the `~19.1.10` Expo SDK 54 checks against. Drop the override and the
+shared resolution floats back up to the loosest range with nothing failing - build, lint,
+typecheck and test stay green, and only `expo-doctor` notices. Drop the block as redundant now
+that the override exists and the hoisted store is consulted again; that is harmless only for as
+long as the override leaves exactly one copy to hoist. An earlier version of this entry forbade
+the override outright, reasoning that it would type mobile's react 18.3.1 runtime with React 19
+types. Mobile runs react 19.1.0, so that reasoning never applied to the repository as it stands;
+this is the correction, not a further version of it.
 
 Turbo's cache is keyed on the lockfile, not on resolved `node_modules`, so a build can replay
 from cache after an install that changed resolved `node_modules` without changing the
