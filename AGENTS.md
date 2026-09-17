@@ -738,16 +738,20 @@ the read path refuses never leaves `publicVideoIdentifiers`, at any access level
 
 ## React types across the workspace
 
-`apps/mobile` runs react 19.1.0 and pins `@types/react` `^19.1.17`, matching what Expo SDK 54
-expects; `apps/diaz-ondemand-web` and `packages/ui` run react 19 too and pin looser `^19.x`
-ranges. Left alone, pnpm resolves the whole workspace to one shared `@types/react`, and the
-version it lands on is whatever the loosest range pulls in - a `@types/react-dom` bump on the
-web side pulled that shared version to `19.2.x`, which is newer than the `~19.1.10` Expo SDK 54
-requires and made `expo-doctor` fail with a version-mismatch advisory even though every
-workspace range was still satisfied. `pnpm.overrides` in the root `package.json` pins
-`@types/react` to `19.1.17` for that reason - it is not a peer-declaration gap like the
-`packageExtensions` block below, it is keeping the shared resolution inside the range the mobile
-SDK actually checks against.
+`apps/mobile` runs react 19.1.0 and pins `@types/react` `~19.1.10`, a tilde rather than a
+caret, because Expo SDK 54 checks the installed version against `~19.1.10` and a caret admits
+19.2.x. That is not hypothetical: at `ca162be`, the SDK 52 to 54 upgrade, the mobile importer
+recorded `specifier: ^19.1.17` against `version: 19.2.14`, and `expo-doctor` reported 17/18 -
+"@types/react expected ~19.1.10, found 19.2.14" - while mobile's own range was still satisfied
+and CI was green. Nothing in CI runs `expo-doctor`, so the whole signal was that one advisory.
+Keep the tilde. `apps/diaz-ondemand-web` and `packages/ui` pin `^19.0.8` and need no equivalent,
+because nothing checks their version the way the Expo SDK checks mobile's.
+
+Measured after the tilde: `pnpm-lock.yaml` holds one `@types/react` snapshot key, `19.1.17`,
+and all three importers resolve to it - the web and `packages/ui` carets are satisfied by the
+version mobile's tilde requires. So the fix costs no second copy today, but that is an
+observation about these particular ranges rather than a property to rely on; the
+`packageExtensions` block below is what covers a second copy appearing.
 
 `next@15.2.9`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
 each declare `react` as a peer but not `@types/react`, even though their shipped `.d.ts` files
@@ -779,12 +783,11 @@ picks the hoist itself and picked 19 every time this was run, so the adverse cas
 forced - inside the throwaway copy, where it costs nothing.
 
 The forcing step is what has since gone stale. It links the hoisted store at an
-`@types/react@18`, and nothing in this workspace resolves one any more - every range is a
-caret 19 and the override pins them to a single copy - so the glob matches nothing and the
-link dangles. Read the script below as the record of how the block was proven, not as a check
-to run today: a `FAIL` from it now reports a missing forcing target, not a block that has
-stopped working. Forcing it again means deliberately installing an out-of-range copy into the
-throwaway tree with `pnpm.overrides` deleted first, and that has not been measured.
+`@types/react@18`, and no workspace range admits one any more - every range is a 19 - so the
+glob matches nothing and the link dangles. Read the script below as the record of how the
+block was proven, not as a check to run today: a `FAIL` from it now reports a missing forcing
+target, not a block that has stopped working. Forcing it again means deliberately installing
+an out-of-range copy into the throwaway tree, and that has not been measured.
 
 ```bash
 cat > /tmp/react-types-proof.sh <<'PROOF'
@@ -831,19 +834,19 @@ holding 8 errors and 12 `@types+react@18` matches, the first of them the origina
 `app/layout.tsx(29,13)`. A green build proves nothing on its own while the 19 copy happens to
 be the hoisted one; that is what hid `@clerk/shared`.
 
-The override and the block are not alternatives, and neither one covers the other's failure.
-The block decides *where* a dependency resolves `@types/react` from - its own consumer rather
-than the hoisted store - and it is the only thing standing between `next` or `@clerk/shared`
-and whichever copy pnpm happened to hoist. The override decides *which version* the workspace
-shares, and it exists because every range here is a caret: satisfying all of them is not the
-same as staying inside the `~19.1.10` Expo SDK 54 checks against. Drop the override and the
-shared resolution floats back up to the loosest range with nothing failing - build, lint,
-typecheck and test stay green, and only `expo-doctor` notices. Drop the block as redundant now
-that the override exists and the hoisted store is consulted again; that is harmless only for as
-long as the override leaves exactly one copy to hoist. An earlier version of this entry forbade
-the override outright, reasoning that it would type mobile's react 18.3.1 runtime with React 19
-types. Mobile runs react 19.1.0, so that reasoning never applied to the repository as it stands;
-this is the correction, not a further version of it.
+The `packageExtensions` block stays. It answers a different question from mobile's version
+range: the range decides *which version* mobile resolves, the block decides *where* `next` and
+the `@clerk/*` packages resolve `@types/react` from - their own consumer rather than the hoisted
+store - and nothing else in this repository does that. It is not made redundant by a version
+pin anywhere, because the peer declarations it supplies are missing regardless of which version
+is installed. Do not delete it while the single resolution above happens to make the hoisted store
+harmless; that is the state in which its removal looks green and stays green until a second copy
+appears.
+
+An earlier version of this entry forbade pinning `@types/react` at all, reasoning that a React
+19 pin would type mobile's react 18.3.1 runtime. Mobile runs react 19.1.0, so that reasoning
+never applied to the repository as it stands; this is the correction, not a further version of
+it.
 
 Turbo's cache is keyed on the lockfile, not on resolved `node_modules`, so a build can replay
 from cache after an install that changed resolved `node_modules` without changing the

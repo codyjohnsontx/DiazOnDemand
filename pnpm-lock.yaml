@@ -4,9 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@types/react': 19.1.17
-
 packageExtensionsChecksum: 80361fd6ae83b067a3cb6667ec48b772
 
 importers:
@@ -130,7 +127,7 @@ importers:
         specifier: ^22.13.4
         version: 22.19.11
       '@types/react':
-        specifier: 19.1.17
+        specifier: ^19.0.8
         version: 19.1.17
       '@types/react-dom':
         specifier: ^19.0.3
@@ -215,7 +212,7 @@ importers:
         specifier: ^22.13.4
         version: 22.19.11
       '@types/react':
-        specifier: 19.1.17
+        specifier: ~19.1.10
         version: 19.1.17
       '@types/react-test-renderer':
         specifier: ^19.1.0
@@ -272,7 +269,7 @@ importers:
         version: 19.0.0
     devDependencies:
       '@types/react':
-        specifier: 19.1.17
+        specifier: ^19.0.8
         version: 19.1.17
       typescript:
         specifier: ^5.7.3
@@ -882,7 +879,7 @@ packages:
     resolution: {integrity: sha512-eQpY85y3hqcrSyBKdfYXTmRRvy2B+FAwiX9hQmCECWy5G00vDgPnc3NL37FsSGiWPY5VvCCXbEt8usbgfvcXQQ==}
     engines: {node: '>=18.17.0'}
     peerDependencies:
-      '@types/react': 19.1.17
+      '@types/react': '*'
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
       react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
     peerDependenciesMeta:
@@ -897,7 +894,7 @@ packages:
     resolution: {integrity: sha512-biYGXzP2iOp8v3cOLn00uNohioT9UA6IZml3nDqvn7R8wlfs/xG7GuK5Yy6XzUvFbX3w2mUX4aG3HrbqnFJ1Zg==}
     engines: {node: '>=18.17.0'}
     peerDependencies:
-      '@types/react': 19.1.17
+      '@types/react': '*'
       next: ^13.5.7 || ^14.2.25 || ^15.2.3 || ^16
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
       react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
@@ -909,7 +906,7 @@ packages:
     resolution: {integrity: sha512-TqbnQnufBIz/W3yfbUQI+fK5CgIKYysXEQHL4CKIuvn2m7hRFjT2qqfHNYc8mzb3eI7+p3NyUezOGVn7FTf1pA==}
     engines: {node: '>=18.17.0'}
     peerDependencies:
-      '@types/react': 19.1.17
+      '@types/react': '*'
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
       react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
     peerDependenciesMeta:
@@ -1678,7 +1675,7 @@ packages:
   '@mux/mux-player-react@3.11.4':
     resolution: {integrity: sha512-bW0k7eC1d2hmttdWrmRNjiVa77lQ30V8Lz199GnyhwQhBbMa3unEiO5NbcYBuYNZTuXqxgVRiehMktuzbvY7VA==}
     peerDependencies:
-      '@types/react': 19.1.17
+      '@types/react': ^17.0.0 || ^17.0.0-0 || ^18 || ^18.0.0-0 || ^19 || ^19.0.0-0
       '@types/react-dom': '*'
       react: ^17.0.2 || ^17.0.0-0 || ^18 || ^18.0.0-0 || ^19 || ^19.0.0-0
       react-dom: ^17.0.2 || ^17.0.2-0 || ^18 || ^18.0.0-0 || ^19 || ^19.0.0-0
@@ -1966,7 +1963,7 @@ packages:
     resolution: {integrity: sha512-UVXgV/db25OPIvwZySeToXD/9sKKhOdkcWmmf4Jh8iBZuyfML+/5CasaZ1E7Lqg6g3uqVQq75NqIwkYmORJMPw==}
     engines: {node: '>= 20.19.4'}
     peerDependencies:
-      '@types/react': 19.1.17
+      '@types/react': ^19.1.0
       react: '*'
       react-native: '*'
     peerDependenciesMeta:
@@ -2401,7 +2398,7 @@ packages:
   '@types/react-dom@19.2.3':
     resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
     peerDependencies:
-      '@types/react': 19.1.17
+      '@types/react': ^19.2.0
 
   '@types/react-test-renderer@19.3.0':
     resolution: {integrity: sha512-TX4p2D4Z2oigM3SXU7+QyLSUnSR0vR1S1Pfxm/qFL9nHQ3jclgi6ioGoWQmlIr1DeKRVmPJrmNlhgM0JlWlLUg==}
@@ -4991,7 +4988,7 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.1.0
       '@playwright/test': ^1.41.2
-      '@types/react': 19.1.17
+      '@types/react': '*'
       babel-plugin-react-compiler: '*'
       react: ^18.2.0 || 19.0.0-rc-de68d2f4-20241204 || ^19.0.0
       react-dom: ^18.2.0 || 19.0.0-rc-de68d2f4-20241204 || ^19.0.0
@@ -5503,7 +5500,7 @@ packages:
     engines: {node: '>= 20.19.4'}
     hasBin: true
     peerDependencies:
-      '@types/react': 19.1.17
+      '@types/react': ^19.1.0
       react: ^19.1.0
     peerDependenciesMeta:
       '@types/react':
@@ -6648,7 +6645,7 @@ packages:
     resolution: {integrity: sha512-14fwWQtU3pH4dE0dOpdMiWjddcH+QzKIgk1cl8epwSE7yag43k/AD/m4L6+K7DytAOr9gGBe3/EXj9g7cdostg==}
     engines: {node: '>=12.20.0'}
     peerDependencies:
-      '@types/react': 19.1.17
+      '@types/react': '>=18.0.0'
       immer: '>=9.0.6'
       react: '>=18.0.0'
       use-sync-external-store: '>=1.2.0'
