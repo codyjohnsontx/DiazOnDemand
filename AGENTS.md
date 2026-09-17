@@ -738,20 +738,30 @@ the read path refuses never leaves `publicVideoIdentifiers`, at any access level
 
 ## React types across the workspace
 
-`apps/mobile` runs react 19.1.0 and pins `@types/react` `~19.1.10`, a tilde rather than a
-caret, because Expo SDK 54 checks the installed version against `~19.1.10` and a caret admits
-19.2.x. That is not hypothetical: at `ca162be`, the SDK 52 to 54 upgrade, the mobile importer
-recorded `specifier: ^19.1.17` against `version: 19.2.14`, and `expo-doctor` reported 17/18 -
+Each workspace carries its own `@types/react` range and resolves it independently. Nothing
+forces one shared version across the repository, and nothing should: the constraints differ per
+workspace, so a single pin can only be wrong somewhere.
+
+`apps/mobile` runs react 19.1.0 and pins `~19.1.10`, a tilde rather than a caret, because Expo
+SDK 54 checks the installed version against `~19.1.10` and a caret admits 19.2.x. That is not
+hypothetical: at `ca162be`, the SDK 52 to 54 upgrade, the mobile importer recorded
+`specifier: ^19.1.17` against `version: 19.2.14`, and `expo-doctor` reported 17/18 -
 "@types/react expected ~19.1.10, found 19.2.14" - while mobile's own range was still satisfied
 and CI was green. Nothing in CI runs `expo-doctor`, so the whole signal was that one advisory.
-Keep the tilde. `apps/diaz-ondemand-web` and `packages/ui` pin `^19.0.8` and need no equivalent,
-because nothing checks their version the way the Expo SDK checks mobile's.
+Keep the tilde.
 
-Measured after the tilde: `pnpm-lock.yaml` holds one `@types/react` snapshot key, `19.1.17`,
-and all three importers resolve to it - the web and `packages/ui` carets are satisfied by the
-version mobile's tilde requires. So the fix costs no second copy today, but that is an
-observation about these particular ranges rather than a property to rely on; the
-`packageExtensions` block below is what covers a second copy appearing.
+`apps/diaz-ondemand-web` and `packages/ui` keep `^19.0.8` and must stay on the 19.2.x line,
+which is a real constraint rather than an accident: `@types/react-dom@19.2.3` declares
+`peerDependencies: { "@types/react": "^19.2.0" }`, and the web app is the only `@types/react-dom`
+consumer. Dragging those two down to mobile's 19.1.x leaves that peer unmet in every
+`pnpm install`, which costs nothing at compile time and is still worth avoiding - the Next.js pin
+section above tells agents to read unmet peers in install output as a signal, and a standing
+warning is noise in front of it.
+
+Measured on the current lockfile: two `@types/react` snapshot keys, `19.1.17` for mobile and
+`19.2.14` for the web app and `packages/ui`, with `@types/react-dom@19.2.3(@types/react@19.2.14)`
+satisfying its peer. Two copies is the settled state here, not a regression - which is exactly
+why the `packageExtensions` block below is load-bearing rather than theoretical.
 
 `next@15.2.9`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
 each declare `react` as a peer but not `@types/react`, even though their shipped `.d.ts` files
@@ -834,14 +844,13 @@ holding 8 errors and 12 `@types+react@18` matches, the first of them the origina
 `app/layout.tsx(29,13)`. A green build proves nothing on its own while the 19 copy happens to
 be the hoisted one; that is what hid `@clerk/shared`.
 
-The `packageExtensions` block stays. It answers a different question from mobile's version
-range: the range decides *which version* mobile resolves, the block decides *where* `next` and
-the `@clerk/*` packages resolve `@types/react` from - their own consumer rather than the hoisted
-store - and nothing else in this repository does that. It is not made redundant by a version
-pin anywhere, because the peer declarations it supplies are missing regardless of which version
-is installed. Do not delete it while the single resolution above happens to make the hoisted store
-harmless; that is the state in which its removal looks green and stays green until a second copy
-appears.
+The `packageExtensions` block stays. It answers a different question from the per-workspace
+ranges: a range decides *which version* a workspace resolves, the block decides *where* `next`
+and the `@clerk/*` packages resolve `@types/react` from - their own consumer rather than the
+hoisted store - and nothing else in this repository does that. No version range makes it
+redundant, because the peer declarations it supplies are missing regardless of which version is
+installed. With two copies in the store there is again a wrong one for the hoist to pick, so
+this is the block doing its job rather than sitting idle.
 
 An earlier version of this entry forbade pinning `@types/react` at all, reasoning that a React
 19 pin would type mobile's react 18.3.1 runtime. Mobile runs react 19.1.0, so that reasoning
