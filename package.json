@@ -26,6 +26,9 @@
     "typescript": "^5.7.3"
   },
   "pnpm": {
+    "overrides": {
+      "@types/react": "19.1.17"
+    },
     "packageExtensions": {
       "@clerk/clerk-react": {
         "peerDependencies": {

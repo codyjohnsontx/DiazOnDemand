@@ -738,8 +738,16 @@ the read path refuses never leaves `publicVideoIdentifiers`, at any access level
 
 ## React types across the workspace
 
-Two copies of `@types/react` are correct and must both stay: `apps/mobile` runs react 18.3.1
-and pins `^18`, while `apps/diaz-ondemand-web` and `packages/ui` run react 19 and pin `^19`.
+`apps/mobile` runs react 19.1.0 and pins `@types/react` `^19.1.17`, matching what Expo SDK 54
+expects; `apps/diaz-ondemand-web` and `packages/ui` run react 19 too and pin looser `^19.x`
+ranges. Left alone, pnpm resolves the whole workspace to one shared `@types/react`, and the
+version it lands on is whatever the loosest range pulls in - a `@types/react-dom` bump on the
+web side pulled that shared version to `19.2.x`, which is newer than the `~19.1.10` Expo SDK 54
+requires and made `expo-doctor` fail with a version-mismatch advisory even though every
+workspace range was still satisfied. `pnpm.overrides` in the root `package.json` pins
+`@types/react` to `19.1.17` for that reason - it is not a peer-declaration gap like the
+`packageExtensions` block below, it is keeping the shared resolution inside the range the mobile
+SDK actually checks against.
 
 `next@15.2.9`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
 each declare `react` as a peer but not `@types/react`, even though their shipped `.d.ts` files
