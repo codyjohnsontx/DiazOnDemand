@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { NextResponse } from 'next/server';
 
 const isProtectedRoute = createRouteMatcher([
   '/account(.*)',
@@ -21,7 +22,10 @@ export default clerkMiddleware(async (auth, req) => {
     const url = req.nextUrl.clone();
     url.pathname = '/';
     url.search = '';
-    return Response.redirect(url);
+    // NextResponse, not Response.redirect: clerkMiddleware appends its auth
+    // headers to whatever this returns, and Response.redirect's headers are
+    // immutable, so every walled path answered 500 (TypeError: immutable).
+    return NextResponse.redirect(url, 302);
   }
 
   if (!clerkConfigured) {
