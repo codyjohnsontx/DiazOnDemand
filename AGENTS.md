@@ -738,8 +738,30 @@ the read path refuses never leaves `publicVideoIdentifiers`, at any access level
 
 ## React types across the workspace
 
-Two copies of `@types/react` are correct and must both stay: `apps/mobile` runs react 18.3.1
-and pins `^18`, while `apps/diaz-ondemand-web` and `packages/ui` run react 19 and pin `^19`.
+Each workspace carries its own `@types/react` range and resolves it independently. Nothing
+forces one shared version across the repository, and nothing should: the constraints differ per
+workspace, so a single pin can only be wrong somewhere.
+
+`apps/mobile` runs react 19.1.0 and pins `~19.1.10`, a tilde rather than a caret, because Expo
+SDK 54 checks the installed version against `~19.1.10` and a caret admits 19.2.x. That is not
+hypothetical: at `ca162be`, the SDK 52 to 54 upgrade, the mobile importer recorded
+`specifier: ^19.1.17` against `version: 19.2.14`, and `expo-doctor` reported 17/18 -
+"@types/react expected ~19.1.10, found 19.2.14" - while mobile's own range was still satisfied
+and CI was green. Nothing in CI runs `expo-doctor`, so the whole signal was that one advisory.
+Keep the tilde.
+
+`apps/diaz-ondemand-web` and `packages/ui` keep `^19.0.8` and must stay on the 19.2.x line,
+which is a real constraint rather than an accident: `@types/react-dom@19.2.3` declares
+`peerDependencies: { "@types/react": "^19.2.0" }`, and the web app is the only `@types/react-dom`
+consumer. Dragging those two down to mobile's 19.1.x leaves that peer unmet in every
+`pnpm install`, which costs nothing at compile time and is still worth avoiding - the Next.js pin
+section above tells agents to read unmet peers in install output as a signal, and a standing
+warning is noise in front of it.
+
+Measured on the current lockfile: two `@types/react` snapshot keys, `19.1.17` for mobile and
+`19.2.14` for the web app and `packages/ui`, with `@types/react-dom@19.2.3(@types/react@19.2.14)`
+satisfying its peer. Two copies is the settled state here, not a regression - which is exactly
+why the `packageExtensions` block below is load-bearing rather than theoretical.
 
 `next@15.2.9`, `@clerk/nextjs@6.37.5`, `@clerk/clerk-react@5.60.2` and `@clerk/shared@3.45.1`
 each declare `react` as a peer but not `@types/react`, even though their shipped `.d.ts` files
@@ -769,6 +791,13 @@ resolving every dependency against the block and writing the hoisted store is th
 under test, so nothing short of an install proves anything about it. A fresh install still
 picks the hoist itself and picked 19 every time this was run, so the adverse case has to be
 forced - inside the throwaway copy, where it costs nothing.
+
+The forcing step is what has since gone stale. It links the hoisted store at an
+`@types/react@18`, and no workspace range admits one any more - every range is a 19 - so the
+glob matches nothing and the link dangles. Read the script below as the record of how the
+block was proven, not as a check to run today: a `FAIL` from it now reports a missing forcing
+target, not a block that has stopped working. Forcing it again means deliberately installing
+an out-of-range copy into the throwaway tree, and that has not been measured.
 
 ```bash
 cat > /tmp/react-types-proof.sh <<'PROOF'
@@ -808,16 +837,25 @@ failure so there is something left to read. Build the web app's workspace depend
 or `tsc` fails on missing `@diaz/shared` types instead of on React. `git archive HEAD` copies
 committed state only, so commit a change to the block before testing it.
 
-Verified 2026-08-05 on pnpm 9.12.3: `PASS`, exit 0. Deleting `pnpm.packageExtensions` from the
-temp copy after the archive gives `FAIL: tsc did not complete`, exit 1, and an `$explain`
+Verified 2026-08-05 on pnpm 9.12.3, while `apps/mobile` still pinned react 18.3.1 and an
+`@types/react@18` was therefore resolvable: `PASS`, exit 0. Deleting `pnpm.packageExtensions`
+from the temp copy after the archive gives `FAIL: tsc did not complete`, exit 1, and an `$explain`
 holding 8 errors and 12 `@types+react@18` matches, the first of them the original
 `app/layout.tsx(29,13)`. A green build proves nothing on its own while the 19 copy happens to
 be the hoisted one; that is what hid `@clerk/shared`.
 
-Do not replace the block with a workspace-wide `pnpm.overrides` pin of `@types/react`. That
-is green on build, lint, typecheck and test today, but it types mobile's react 18.3.1 runtime
-with React 19 types, after which mobile's `tsc` accepts `use` and `useActionState`, neither of
-which exists at runtime there. Both approaches were verified end to end before choosing.
+The `packageExtensions` block stays. It answers a different question from the per-workspace
+ranges: a range decides *which version* a workspace resolves, the block decides *where* `next`
+and the `@clerk/*` packages resolve `@types/react` from - their own consumer rather than the
+hoisted store - and nothing else in this repository does that. No version range makes it
+redundant, because the peer declarations it supplies are missing regardless of which version is
+installed. With two copies in the store there is again a wrong one for the hoist to pick, so
+this is the block doing its job rather than sitting idle.
+
+An earlier version of this entry forbade pinning `@types/react` at all, reasoning that a React
+19 pin would type mobile's react 18.3.1 runtime. Mobile runs react 19.1.0, so that reasoning
+never applied to the repository as it stands; this is the correction, not a further version of
+it.
 
 Turbo's cache is keyed on the lockfile, not on resolved `node_modules`, so a build can replay
 from cache after an install that changed resolved `node_modules` without changing the
@@ -897,6 +935,19 @@ neither `@diaz/db` nor `PrismaClient`, and `DATABASE_URL` is API-only by policy,
 would skip in every environment. Behaviour, measurements and the incident that caused it are in
 "The migration deploy gate" in README.md; CI asserts both directions, because a gate that has
 stopped refusing looks exactly like one with nothing to refuse.
+
+`@diaz/db#build` is the one `build` task declared `cache: false` in `turbo.json`, and it has to
+stay that way. Its real output is not `dist/**`: `prisma generate` writes the client into the
+pnpm store, under `node_modules/.pnpm/@prisma+client@<resolution>/node_modules/.prisma/client`,
+which is outside the package and so outside anything turbo's `outputs` can name. A cache hit
+therefore replayed the generate log and produced no client at all, leaving `api#build` to
+compile against whatever `pnpm install` had left in the store. That is what failed every API
+deploy of `main` from `43beba5` on, and then PR #39: 50 `tsc` errors naming `muxUploadId` and
+`muxVideoError`, the columns PR #36 added, on commits that built locally because a cold cache
+ran the generate. A preview that happens to restore a store with a current client is green, so
+the check is intermittent by branch rather than by commit. Reproduce it by deleting that
+`.prisma` directory and re-running `pnpm exec turbo run build --filter=api` - cached, the client
+stays missing; uncached it is regenerated in about 250ms, which is the whole cost of the fix.
 
 Known and deliberately not worked around: `swagger-ui-dist` contributes only `absolute-path.js`
 and `package.json` to a `@vercel/nft` 1.10.0 trace of the entrypoint, so `/docs` will serve its
