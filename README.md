@@ -1,4 +1,30 @@
-# Diaz on Demand Monorepo
+# Diaz on Demand
+
+A subscription video platform for a martial arts school: members browse a BJJ, Muay Thai and
+Haganah library, watch free lessons without an account, and subscribe to unlock the paid ones.
+Lessons play on the web and in the mobile app. Staff upload and publish lessons from an admin portal.
+
+**Live web app:** https://diaz-on-demand-diaz-ondemand-web.vercel.app
+
+| App | Stack |
+|---|---|
+| `apps/api` | NestJS 11, Prisma 6, PostgreSQL, Stripe subscriptions and webhooks, Mux signed playback and direct upload, Clerk auth |
+| `apps/diaz-ondemand-web` | Next.js 15, React 19, Tailwind, Clerk, Mux Player (member web player and admin portal) |
+| `apps/mobile` | Expo SDK 54, React Native, React Navigation, Clerk |
+
+The three share a Turborepo + pnpm workspace, TypeScript throughout, with shared zod schemas and
+rules in `packages/shared` and the Prisma schema and migrations in `packages/db`.
+
+**Tests:** `pnpm test` runs vitest in the API, shared and web workspaces and Jest (`jest-expo`) in
+mobile. Two API suites run against a real Postgres instead of a mocked Prisma client:
+`apps/api/src/tests/billing-lifecycle.db.test.ts` and `apps/api/src/tests/mux-ingestion.db.test.ts`.
+See [Tests](#tests) for how to run them.
+
+| Landing | Library |
+|---|---|
+| ![Landing page](docs/screenshots/landing.png) | ![Lesson library](docs/screenshots/library.png) |
+
+## Developer guide
 
 Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `apps/diaz-ondemand-web`: Next.js web app (admin portal + student web player)
@@ -8,7 +34,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `packages/shared`: shared enums, zod schemas, typed API helper
 - `packages/ui`: minimal shared UI component(s)
 
-## Stack Summary
+### Stack Summary
 - Monorepo: Turborepo + pnpm workspaces
 - Language: TypeScript everywhere
 - Web: Next.js 15 + Tailwind
@@ -18,7 +44,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Billing: Stripe subscriptions + webhooks
 - Video: Mux playback IDs with public/free and signed/premium playback handling
 
-## MVP Features Included
+### MVP Features Included
 - Browse Programs/Courses/Lessons (published only)
 - Lesson playback on web and mobile using Mux playback IDs
 - Progress upsert (`lastPositionSeconds`, `completed`), and the web and mobile players resume
@@ -31,7 +57,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
   chargebacks
 - Mux webhook with signature verification, syncing playback ID + duration on `video.asset.ready`
 
-## Repository Layout
+### Repository Layout
 - `/apps/api`
 - `/apps/diaz-ondemand-web`
 - `/apps/mobile`
@@ -39,11 +65,11 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `/packages/shared`
 - `/packages/ui`
 
-## Separate Website Repo
+### Separate Website Repo
 - `https://github.com/codyjohnsontx/DiazMartialArts.git`
 - `git@github.com:codyjohnsontx/DiazMartialArts.git`
 
-## Environment Variables
+### Environment Variables
 Root `.env.example` is the catalog of every variable. At runtime each app loads its own
 file: the API the monorepo-root `.env`, Next.js `apps/diaz-ondemand-web/.env`, Expo
 `apps/mobile/.env`. See "Local Setup" below.
@@ -91,7 +117,7 @@ deployment):
 Seed helper:
 - `SEED_DEV_CLERK_USER_ID`
 
-## Local Setup
+### Local Setup
 1. Install deps:
 ```bash
 corepack prepare pnpm@9.12.3 --activate
@@ -190,12 +216,12 @@ This also runs workspace `@diaz/shared` and `@diaz/db` TypeScript watchers used 
 pnpm dev:mobile
 ```
 
-## Running Each App
+### Running Each App
 - API: `pnpm --filter api dev` (`http://localhost:4000`, Swagger at `/docs`)
 - Web: `pnpm --filter diaz-ondemand-web dev` (`http://localhost:3000`)
 - Mobile: `pnpm --filter mobile dev`
 
-## Vertical Slice Walkthrough
+### Vertical Slice Walkthrough
 After seed:
 1. Open web library at `http://localhost:3000/library`.
 2. Open a lesson in the Instructor Showcase program and play it. Those three carry real
@@ -220,7 +246,7 @@ After seed:
 5. Create/edit/publish content.
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).
 
-## Catalogue Video States
+### Catalogue Video States
 Every published lesson resolves to exactly one of three states, and nothing else is allowed:
 
 | State                            | Seeded lessons | What a member sees                                    |
@@ -260,7 +286,7 @@ in the editor and on the admin course lesson rows. A not-yet-filmed lesson also 
 runtime to a member - the seeded `durationSeconds` stays as a planned length and still counts
 towards course totals. Whether unfilmed lessons stay published is an open product decision.
 
-### Waiting for Mux
+#### Waiting for Mux
 
 A fourth state exists for staff only, and it is derived from the row rather than stored: a
 lesson holding a `muxAssetId` with no `muxPlaybackId` and no `youtubeVideoId` is waiting for a
@@ -285,7 +311,7 @@ is the asset itself: re-create it signed-only for a paid lesson, give it a publi
 for a free one. Both admin surfaces say exactly that, from one shared component
 (`apps/diaz-ondemand-web/components/awaiting-mux-playback-note.tsx`), so the two cannot drift.
 
-### Uploading from the lesson editor
+#### Uploading from the lesson editor
 
 The lesson editor uploads straight to Mux, so filling the catalogue no longer needs the Mux
 dashboard. **Upload video** on `/admin/lessons/:id` asks `POST /admin/lessons/:id/mux-upload`
@@ -347,7 +373,7 @@ lesson, and the entitled payload carried a signed url for the paid one whose uns
 answers 403. A deliberately invalid file produced `video.asset.errored` and the Upload failed
 state with Mux's message. Webhook *transport* was simulated for that run - see "Video Notes".
 
-## Clerk Setup Notes (Web + Expo)
+### Clerk Setup Notes (Web + Expo)
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
   seeded admin, so it is local-only. The API refuses to start with it enabled unless
   `DATABASE_URL` points at a loopback host - `localhost`, any `127.x.x.x` address such as
@@ -375,7 +401,7 @@ state with Mux's message. Webhook *transport* was simulated for that run - see "
   so, rather than clearing the local token and showing a signed-out app while the session stays
   live server-side.
 
-## Stripe + Webhooks
+### Stripe + Webhooks
 Billing endpoints (both Clerk-authenticated):
 - `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for two
   different reasons, told apart by a `code` on the body so the client can say the right thing:
@@ -543,7 +569,7 @@ Test locally with Stripe CLI:
 stripe listen --forward-to localhost:4000/webhooks/stripe
 ```
 
-## Video Notes
+### Video Notes
 - Lessons store `muxAssetId` and `muxPlaybackId`.
 - API returns `playbackUrl` for clients to treat as an opaque playback source.
 - Free lessons use a public playback URL; paid lessons use a signed playback URL.
@@ -659,13 +685,13 @@ instead: fetch the upload or asset from the Mux API (`GET /video/v1/uploads/:id`
 expects (`t=<unix>,v1=<hmac-sha256 of "<t>." + body>`). That exercises everything but the
 transport and never bypasses the signature check.
 
-## Next.js Version Floor
+### Next.js Version Floor
 
 `apps/diaz-ondemand-web` pins `next` exactly. `AGENTS.md` carries the rule; this section carries
 the evidence, so the next person moving the pin can re-derive it instead of guessing. **Current
 pin: 15.2.9.**
 
-### Why 15.2.9, and not lower
+#### Why 15.2.9, and not lower
 
 The safe version is the intersection of five constraints, not the newest release. Each floor is
 the lowest version that satisfies that one constraint on the 15.2 line.
@@ -689,7 +715,7 @@ record for the GHSA carries `cve_id: null` while referencing 55182. That is expe
 sign this row is wrong: search the databases under the GHSA or 55182, and read Vercel's material
 under 66478.
 
-### What is still open at 15.2.9, and under what conditions
+#### What is still open at 15.2.9, and under what conditions
 
 None of these has a fix inside the 15.2 line, so none is closable without a minor upgrade. They
 are recorded with the condition each one needs, because "affected by version range" and
@@ -757,7 +783,7 @@ are recorded with the condition each one needs, because "affected by version ran
   which is the point of checking more than `pnpm audit`. Counts and floors measured 2026-09-02 -
   re-measure rather than trusting them, because the set grows.
 
-### The 15.2 line is end-of-life
+#### The 15.2 line is end-of-life
 
 Next.js supports 16.3 (Active LTS) and 15.5 (Maintenance LTS). 15.2 receives no further security
 patches - every advisory above that postdates the line has fixes only on 15.5 and 16 - so this pin
@@ -770,7 +796,7 @@ It does **not** reopen Clerk compatibility, which is worth stating because it lo
 fails that range is the old 15.1.7. Re-check against the installed package rather than this
 sentence if Clerk itself is upgraded.
 
-### Checking a candidate version
+#### Checking a candidate version
 
 A clean `pnpm audit` is necessary and not sufficient. Vercel publishes some advisories to the
 vercel/next.js repository before OSV and the GitHub advisory database ingest them, so `pnpm audit`
@@ -838,7 +864,7 @@ Clerk unconfigured), that `/account`, `/favorites`, `/subscribe` and `/admin` st
 everything else stays permitted, and that the Clerk catch-all check in
 [Clerk Setup Notes](#clerk-setup-notes-web--expo) still answers 200.
 
-## Vercel Deployment Notes
+### Vercel Deployment Notes
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
 - API deploy: its own Vercel project, rooted at `apps/api`, running as serverless functions.
   Step-by-step in [API Deploy Runbook (Vercel serverless)](#api-deploy-runbook-vercel-serverless)
@@ -950,7 +976,7 @@ everything else stays permitted, and that the Clerk catch-all check in
   a separate implementation in `apps/api/src/create-app.ts` and answers 503, which the
   post-deploy checks below depend on.
 
-## API Deploy Runbook (Vercel serverless)
+### API Deploy Runbook (Vercel serverless)
 
 No Vercel project exists and no live URL is recorded in this repository. Nothing below has run
 against a real Vercel project - see "What is proven, and what is not" at the end of this
@@ -962,7 +988,7 @@ served under `/api/*` on the same domain was offered and declined, because it co
 broken web build would take webhook delivery down with it, and webhook delivery is the whole
 reason the API is being deployed. Do not revisit this without that reason in hand.
 
-### How it runs
+#### How it runs
 
 `apps/api` is the same NestJS application either way. What changes is who starts it:
 
@@ -989,7 +1015,7 @@ between them. Three details there are load-bearing and should not be "tidied":
   `rawBody`, and **every webhook answers 400**. It is registered only by the serverless
   entrypoint and returns immediately when the stream is untouched.
 
-### 1. Create the project
+#### 1. Create the project
 
 - New Vercel project from this repository, separate from the web one.
 - **Root Directory: `apps/api`.** Leave "Include source files outside of the Root Directory in
@@ -1021,7 +1047,7 @@ between them. Three details there are load-bearing and should not be "tidied":
   connection; a function in `iad1` talking to a database in Frankfurt pays that latency twice on
   every call.
 
-### 2. Database: use the pooled connection string
+#### 2. Database: use the pooled connection string
 
 This is the one setting that will not announce itself when it is wrong. Each function instance
 runs its own Prisma client with its own connection pool, and instances come and go with traffic.
@@ -1055,7 +1081,7 @@ DATABASE_URL='postgresql://USER:PASSWORD@DIRECT-HOST:5432/DB?schema=public' \
   pnpm --filter @diaz/db exec prisma migrate deploy --schema prisma/schema.prisma
 ```
 
-### The migration deploy gate
+#### The migration deploy gate
 
 Nothing runs migrations on deploy, on purpose, so "migrate first, then deploy" was until now
 enforced by nobody. It shipped the wrong way round once: `Entitlement.source` was added by
@@ -1141,7 +1167,7 @@ database it cannot verify, so a non-zero exit alone would stay green with the pe
 the remedy gone. The step requires the output to name a pending migration and to still carry the
 direct-connection trap - the part that cost real time during the incident.
 
-### 3. Environment variables
+#### 3. Environment variables
 
 Set these on the API project (Production, and Preview if you use it). The API **refuses to
 start** without the first group, and names the one it is missing in the build log - see the
@@ -1165,7 +1191,7 @@ pre-deploy checklist above for why each exists.
 Do not set `NODE_ENV`. Every deployment check keys on `isDeployment`, which is already true
 because `DATABASE_URL` is not loopback.
 
-### 4. CORS - the most likely first failure
+#### 4. CORS - the most likely first failure
 
 `CORS_ORIGIN` is a comma-separated list, matched exactly. It must contain the web project's
 origin, scheme included and with no trailing slash:
@@ -1179,7 +1205,7 @@ and only a browser fails, in the console rather than on the page. If the web app
 reach the API after a deploy, check this before anything else. Add the Vercel preview domain too
 if you test against previews. The Expo app is not a browser and is unaffected.
 
-### 5. Point the clients at the new URL
+#### 5. Point the clients at the new URL
 
 - Web project: `NEXT_PUBLIC_API_URL` = the API project's URL.
 - Mobile: `EXPO_PUBLIC_API_URL` = the same URL. **This one is baked into the built app.**
@@ -1187,7 +1213,7 @@ if you test against previews. The Expo app is not a browser and is unaffected.
   intend to keep - a custom domain on the API project rather than a generated `*.vercel.app`
   hostname.
 
-### 6. Wire the webhooks
+#### 6. Wire the webhooks
 
 - Mux: Settings > Webhooks, new webhook to `https://YOUR-API/webhooks/mux`. Copy the signing
   secret into `MUX_WEBHOOK_SECRET` and redeploy.
@@ -1198,7 +1224,7 @@ if you test against previews. The Expo app is not a browser and is unaffected.
 Both secrets are read at request time, but the API refuses to boot without them, so set them
 before the first deploy or expect the first one to fail loudly.
 
-### 7. After deploying, confirm it actually works
+#### 7. After deploying, confirm it actually works
 
 In order, because each step rules out the next one's causes:
 
@@ -1250,7 +1276,7 @@ signature:
 Read the Vercel function logs alongside all of this. Startup refusals name the missing variable
 verbatim.
 
-### Troubleshooting
+#### Troubleshooting
 
 - **Every webhook answers 400 "Missing signature or raw body".** The runtime read the request
   body before Express and did not replay it, so the signed bytes are gone.
@@ -1265,7 +1291,7 @@ verbatim.
 - **Cold starts time out.** Nest initialises the whole application on the first request to a new
   instance. Raise the function's max duration.
 
-### What is proven, and what is not
+#### What is proven, and what is not
 
 Everything below was measured on this branch, against the built API, driven through a local
 stand-in for Vercel's launcher transcribed from `@vercel/node`'s own source, with `NODE_ENV`
@@ -1304,7 +1330,7 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
   Swagger viewer at that. This is not worked around in code, because the fix is an
   `includeFiles` glob into a pnpm store path that cannot be verified without deploying.
 
-## Scripts
+### Scripts
 - `pnpm dev` -> API + web
 - `pnpm dev:mobile` -> Expo mobile
 - `pnpm start` -> built API as a long-running server, with `NODE_ENV=production`. Not what
@@ -1319,7 +1345,7 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
   [The migration deploy gate](#the-migration-deploy-gate).
 - `pnpm db:seed`
 
-## Tests
+### Tests
 
 `pnpm test` runs everything: vitest in `apps/api`, `packages/shared` and `apps/diaz-ondemand-web`,
 and Jest with the `jest-expo` preset in `apps/mobile`, because vitest does not carry React Native's
@@ -1367,14 +1393,14 @@ DATABASE_URL='postgresql://postgres:postgres@localhost:55433/diaz?schema=public'
 TEST_DATABASE_URL='postgresql://postgres:postgres@localhost:55433/diaz?schema=public' pnpm test
 ```
 
-## MVP TODO / Roadmap
+### MVP TODO / Roadmap
 - Better admin UX for content ordering and bulk operations
 - Offline-safe mobile progress queueing
 - CI pipeline for lint/typecheck/test + deploy previews
 
-## Entitlements Endpoints
+### Entitlements Endpoints
 
-### GET /me/entitlements (Clerk-authenticated)
+#### GET /me/entitlements (Clerk-authenticated)
 Returns current user entitlements using Clerk auth (or `DEV_BYPASS_AUTH=true` in local dev).
 
 Example response:
@@ -1392,7 +1418,7 @@ MVP truth mapping:
 - `vod`: true when `Entitlement.tier === PREMIUM` and `validUntil` is null or in the future
 - `tier`: `VOD` if `vod=true`, else `GYM_MEMBER` if `gymMember=true`, else `FREE`
 
-### GET /users/:clerkUserId/entitlements (Server-to-server)
+#### GET /users/:clerkUserId/entitlements (Server-to-server)
 Internal endpoint for external website redirect logic.
 Not for browser/client use - server-to-server only.
 
