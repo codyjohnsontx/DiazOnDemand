@@ -978,7 +978,7 @@ everything else stays permitted, and that the Clerk catch-all check in
 
 ### API Deploy Runbook (Vercel serverless)
 
-No Vercel project exists and no live URL is recorded in this repository. Nothing below has run
+No Vercel project for the API is recorded in this runbook. Nothing below has run
 against a real Vercel project - see "What is proven, and what is not" at the end of this
 section before trusting any of it.
 
