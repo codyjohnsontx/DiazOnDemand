@@ -1,10 +1,13 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 
+// /subscribe itself is public: it is the sales page a prospective member
+// reaches before they have an account, and it asks them to sign in only when
+// they start checkout. The Stripe return pages under it stay protected.
 const isProtectedRoute = createRouteMatcher([
   '/account(.*)',
   '/favorites(.*)',
-  '/subscribe(.*)',
+  '/subscribe/(.*)',
   '/admin(.*)',
 ]);
 
@@ -40,6 +43,11 @@ export default clerkMiddleware(async (auth, req) => {
     await auth.protect();
     return;
   }
+}, {
+  // Without this, a signed-out page load of a protected route is redirected to
+  // Clerk's hosted Account Portal on another domain rather than to the app's
+  // own sign-in page. Clerk appends redirect_url so sign-in returns here.
+  signInUrl: '/sign-in',
 });
 
 export const config = {

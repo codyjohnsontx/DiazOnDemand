@@ -562,6 +562,12 @@ ignores `CLERK_JWT_KEY`. A curl without `Sec-Fetch-Dest: document` skips the dev
 Signed-out and expired-token requests carry Clerk auth headers and a fresh valid token does not,
 so they can fail differently. Test both.
 
+`auth.protect()` redirects a signed-out caller to sign in only when the request looks like a page
+load (`Accept: text/html` or `Sec-Fetch-Dest: document`); a bare `curl` gets 404, which once read
+as "protected routes 404 in production" when browsers were being redirected all along. Probe with
+browser headers. The redirect target is the app's own `/sign-in` because `middleware.ts` passes
+`signInUrl`; drop it and Clerk sends visitors to its hosted Account Portal on another domain.
+
 ## The web app's Next.js pin
 
 `apps/diaz-ondemand-web` pins `next` exactly, no caret, because the safe version is an
