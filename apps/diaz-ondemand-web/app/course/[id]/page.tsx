@@ -19,7 +19,6 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
         course={course}
         isFeaturedDemo={program?.isFeaturedDemo ?? false}
         programDiscipline={program?.discipline ?? null}
-        programTitle={program?.title ?? null}
         programs={programs}
       />
     );

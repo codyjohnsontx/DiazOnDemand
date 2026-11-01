@@ -35,10 +35,7 @@ export function CourseCard({ course }: { course: CourseCardModel }) {
               </div>
             )}
 
-            <div className="space-y-2">
-              <p className="type-kicker text-white/60">{course.programTitle}</p>
-              <h3 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">{course.title}</h3>
-            </div>
+            <h3 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">{course.title}</h3>
 
             <div className="space-y-3">
               {course.description ? <p className="type-meta text-white/78">{course.description}</p> : null}
@@ -50,8 +47,7 @@ export function CourseCard({ course }: { course: CourseCardModel }) {
 
             {course.nextLessonTitle ? (
               <div className="rounded-[18px] border border-white/10 bg-white/5 px-4 py-3">
-                <p className="type-kicker text-white/50">Up next</p>
-                <p className="mt-2 text-base text-white/88">{course.nextLessonTitle}</p>
+                <p className="text-base text-white/88">{course.nextLessonTitle}</p>
               </div>
             ) : null}
           </div>

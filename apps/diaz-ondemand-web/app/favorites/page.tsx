@@ -57,11 +57,7 @@ export default function FavoritesPage() {
 
   return (
     <AppShell className="space-y-8">
-      <PageHeader
-        description="Keep the drills and lessons you want to revisit without searching the full library every time."
-        eyebrow="Saved work"
-        title="Favorites"
-      />
+      <PageHeader title="Favorites" />
 
       {error ? <p className="text-sm text-[var(--danger)]" role="alert">{error}</p> : null}
 

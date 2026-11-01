@@ -7,7 +7,6 @@ export function LandingView() {
     <AppShell className="space-y-12">
       <PageHeader
         description="Train through structured BJJ, Muay Thai, and Haganah content with a clear free-to-premium path. Browse free lessons without an account, then upgrade when you are ready to unlock the full library."
-        eyebrow="Diaz on Demand"
         title="Train on your schedule."
       />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -41,7 +40,6 @@ export function LandingView() {
 
         <aside className="surface-panel space-y-5 p-8">
           <div className="space-y-3">
-            <p className="type-kicker text-[var(--text-muted)]">Monthly premium access</p>
             <h2 className="font-display text-4xl leading-none text-[var(--text)]">Unlock the full library</h2>
             <p className="text-sm leading-7 text-[var(--text-muted)]">
               Premium gives students access to every paid lesson, seamless progress tracking, and the full guided curriculum across disciplines.

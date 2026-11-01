@@ -959,6 +959,18 @@ HTML on Vercel and then fail to load its own CSS and JS. `/docs-json` is generat
 and is unaffected. The fix would be an `includeFiles` glob into a pnpm store path that cannot be
 verified without deploying, so it is written down instead of guessed at.
 
+## Web app copy: no eyebrows, no sub-lines
+
+The project owner reviewed the web app and asked for the small-caps eyebrow labels above headings
+("Membership", "Checkout", "Member Access") and the decorative sub-lines stacked around headings,
+cards and buttons to be deleted as AI slop, not reworded. `PageHeader` and `SectionHeader` in
+`apps/diaz-ondemand-web/components` therefore take no `eyebrow` prop, and a heading stands alone
+unless the line under it carries information a visitor would otherwise lose (a price, a date, an
+error, a form label). Do not add either back, on any page, and do not invent fallback descriptions
+for a lesson or course that has none. The `type-kicker` class stays for form labels and for labels
+over a bare value ("Entitlement" over `PREMIUM`, "Previous" over a lesson title), which is a
+different thing from a label over a heading.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

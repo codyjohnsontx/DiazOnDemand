@@ -100,10 +100,7 @@ export default function AdminProgramDetailPage() {
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <form className="surface-panel space-y-5 p-6" onSubmit={saveProgram}>
           <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="type-kicker text-[var(--text-muted)]">Program settings</p>
-              <h1 className="font-display text-4xl leading-none text-[var(--text)]">{program.title}</h1>
-            </div>
+            <h1 className="font-display text-4xl leading-none text-[var(--text)]">{program.title}</h1>
             <div className="flex flex-wrap items-center gap-2">
               <PremiumBadge label={getDisciplineLabel(program.discipline)} />
               {program.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
@@ -162,10 +159,7 @@ export default function AdminProgramDetailPage() {
 
         <section className="space-y-5">
           <form className="surface-panel space-y-4 p-6" onSubmit={createCourse}>
-            <div className="space-y-2">
-              <p className="type-kicker text-[var(--text-muted)]">Add course</p>
-              <h2 className="type-title-lg text-[var(--text)]">Course list</h2>
-            </div>
+            <h2 className="type-title-lg text-[var(--text)]">Course list</h2>
             <input
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               placeholder="New course title"

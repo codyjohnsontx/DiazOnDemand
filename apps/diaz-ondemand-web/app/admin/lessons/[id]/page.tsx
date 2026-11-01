@@ -423,10 +423,7 @@ export default function AdminLessonDetailPage() {
       <form className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]" onSubmit={onSave}>
         <section className="surface-panel space-y-5 p-6">
           <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="type-kicker text-[var(--text-muted)]">Lesson editor</p>
-              <h1 className="font-display text-4xl leading-none text-[var(--text)]">{lesson.title}</h1>
-            </div>
+            <h1 className="font-display text-4xl leading-none text-[var(--text)]">{lesson.title}</h1>
             <div className="flex flex-wrap items-center gap-2">
               {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
               {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
@@ -644,10 +641,7 @@ export default function AdminLessonDetailPage() {
 
         <section className="space-y-5">
           <div className="surface-panel space-y-5 p-6">
-            <div className="space-y-2">
-              <p className="type-kicker text-[var(--text-muted)]">Curriculum metadata</p>
-              <h2 className="type-title-lg text-[var(--text)]">Guided path</h2>
-            </div>
+            <h2 className="type-title-lg text-[var(--text)]">Guided path</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumDisciplineInputId}>

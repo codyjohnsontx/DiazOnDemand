@@ -9,7 +9,6 @@ export default function SubscribeCancelPage() {
       <ReleaseCheckoutReservation />
       <PageHeader
         description="No charge was made. You can return to premium access any time from the same monthly checkout."
-        eyebrow="Billing"
         title="Checkout canceled"
       />
       <div className="surface-panel space-y-6 p-8">
