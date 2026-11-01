@@ -21,11 +21,19 @@ async function loadMiddleware(comingSoon: 'true' | 'false') {
   return (await import('../middleware')).default;
 }
 
-async function run(comingSoon: 'true' | 'false', path: string) {
+async function run(comingSoon: 'true' | 'false', path: string, headers?: HeadersInit) {
   const middleware = await loadMiddleware(comingSoon);
   const event = { waitUntil: () => undefined } as unknown as NextFetchEvent;
-  return middleware(new NextRequest(`http://localhost:3000${path}`), event);
+  return middleware(new NextRequest(`http://localhost:3000${path}`, { headers }), event);
 }
+
+// A signed-out browser that has already been through Clerk's dev-browser
+// handshake: any __clerk_db_jwt and a zero __client_uat. Without them a
+// development key answers every page load with the handshake redirect.
+const SIGNED_OUT_COOKIES = '__clerk_db_jwt=dvb_fake; __client_uat=0';
+// Clerk only redirects a signed-out caller to sign in when the request looks
+// like a page load; anything else is answered as not found.
+const PAGE_REQUEST = { accept: 'text/html,application/xhtml+xml', cookie: SIGNED_OUT_COOKIES };
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -53,6 +61,40 @@ describe('coming-soon wall', () => {
 
   it('does not redirect anything when the wall is off', async () => {
     const res = await run('false', '/library');
+
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get('location')).toBeNull();
+  });
+});
+
+describe('signed-out visitors', () => {
+  // Without a signInUrl, protect() sent page loads to Clerk's hosted Account
+  // Portal on another domain instead of the app's own /sign-in page.
+  it.each(['/account', '/favorites', '/admin', '/subscribe/success', '/subscribe/cancel'])(
+    'sends a page load of %s to the in-app sign-in page with a return path',
+    async (path) => {
+      const res = await run('false', `${path}?tab=1`, PAGE_REQUEST);
+
+      expect(res?.status).toBe(307);
+      const location = new URL(res?.headers.get('location') ?? '');
+      expect(location.origin + location.pathname).toBe('http://localhost:3000/sign-in');
+      expect(location.searchParams.get('redirect_url')).toBe(`http://localhost:3000${path}?tab=1`);
+    },
+  );
+
+  it('answers 404 rather than an HTML redirect to a non-page request', async () => {
+    const res = await run('false', '/account', { accept: 'application/json', cookie: SIGNED_OUT_COOKIES });
+
+    expect(res?.headers.get('location')).toBeNull();
+    // Clerk throws Next's notFound(), which middleware turns into a rewrite
+    // to a path that renders the 404 page.
+    expect(res?.headers.get('x-middleware-rewrite')).toMatch(/\/clerk_\d+$/);
+  });
+
+  // The sales page is where a prospective member arrives before they have an
+  // account; checkout itself still needs one, and the page asks for it then.
+  it.each(['/subscribe', '/library', '/sign-in'])('lets %s through', async (path) => {
+    const res = await run('false', path, PAGE_REQUEST);
 
     expect(res?.status).toBe(200);
     expect(res?.headers.get('location')).toBeNull();

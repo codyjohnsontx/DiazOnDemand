@@ -392,6 +392,12 @@ state with Mux's message. Webhook *transport* was simulated for that run - see "
   simply sends no credentials. All three default to `false` in `.env.example`.
 - API reads `x-dev-user-id` header and auto-upserts a user.
 - For real Clerk auth, each app needs its own keys in its own `.env`: the API needs `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` (for example `https://your-tenant.clerk.accounts.dev`) in the root `.env`; the web app needs **both** `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/diaz-ondemand-web/.env`; Expo needs `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in `apps/mobile/.env`. The web/mobile clients then forward bearer tokens to the API.
+- A signed-out page load of a protected web route redirects to the app's own `/sign-in` with a
+  `redirect_url` back to it, because `middleware.ts` passes `signInUrl: '/sign-in'` to
+  `clerkMiddleware`; without that, Clerk sends it to the hosted Account Portal on another domain.
+  A request that is not a page load (no `text/html` in `Accept`, as with `curl` or `fetch`) gets
+  Clerk's 404 instead, so probe with a browser `Accept` header. `/subscribe` is deliberately
+  public: it is the sales page, and its checkout button sends a signed-out visitor to sign in.
 - The Expo sign-in screen (`apps/mobile/src/sign-in-screen.tsx`) answers identically for an
   address that has a Clerk account and one that does not, so it cannot be used to ask whether
   someone is a member. Turning on **Strict user enumeration protection** in the Clerk dashboard
@@ -860,8 +866,8 @@ confirm the `@clerk/nextjs` peer range still admits the candidate (`pnpm install
 
 After changing the pin, re-verify what the bump could silently break: the route set and its
 static/dynamic classification, the middleware response matrix (coming-soon on, Clerk configured,
-Clerk unconfigured), that `/account`, `/favorites`, `/subscribe` and `/admin` still gate while
-everything else stays permitted, and that the Clerk catch-all check in
+Clerk unconfigured), that `/account`, `/favorites`, `/subscribe/success`, `/subscribe/cancel` and
+`/admin` still gate while everything else, `/subscribe` included, stays permitted, and that the Clerk catch-all check in
 [Clerk Setup Notes](#clerk-setup-notes-web--expo) still answers 200.
 
 ### Vercel Deployment Notes

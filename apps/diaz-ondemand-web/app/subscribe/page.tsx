@@ -1,12 +1,15 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { CheckoutSessionDto } from '@diaz/shared';
 import { CHECKOUT_CONFLICT_CODES, checkoutConflictSchema } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
+import { useAuthToken } from '@/components/auth-provider';
 import { PageHeader } from '@/components/page-header';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
+import { clerkEnabled } from '@/lib/config';
 
 /**
  * Reads the shared 409 contract rather than trusting whatever `code` the body
@@ -44,6 +47,8 @@ function checkoutErrorMessage(error: unknown) {
 
 export default function SubscribePage() {
   const apiFetch = useApiClient();
+  const { getToken } = useAuthToken();
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +57,15 @@ export default function SubscribePage() {
     setError(null);
 
     try {
+      // This page is public, so a visitor may not have an account yet. Ask
+      // Clerk rather than reading a 401, which a signed-in member whose token
+      // the API rejects would also get, and sending them to sign in again
+      // would not help.
+      if (clerkEnabled && !(await getToken())) {
+        router.push(`/sign-in?redirect_url=${encodeURIComponent(window.location.href)}`);
+        return;
+      }
+
       const response = await apiFetch<CheckoutSessionDto>('/billing/create-checkout-session', {
         method: 'POST',
         body: JSON.stringify({}),

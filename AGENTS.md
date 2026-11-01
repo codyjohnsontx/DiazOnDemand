@@ -562,6 +562,10 @@ ignores `CLERK_JWT_KEY`. A curl without `Sec-Fetch-Dest: document` skips the dev
 Signed-out and expired-token requests carry Clerk auth headers and a fresh valid token does not,
 so they can fail differently. Test both.
 
+A bare `curl` of a protected route gets 404 while a browser is redirected to sign in, so probe
+with browser headers; what a signed-out visitor gets, and why, is in "Clerk Setup Notes" in
+README.md.
+
 ## The web app's Next.js pin
 
 `apps/diaz-ondemand-web` pins `next` exactly, no caret, because the safe version is an
