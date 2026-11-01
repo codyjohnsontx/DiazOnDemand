@@ -22,13 +22,11 @@ import { ProgressBar } from './progress-bar';
 
 export function CourseDetailView({
   course,
-  programTitle,
   programDiscipline,
   isFeaturedDemo,
   programs,
 }: {
   course: CourseDto;
-  programTitle: string | null;
   programDiscipline: Discipline | null;
   isFeaturedDemo: boolean;
   programs: ProgramWithContentDto[];
@@ -81,8 +79,7 @@ export function CourseDetailView({
         <EmptyState
           ctaHref="/library"
           ctaLabel="Back to library"
-          description="This course has been published without lessons yet. Add lessons in admin, then students can begin progressing through it."
-          title="No lessons in this course yet"
+          title="No lessons yet"
         />
       </AppShell>
     );
@@ -102,11 +99,10 @@ export function CourseDetailView({
               ) : null}
             </div>
             <div className="space-y-3">
-              <p className="type-kicker text-[var(--accent-strong)]">{programTitle ?? 'Course'}</p>
               <h1 className="type-title-lg text-[var(--text)] sm:text-[3.25rem]">{course.title}</h1>
-              <p className="type-body max-w-2xl text-[var(--text-muted)]">
-                {course.description ?? 'Structured lessons designed to keep your mat time focused, technical, and easy to resume.'}
-              </p>
+              {course.description ? (
+                <p className="type-body max-w-2xl text-[var(--text-muted)]">{course.description}</p>
+              ) : null}
             </div>
           </div>
 
@@ -115,20 +111,11 @@ export function CourseDetailView({
 
             <PosterSurface className="min-h-[420px]" monogram={monogram} seed={course.orderIndex}>
               <div className="flex h-full flex-col justify-end">
-                <div className="space-y-4 rounded-t-[28px] border-t border-white/10 bg-[linear-gradient(180deg,rgba(8,9,11,0.18),rgba(8,9,11,0.92)_18%,rgba(8,9,11,0.98)_100%)] p-6">
+                <div className="space-y-2 rounded-t-[28px] border-t border-white/10 bg-[linear-gradient(180deg,rgba(8,9,11,0.18),rgba(8,9,11,0.92)_18%,rgba(8,9,11,0.98)_100%)] p-6">
                   <p className="type-kicker text-white/60">Up next</p>
-                  <div className="space-y-2">
-                    <h2 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">
-                      {nextLesson?.title ?? recommendation.title ?? 'Ready to begin'}
-                    </h2>
-                    <p className="type-meta text-white/76">
-                      {recommendation.reason === 'next_course'
-                        ? 'You are ready to move into the next course in the program.'
-                        : recommendation.reason === 'resume_lesson'
-                          ? 'Resume the lesson already in progress.'
-                          : 'Stay inside the guided path and keep working the current module.'}
-                    </p>
-                  </div>
+                  <h2 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">
+                    {nextLesson?.title ?? recommendation.title ?? 'Ready to begin'}
+                  </h2>
                 </div>
               </div>
             </PosterSurface>
@@ -182,10 +169,7 @@ export function CourseDetailView({
         </section>
 
         <section className="space-y-6">
-          <div className="space-y-2">
-            <h2 className="type-title-lg text-[var(--text)]">Lesson breakdown</h2>
-            <p className="text-base text-[var(--text-muted)]">Move through the course in order, or jump directly into a lesson.</p>
-          </div>
+          <h2 className="type-title-lg text-[var(--text)]">Lesson breakdown</h2>
           <div className="surface-panel space-y-2 p-4">
             {queue.map((lesson) => (
               <LessonRow

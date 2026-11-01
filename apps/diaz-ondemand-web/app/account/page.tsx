@@ -19,11 +19,7 @@ export default async function AccountPage() {
 
     return (
       <AppShell className="space-y-8">
-        <PageHeader
-          description="Review your entitlement, current subscription status, and where to go when you need to manage premium access."
-          eyebrow="Member Account"
-          title="Account"
-        />
+        <PageHeader title="Account" />
 
         <section className="space-y-1">
           <div className={ROW_CLASSES}>
@@ -31,11 +27,6 @@ export default async function AccountPage() {
               <p className="type-kicker text-[var(--text-muted)]">Entitlement</p>
               <h2 className="font-display text-2xl leading-none text-[var(--text)]">{me.entitlementTier}</h2>
             </div>
-            <p className="hidden max-w-sm text-sm leading-7 text-[var(--text-muted)] sm:block">
-              {me.entitlementTier === 'PREMIUM'
-                ? 'Premium access is active across the guided library, favorites, and saved progress.'
-                : 'Upgrade to premium to unlock the full library and keep your training path moving.'}
-            </p>
           </div>
 
           <div className={ROW_CLASSES}>
@@ -55,16 +46,11 @@ export default async function AccountPage() {
           {me.canManageBilling ? (
             <div className={ROW_CLASSES}>
               <div className="min-w-0 flex-1 space-y-1">
-                <p className="type-kicker text-[var(--text-muted)]">Billing</p>
                 <h2 className="font-display text-2xl leading-none text-[var(--text)]">
                   Cancel or update payment
                 </h2>
               </div>
               <div className="flex shrink-0 items-center gap-4">
-                <p className="hidden max-w-xs text-sm leading-7 text-[var(--text-muted)] sm:block">
-                  Manage your subscription, update your payment method, or download invoices in
-                  Stripe.
-                </p>
                 <ManageBillingButton />
               </div>
             </div>
@@ -72,17 +58,11 @@ export default async function AccountPage() {
 
           <div className={ROW_CLASSES}>
             <div className="min-w-0 flex-1 space-y-1">
-              <p className="type-kicker text-[var(--text-muted)]">Next action</p>
               <h2 className="font-display text-2xl leading-none text-[var(--text)]">
                 {me.entitlementTier === 'PREMIUM' ? 'Keep training' : 'Go premium'}
               </h2>
             </div>
             <div className="flex shrink-0 items-center gap-4">
-              <p className="hidden max-w-xs text-sm leading-7 text-[var(--text-muted)] sm:block">
-                {me.entitlementTier === 'PREMIUM'
-                  ? 'Jump back into the library and keep progressing through the fundamentals path.'
-                  : 'Monthly access unlocks every premium lesson and keeps your progress synced across sessions.'}
-              </p>
               <Link
                 className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
                 href={me.entitlementTier === 'PREMIUM' ? '/library' : '/subscribe'}
@@ -95,15 +75,9 @@ export default async function AccountPage() {
           {clerkEnabled ? (
             <div className={ROW_CLASSES}>
               <div className="min-w-0 flex-1 space-y-1">
-                <p className="type-kicker text-[var(--text-muted)]">Session</p>
                 <h2 className="font-display text-2xl leading-none text-[var(--text)]">Sign out</h2>
               </div>
-              <div className="flex shrink-0 items-center gap-4">
-                <p className="hidden max-w-xs text-sm leading-7 text-[var(--text-muted)] sm:block">
-                  End this session, which matters most on a shared or family device.
-                </p>
-                <SignOutControl />
-              </div>
+              <SignOutControl />
             </div>
           ) : null}
         </section>
@@ -116,7 +90,6 @@ export default async function AccountPage() {
         <EmptyState
           ctaHref="/sign-in"
           ctaLabel="Sign in"
-          description="Sign in to review your entitlement, subscription status, and premium access."
           title="Account unavailable"
         />
       </AppShell>

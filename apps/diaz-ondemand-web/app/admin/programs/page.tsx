@@ -78,48 +78,45 @@ export default function AdminProgramsPage() {
 
   return (
     <AppShell className="space-y-8">
-      <PageHeader
-        description="Manage program order, publish state, and where instructors branch into structured course trees."
-        eyebrow="Admin"
-        title="Programs"
-      />
+      <PageHeader title="Programs" />
 
       {error ? (
         <EmptyState description={error} title="Admin unavailable" />
       ) : (
         <section className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
           <form className="surface-panel space-y-5 p-6" onSubmit={onSubmit}>
+            <h2 className="type-title-lg text-[var(--text)]">New program</h2>
             <div className="space-y-2">
-              <p className="type-kicker text-[var(--text-muted)]">Create program</p>
-              <h2 className="type-title-lg text-[var(--text)]">New program</h2>
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={titleInputId}>
+                Program title
+              </label>
+              <input
+                id={titleInputId}
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                placeholder="New program title"
+                value={form.title}
+                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+              />
             </div>
-            <label className="type-kicker text-[var(--text-muted)]" htmlFor={titleInputId}>
-              Program title
-            </label>
-            <input
-              id={titleInputId}
-              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-              placeholder="New program title"
-              value={form.title}
-              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            />
-            <label className="type-kicker text-[var(--text-muted)]" htmlFor={disciplineSelectId}>
-              Discipline
-            </label>
-            <select
-              id={disciplineSelectId}
-              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-              value={form.discipline}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, discipline: event.target.value as Discipline }))
-              }
-            >
-              {Object.values(Discipline).map((discipline) => (
-                <option key={discipline} value={discipline}>
-                  {getDisciplineLabel(discipline)}
-                </option>
-              ))}
-            </select>
+            <div className="space-y-2">
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={disciplineSelectId}>
+                Discipline
+              </label>
+              <select
+                id={disciplineSelectId}
+                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
+                value={form.discipline}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, discipline: event.target.value as Discipline }))
+                }
+              >
+                {Object.values(Discipline).map((discipline) => (
+                  <option key={discipline} value={discipline}>
+                    {getDisciplineLabel(discipline)}
+                  </option>
+                ))}
+              </select>
+            </div>
             <label className="flex items-center gap-3 text-sm text-[var(--text-muted)]" htmlFor={featuredDemoId}>
               <input
                 id={featuredDemoId}
@@ -153,19 +150,15 @@ export default function AdminProgramsPage() {
 
           <div className="surface-panel space-y-4 p-6">
             <div className="flex items-end justify-between gap-4">
-              <div>
-                <p className="type-kicker text-[var(--text-muted)]">Program list</p>
-                <h2 className="type-title-lg text-[var(--text)]">
-                  {programs.length} programs
-                </h2>
-              </div>
+              <h2 className="type-title-lg text-[var(--text)]">
+                {programs.length} programs
+              </h2>
               <PremiumBadge label="Operations view" />
             </div>
             {programs.length === 0 ? (
               <EmptyState
                 ctaHref="/admin/programs"
                 ctaLabel="Create the first program"
-                description="Start with a fundamentals program, then add courses and lessons inside it."
                 title="No programs yet"
               />
             ) : (

@@ -13,7 +13,6 @@ export function FavoriteRow({ favorite, onRemove }: FavoriteRowProps) {
         <h3 className="truncate text-lg font-medium text-[var(--text)]">
           {favorite.lesson?.title ?? 'Lesson'}
         </h3>
-        <p className="text-sm text-[var(--text-muted)]">Saved lesson</p>
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <button

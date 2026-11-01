@@ -57,11 +57,7 @@ export default function FavoritesPage() {
 
   return (
     <AppShell className="space-y-8">
-      <PageHeader
-        description="Keep the drills and lessons you want to revisit without searching the full library every time."
-        eyebrow="Saved work"
-        title="Favorites"
-      />
+      <PageHeader title="Favorites" />
 
       {error ? <p className="text-sm text-[var(--danger)]" role="alert">{error}</p> : null}
 
@@ -69,11 +65,6 @@ export default function FavoritesPage() {
         <EmptyState
           ctaHref={requiresSignIn ? '/sign-in' : '/library'}
           ctaLabel={requiresSignIn ? 'Sign in' : 'Browse library'}
-          description={
-            requiresSignIn
-              ? 'Sign in to save lessons you want to revisit between classes and keep a short list of drills to return to.'
-              : 'Save lessons from the library to build a short list of techniques you want to revisit between classes.'
-          }
           title={requiresSignIn ? 'Sign in to use favorites' : 'No saved lessons yet'}
         />
       ) : (

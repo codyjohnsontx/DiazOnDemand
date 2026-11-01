@@ -134,10 +134,7 @@ export default function AdminCourseDetailPage() {
       <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
         <section className="surface-panel space-y-5 p-6">
           <div className="flex items-start justify-between gap-4">
-            <div className="space-y-2">
-              <p className="type-kicker text-[var(--text-muted)]">Course summary</p>
-              <h1 className="font-display text-4xl leading-none text-[var(--text)]">{course.title}</h1>
-            </div>
+            <h1 className="font-display text-4xl leading-none text-[var(--text)]">{course.title}</h1>
             <div className="flex flex-wrap items-center gap-2">
               {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
               {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
@@ -172,10 +169,7 @@ export default function AdminCourseDetailPage() {
 
         <section className="space-y-5">
           <form className="surface-panel space-y-4 p-6" onSubmit={createLesson}>
-            <div className="space-y-2">
-              <p className="type-kicker text-[var(--text-muted)]">Add lesson</p>
-              <h2 className="type-title-lg text-[var(--text)]">Lesson queue</h2>
-            </div>
+            <h2 className="type-title-lg text-[var(--text)]">Lesson queue</h2>
             <input
               className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               placeholder="New lesson title"

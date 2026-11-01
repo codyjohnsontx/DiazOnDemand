@@ -53,10 +53,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   return (
     <AppShell className="space-y-16">
       <div className="space-y-6">
-        <PageHeader
-          description="A guided on-demand library built around disciplined progression, repeatable modules, and quick return-to-training paths."
-          title="Train On Demand"
-        />
+        <PageHeader title="Train On Demand" />
         <div className="flex flex-wrap gap-2">
           {(['all', ...disciplineOrder] as const).map((discipline) => (
             <button
@@ -81,21 +78,16 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         <EmptyState
           ctaHref="/subscribe"
           ctaLabel="View premium access"
-          description="Published programs have not been added yet. Once content is live, this library becomes your home base for drilling and course progress."
           title="Library coming online"
         />
       ) : null}
 
       {filteredPrograms.length > 0 && recommendation?.lessonId ? (
         <section className="space-y-4">
-          <SectionHeader eyebrow="Recommended next" title={recommendation.title ?? 'Ready to begin'} />
-          <p className="type-body max-w-2xl text-[var(--text-muted)]">
-            {recommendation.reason === 'resume_lesson'
-              ? 'Pick up where you left off and keep the current lesson moving.'
-              : recommendation.reason === 'next_course'
-                ? 'You have completed the current course. Move into the next section of the curriculum path.'
-                : 'This is the clearest next step in the guided path based on your progress.'}
-          </p>
+          <div className="space-y-2">
+            <p className="type-kicker text-[var(--text-muted)]">Up next</p>
+            <SectionHeader title={recommendation.title ?? 'Ready to begin'} />
+          </div>
           <div className="flex flex-wrap gap-3">
             <Link
               className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
@@ -117,7 +109,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
 
       {featuredPrograms.length > 0 ? (
         <section className="space-y-5">
-          <SectionHeader detail="Instructor walkthrough" title="Showcase click-through" />
+          <SectionHeader title="Showcase click-through" />
           <div className="space-y-1">
             {featuredPrograms.flatMap((program) =>
               program.courses.map((course) => (
@@ -130,7 +122,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
 
       {trainingPrograms.length > 0 && continueWatching.length > 0 ? (
         <section className="space-y-5">
-          <SectionHeader detail={`${continueWatching.length} active lessons`} eyebrow="Progress first" title="Continue watching" />
+          <SectionHeader detail={`${continueWatching.length} active lessons`} title="Continue watching" />
           <div className="space-y-1">
             {continueWatching.slice(0, 8).map((item) => (
               <ContinueRow item={item} key={item.lessonId} />
@@ -151,11 +143,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         if (programsForDiscipline.length === 0) {
           return (
             <section className="space-y-5" key={discipline}>
-              <SectionHeader
-                detail="No published programs available"
-                eyebrow="Discipline"
-                title={getDisciplineLabel(discipline)}
-              />
+              <SectionHeader title={getDisciplineLabel(discipline)} />
               <p className="type-body text-[var(--text-muted)]">
                 No published programs are available for {getDisciplineLabel(discipline)} yet.
                 Try another discipline or check back after new content is published.
@@ -168,7 +156,6 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
           <section className="space-y-5" key={discipline}>
             <SectionHeader
               detail={`${programsForDiscipline.reduce((count, program) => count + program.courses.length, 0)} courses`}
-              eyebrow="Discipline"
               title={getDisciplineLabel(discipline)}
             />
             <div className="space-y-8">
@@ -178,8 +165,8 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
                 return (
                   <div className="space-y-3" key={program.id}>
                     <SectionHeader
-                      detail={program.description ?? `${courses.length} structured courses`}
-                      eyebrow="Program"
+                      as="h3"
+                      detail={program.description}
                       title={program.title}
                     />
                     <div className="space-y-1">

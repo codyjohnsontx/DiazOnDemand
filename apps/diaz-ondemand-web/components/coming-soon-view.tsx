@@ -10,8 +10,7 @@ export function ComingSoonView() {
   return (
     <AppShell className="flex min-h-[calc(100vh-8rem)] items-center">
       <section className="mx-auto max-w-4xl text-center">
-        <p className="type-kicker text-[var(--progress)]">Diaz on Demand</p>
-        <h1 className="mt-5 font-display text-6xl leading-none text-[var(--text)] sm:text-7xl">
+        <h1 className="font-display text-6xl leading-none text-[var(--text)] sm:text-7xl">
           Coming soon
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-base leading-8 text-[var(--text-muted)] sm:text-lg">

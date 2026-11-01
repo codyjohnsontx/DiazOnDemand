@@ -24,11 +24,7 @@ export default function SignInPage() {
 
   return (
     <AppShell className="space-y-8">
-      <PageHeader
-        description="Sign in to open your library, resume course progress, and manage premium access."
-        eyebrow="Member Access"
-        title="Enter Diaz on Demand"
-      />
+      <PageHeader title="Enter Diaz on Demand" />
       <div className="surface-panel flex justify-center p-4 sm:p-8">
         <SignIn
           appearance={{

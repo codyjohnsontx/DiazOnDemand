@@ -336,7 +336,6 @@ export default function LessonPage() {
         <EmptyState
           ctaHref="/sign-in"
           ctaLabel="Sign in"
-          description="You need member access to load lesson progress, favorites, and premium playback."
           title="Sign in to keep training"
         />
       </AppShell>
@@ -409,9 +408,9 @@ export default function LessonPage() {
               <h1 className="type-title-xl max-w-4xl text-[var(--text)]">
                 {lesson.title}
               </h1>
-              <p className="type-body max-w-3xl text-[var(--text-muted)]">
-                {lesson.description ?? 'Train the key details, keep your place automatically, and move directly into the next lesson from the queue.'}
-              </p>
+              {lesson.description ? (
+                <p className="type-body max-w-3xl text-[var(--text-muted)]">{lesson.description}</p>
+              ) : null}
             </div>
           </div>
 
@@ -479,9 +478,6 @@ export default function LessonPage() {
                   staff and reads to everyone else as something broken.
                 */}
                 <div className="space-y-3">
-                  <p className="type-kicker text-[var(--text-muted)]">
-                    {video.provider === VideoProvider.YOUTUBE ? 'Playback source invalid' : 'Not filmed yet'}
-                  </p>
                   <h2 className="font-display text-4xl leading-none text-[var(--text)]">
                     {video.provider === VideoProvider.YOUTUBE ? 'YouTube embed unavailable' : 'This lesson has not been filmed'}
                   </h2>
@@ -501,17 +497,14 @@ export default function LessonPage() {
 
           <div className="surface-panel space-y-5 p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1">
-                <p className="type-kicker text-[var(--text-muted)]">Playback status</p>
-                <p className="text-sm text-[var(--text-muted)]">
-                  {getPlaybackStatusMessage({
-                    provider: video.provider,
-                    currentCompleted,
-                    lastSavedAt,
-                    saveState,
-                  })}
-                </p>
-              </div>
+              <p className="text-sm text-[var(--text-muted)]">
+                {getPlaybackStatusMessage({
+                  provider: video.provider,
+                  currentCompleted,
+                  lastSavedAt,
+                  saveState,
+                })}
+              </p>
               <div className="flex flex-wrap items-center gap-3">
                 {video.provider === VideoProvider.YOUTUBE ? (
                   <button
@@ -574,12 +567,9 @@ export default function LessonPage() {
 
         <aside className="space-y-4">
           <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="type-kicker text-[var(--text-muted)]">Course queue</p>
-              <h2 className="type-title-lg text-[var(--text)]">
-                {course?.title ?? 'Current course'}
-              </h2>
-            </div>
+            <h2 className="type-title-lg text-[var(--text)]">
+              {course?.title ?? 'Current course'}
+            </h2>
             <Link
               className="text-sm text-[var(--text-muted)] transition-colors duration-200 hover:text-[var(--text)]"
               href={course ? `/course/${course.id}` : '/library'}

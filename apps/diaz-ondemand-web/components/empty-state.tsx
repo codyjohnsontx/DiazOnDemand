@@ -7,16 +7,15 @@ export function EmptyState({
   ctaLabel,
 }: {
   title: string;
-  description: string;
+  description?: string;
   ctaHref?: string;
   ctaLabel?: string;
 }) {
   return (
     <div className="surface-panel flex min-h-[260px] flex-col justify-between gap-8 p-8">
       <div className="space-y-3">
-        <p className="type-kicker text-[var(--text-muted)]">Diaz on Demand</p>
         <h2 className="type-title-lg text-[var(--text)]">{title}</h2>
-        <p className="type-body max-w-xl text-[var(--text-muted)]">{description}</p>
+        {description ? <p className="type-body max-w-xl text-[var(--text-muted)]">{description}</p> : null}
       </div>
       {ctaHref && ctaLabel ? (
         <Link

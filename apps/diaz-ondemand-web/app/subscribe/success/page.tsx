@@ -38,17 +38,9 @@ export default async function SubscribeSuccessPage() {
               ? 'Stripe completed successfully. Your entitlement should update as soon as the webhook finishes processing.'
               : 'Stripe completed successfully, but account status could not be checked right now.'
         }
-        eyebrow="Billing"
         title={premiumActive ? 'Premium is active' : processing ? 'Subscription processing' : 'Account check unavailable'}
       />
       <div className="surface-panel space-y-6 p-8">
-        <p className="max-w-2xl text-base leading-7 text-[var(--text-muted)]">
-          {premiumActive
-            ? 'Your account is ready. Open the library or return to a premium lesson and keep training.'
-            : processing
-              ? 'If premium access does not appear immediately, refresh in a few seconds and reopen the lesson, library, or account page.'
-              : 'Open your account page in a moment to confirm premium access, or retry if the issue persists.'}
-        </p>
         <div className="flex flex-wrap gap-3">
           <Link
             className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
