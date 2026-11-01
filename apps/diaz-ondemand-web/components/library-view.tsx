@@ -84,7 +84,10 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
 
       {filteredPrograms.length > 0 && recommendation?.lessonId ? (
         <section className="space-y-4">
-          <SectionHeader title={recommendation.title ?? 'Ready to begin'} />
+          <div className="space-y-2">
+            <p className="type-kicker text-[var(--text-muted)]">Up next</p>
+            <SectionHeader title={recommendation.title ?? 'Ready to begin'} />
+          </div>
           <div className="flex flex-wrap gap-3">
             <Link
               className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
