@@ -8,17 +8,6 @@ export function LandingView() {
       <PageHeader title="Train on your schedule." />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="surface-panel space-y-6 p-8">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="surface-panel-muted p-4 text-sm leading-7 text-[var(--text-muted)]">
-              Start with free content and see how the guided library is organized before you commit.
-            </div>
-            <div className="surface-panel-muted p-4 text-sm leading-7 text-[var(--text-muted)]">
-              Sign in to keep your place, save favorites, and move cleanly between sessions.
-            </div>
-            <div className="surface-panel-muted p-4 text-sm leading-7 text-[var(--text-muted)]">
-              Upgrade to monthly premium access when you want the full training path unlocked.
-            </div>
-          </div>
           <div className="flex flex-wrap gap-3">
             <Link
               className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"

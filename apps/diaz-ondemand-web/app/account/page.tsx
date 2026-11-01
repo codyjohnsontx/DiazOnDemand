@@ -90,7 +90,6 @@ export default async function AccountPage() {
         <EmptyState
           ctaHref="/sign-in"
           ctaLabel="Sign in"
-          description="Sign in to review your entitlement, subscription status, and premium access."
           title="Account unavailable"
         />
       </AppShell>

@@ -775,9 +775,6 @@ export default function AdminLessonDetailPage() {
               {form.curriculum.skill ? <PremiumBadge label={`skill:${form.curriculum.skill}`} /> : null}
               <PremiumBadge label={`level:${form.curriculum.level}`} />
             </div>
-            <p className="text-sm leading-7 text-[var(--text-muted)]">
-              These tags drive guided recommendations across the library and keep the taxonomy consistent without free-form entry.
-            </p>
           </div>
         </section>
       </form>

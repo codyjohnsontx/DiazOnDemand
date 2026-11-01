@@ -159,7 +159,6 @@ export default function AdminProgramsPage() {
               <EmptyState
                 ctaHref="/admin/programs"
                 ctaLabel="Create the first program"
-                description="Start with a fundamentals program, then add courses and lessons inside it."
                 title="No programs yet"
               />
             ) : (

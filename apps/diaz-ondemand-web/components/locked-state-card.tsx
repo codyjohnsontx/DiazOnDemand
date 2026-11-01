@@ -11,18 +11,7 @@ export function LockedStateCard() {
             <PremiumBadge label="Premium lesson" tone="premium" />
             <PremiumBadge label="Monthly access" />
           </div>
-          <div className="space-y-3">
-            <h1 className="type-title-xl max-w-3xl text-[var(--text)]">Unlock the full training library</h1>
-            <p className="type-body max-w-2xl text-[var(--text-muted)]">
-              This lesson is part of premium access. Upgrade to keep moving through the course, save your place, and train
-              across web and mobile.
-            </p>
-          </div>
-        </div>
-        <div className="grid gap-3 text-sm text-[var(--text-muted)] sm:grid-cols-3">
-          <div className="surface-panel-muted p-4">Unlock every paid lesson in the library.</div>
-          <div className="surface-panel-muted p-4">Track progress as you move through courses.</div>
-          <div className="surface-panel-muted p-4">Pick up training on web or mobile any time.</div>
+          <h1 className="type-title-xl max-w-3xl text-[var(--text)]">Unlock the full training library</h1>
         </div>
         <Link
           className="inline-flex items-center rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"

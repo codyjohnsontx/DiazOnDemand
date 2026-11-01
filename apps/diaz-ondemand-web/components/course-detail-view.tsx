@@ -79,8 +79,7 @@ export function CourseDetailView({
         <EmptyState
           ctaHref="/library"
           ctaLabel="Back to library"
-          description="This course has been published without lessons yet. Add lessons in admin, then students can begin progressing through it."
-          title="No lessons in this course yet"
+          title="No lessons yet"
         />
       </AppShell>
     );

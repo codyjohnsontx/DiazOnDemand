@@ -336,7 +336,6 @@ export default function LessonPage() {
         <EmptyState
           ctaHref="/sign-in"
           ctaLabel="Sign in"
-          description="You need member access to load lesson progress, favorites, and premium playback."
           title="Sign in to keep training"
         />
       </AppShell>

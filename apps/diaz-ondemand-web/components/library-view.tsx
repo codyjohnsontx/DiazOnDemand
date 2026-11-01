@@ -78,7 +78,6 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         <EmptyState
           ctaHref="/subscribe"
           ctaLabel="View premium access"
-          description="Published programs have not been added yet. Once content is live, this library becomes your home base for drilling and course progress."
           title="Library coming online"
         />
       ) : null}
@@ -164,7 +163,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
                   <div className="space-y-3" key={program.id}>
                     <SectionHeader
                       as="h3"
-                      detail={program.description ?? `${courses.length} structured courses`}
+                      detail={program.description}
                       title={program.title}
                     />
                     <div className="space-y-1">
