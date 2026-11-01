@@ -51,10 +51,6 @@ export default async function AccountPage() {
                 </h2>
               </div>
               <div className="flex shrink-0 items-center gap-4">
-                <p className="hidden max-w-xs text-sm leading-7 text-[var(--text-muted)] sm:block">
-                  Manage your subscription, update your payment method, or download invoices in
-                  Stripe.
-                </p>
                 <ManageBillingButton />
               </div>
             </div>

@@ -116,13 +116,6 @@ export function CourseDetailView({
                   <h2 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">
                     {nextLesson?.title ?? recommendation.title ?? 'Ready to begin'}
                   </h2>
-                  <p className="type-meta text-white/76">
-                    {recommendation.reason === 'next_course'
-                      ? 'You are ready to move into the next course in the program.'
-                      : recommendation.reason === 'resume_lesson'
-                        ? 'Resume the lesson already in progress.'
-                        : 'Stay inside the guided path and keep working the current module.'}
-                  </p>
                 </div>
               </div>
             </PosterSurface>

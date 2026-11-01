@@ -86,13 +86,6 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
       {filteredPrograms.length > 0 && recommendation?.lessonId ? (
         <section className="space-y-4">
           <SectionHeader title={recommendation.title ?? 'Ready to begin'} />
-          <p className="type-body max-w-2xl text-[var(--text-muted)]">
-            {recommendation.reason === 'resume_lesson'
-              ? 'Pick up where you left off and keep the current lesson moving.'
-              : recommendation.reason === 'next_course'
-                ? 'You have completed the current course. Move into the next section of the curriculum path.'
-                : 'This is the clearest next step in the guided path based on your progress.'}
-          </p>
           <div className="flex flex-wrap gap-3">
             <Link
               className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
@@ -170,6 +163,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
                 return (
                   <div className="space-y-3" key={program.id}>
                     <SectionHeader
+                      as="h3"
                       detail={program.description ?? `${courses.length} structured courses`}
                       title={program.title}
                     />

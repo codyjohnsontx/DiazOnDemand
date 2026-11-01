@@ -5,10 +5,7 @@ import { PageHeader } from './page-header';
 export function LandingView() {
   return (
     <AppShell className="space-y-12">
-      <PageHeader
-        description="Train through structured BJJ, Muay Thai, and Haganah content with a clear free-to-premium path. Browse free lessons without an account, then upgrade when you are ready to unlock the full library."
-        title="Train on your schedule."
-      />
+      <PageHeader title="Train on your schedule." />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="surface-panel space-y-6 p-8">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -39,12 +36,7 @@ export function LandingView() {
         </section>
 
         <aside className="surface-panel space-y-5 p-8">
-          <div className="space-y-3">
-            <h2 className="font-display text-4xl leading-none text-[var(--text)]">Unlock the full library</h2>
-            <p className="text-sm leading-7 text-[var(--text-muted)]">
-              Premium gives students access to every paid lesson, seamless progress tracking, and the full guided curriculum across disciplines.
-            </p>
-          </div>
+          <h2 className="font-display text-4xl leading-none text-[var(--text)]">Unlock the full library</h2>
           <Link
             className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
             href="/subscribe"

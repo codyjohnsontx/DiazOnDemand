@@ -87,34 +87,25 @@ export default function SubscribePage() {
 
   return (
     <AppShell className="space-y-8">
-      <PageHeader
-        description="Monthly premium access unlocks the full Diaz on Demand library, including every paid lesson, saved progress, and cross-session training flow."
-        title="Go Premium"
-      />
+      <PageHeader title="Go Premium" />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <section className="surface-panel space-y-8 p-8">
           <ul className="space-y-5">
-            <li className="space-y-1">
+            <li>
               <h2 className="font-display text-xl text-[var(--text)]">Unlock paid lessons</h2>
-              <p className="text-sm leading-7 text-[var(--text-muted)]">Move through premium courses and technique chains without hitting locked lessons mid-session.</p>
             </li>
-            <li className="space-y-1">
+            <li>
               <h2 className="font-display text-xl text-[var(--text)]">Track your progress</h2>
-              <p className="text-sm leading-7 text-[var(--text-muted)]">Keep your place automatically so you can return to the exact point where training stopped.</p>
             </li>
-            <li className="space-y-1">
+            <li>
               <h2 className="font-display text-xl text-[var(--text)]">Train anywhere</h2>
-              <p className="text-sm leading-7 text-[var(--text-muted)]">Start a session on the web player and continue from mobile when you are back on the move.</p>
             </li>
           </ul>
-          <div className="surface-panel-muted p-5">
-            <h2 className="font-display text-3xl leading-none text-[var(--text)]">Monthly premium access</h2>
-          </div>
         </section>
 
         <aside className="surface-panel space-y-6 p-8">
-          <h2 className="font-display text-4xl leading-none text-[var(--text)]">Premium access</h2>
+          <h2 className="font-display text-4xl leading-none text-[var(--text)]">Monthly premium access</h2>
 
           <button
             className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
