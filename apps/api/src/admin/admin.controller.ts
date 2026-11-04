@@ -1,9 +1,22 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   adminCreateCourseSchema,
   adminCreateLessonSchema,
   adminCreateProgramSchema,
+  adminGrantMemberAccessSchema,
+  adminRestoreMemberRefundSchema,
+  adminRevokeMemberAccessSchema,
   adminUpdateCourseSchema,
   adminUpdateLessonSchema,
   adminUpdateProgramSchema,
@@ -12,6 +25,9 @@ import {
 import { AuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
+import { CurrentUser } from '../auth/current-user.decorator.js';
+import type { AuthUser } from '../common/request-with-user.js';
+import { AdminMembersService } from './admin-members.service.js';
 import { AdminService } from './admin.service.js';
 
 @ApiTags('admin')
@@ -20,7 +36,10 @@ import { AdminService } from './admin.service.js';
 @Roles(Role.ADMIN, Role.COACH)
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly adminMembersService: AdminMembersService,
+  ) {}
 
   @Get('programs')
   listPrograms() {
@@ -135,5 +154,59 @@ export class AdminController {
   @Delete('lessons/:id')
   deleteLesson(@Param('id') id: string) {
     return this.adminService.deleteLesson(id);
+  }
+
+  /**
+   * The members screen. Same guards as every other admin route - the class-level
+   * `AuthGuard` + `RolesGuard(ADMIN, COACH)` - and every change below writes an
+   * audit row naming the signed-in admin.
+   */
+  @Get('members')
+  listMembers(@Query('q') query?: string) {
+    return this.adminMembersService.listMembers(query);
+  }
+
+  @Get('members/:id')
+  getMember(@Param('id') id: string) {
+    return this.adminMembersService.getMember(id);
+  }
+
+  @Post('members/:id/grant')
+  grantMemberAccess(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.adminMembersService.grantAccess(
+      actor,
+      id,
+      adminGrantMemberAccessSchema.parse(body),
+    );
+  }
+
+  @Post('members/:id/revoke')
+  revokeMemberAccess(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.adminMembersService.revokeAccess(
+      actor,
+      id,
+      adminRevokeMemberAccessSchema.parse(body),
+    );
+  }
+
+  @Post('members/:id/restore-refund')
+  restoreMemberRefund(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.adminMembersService.restoreRefund(
+      actor,
+      id,
+      adminRestoreMemberRefundSchema.parse(body),
+    );
   }
 }

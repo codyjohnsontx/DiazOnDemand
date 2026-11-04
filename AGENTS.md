@@ -256,10 +256,11 @@ Communicate clearly.
 
 ## Billing and tests
 
-Most of the API suite mocks Prisma. Two suites in `apps/api/src/tests` deliberately do not,
+Most of the API suite mocks Prisma. Three suites in `apps/api/src/tests` deliberately do not,
 because what they cover is invisible to a mocked client: `billing-lifecycle.db.test.ts`, for the
-unique-constraint violations below, and `mux-ingestion.db.test.ts`, for the `Lesson` CHECK
-constraint. Both need `TEST_DATABASE_URL` pointing at a migrated Postgres, and skip without it
+unique-constraint violations below, `mux-ingestion.db.test.ts`, for the `Lesson` CHECK
+constraint, and `admin-members.db.test.ts`, for access changes committing with their audit row.
+All three need `TEST_DATABASE_URL` pointing at a migrated Postgres, and skip without it
 (but fail the run on CI). See the Tests section of README.md for the exact commands.
 
 Two billing invariants that are easy to break by accident:

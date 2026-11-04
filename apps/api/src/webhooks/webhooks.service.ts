@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { EntitlementSource, StripeWebhookEventStatus, VideoProvider } from '@diaz/db';
+import { StripeWebhookEventStatus, VideoProvider } from '@diaz/db';
 import { isStoredIdentifierAbsent } from '@diaz/shared';
 import Stripe from 'stripe';
 import {
@@ -17,11 +17,8 @@ import {
   planRevocation,
   releasesRevocation,
 } from '../billing/subscription-revocation.js';
-import {
-  isEntitlementActive,
-  isLiveStripeSubscription,
-  resolveStripeEntitlement,
-} from '../common/entitlement.js';
+import { syncEntitlementFromSubscriptions } from '../billing/entitlement-sync.js';
+import { isLiveStripeSubscription } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const MUX_SIGNATURE_TOLERANCE_SECONDS = 300;
@@ -595,36 +592,18 @@ export class WebhooksService {
   }
 
   /**
-   * Rewrites the entitlement from the member's stored subscriptions. Always
-   * derived, never inferred from the event in hand.
+   * Rewrites the entitlement from the member's stored subscriptions - see
+   * `syncEntitlementFromSubscriptions` for the rule, including why a live
+   * manual grant is left alone.
    */
   private async syncEntitlementFromSubscriptions(userId: string) {
-    const existing = await this.prisma.client.entitlement.findUnique({ where: { userId } });
+    const outcome = await syncEntitlementFromSubscriptions(this.prisma.client, userId);
 
-    // A live manual grant is access Diaz collected for in person. Stripe is not
-    // the only way access is granted, and it must not silently overwrite the
-    // way that is not Stripe: a gym member paying cash would lose the month
-    // they already paid for the moment any subscription event touched them.
-    //
-    // Only a *live* manual grant is protected. A MANUAL row that is FREE, or a
-    // PREMIUM one that has expired, is not a grant anybody is relying on, so
-    // Stripe still writes those - including the FREE row created at checkout.
-    if (existing && existing.source === EntitlementSource.MANUAL && isEntitlementActive(existing)) {
+    if (outcome === 'kept-manual-grant') {
       this.logger.log(
         'Left a live manually granted entitlement in place rather than overwriting it from Stripe',
       );
-      return;
     }
-
-    const subscriptions = await this.prisma.client.subscription.findMany({ where: { userId } });
-    const { tier, validUntil } = resolveStripeEntitlement(subscriptions);
-    const fields = { tier, validUntil, source: EntitlementSource.STRIPE };
-
-    await this.prisma.client.entitlement.upsert({
-      where: { userId },
-      update: fields,
-      create: { userId, ...fields },
-    });
   }
 
   verifyMuxSignature(payload: Buffer, signature: string) {

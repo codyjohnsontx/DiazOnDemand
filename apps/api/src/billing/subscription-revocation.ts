@@ -82,7 +82,8 @@ export const NO_REVOCATION: RevocationState = { revokedAt: null, revokedReason: 
  * What winning a dispute should write to the row, or `null` when there is
  * nothing to give back.
  *
- * This is the second and only other way a revocation is cleared. It is
+ * This is the second way a revocation is cleared; an admin restoring a
+ * mistaken refund (`planManualRefundRelease`) is the third. It is
  * deliberately separate from the renewal rule rather than folded into it: a won
  * dispute is proof the money stayed with Diaz, which the renewal rule cannot
  * observe, and widening that rule to cover it would also hand access back on a
@@ -101,6 +102,26 @@ export function planDisputeWonRelease(current: RevocationState): RevocationState
 }
 
 /**
+ * What an admin restoring a refunded member should write to the row, or `null`
+ * when there is no refund revocation to clear.
+ *
+ * This is the immediate way back for a refund issued by mistake, which the
+ * renewal rule below deliberately cannot see. It is a person's decision rather
+ * than evidence from Stripe, so the admin members screen records who made it.
+ *
+ * Only a refund revocation is released. A chargeback took the money back by
+ * force and clears only on a won dispute; letting an admin wave it through
+ * would hand access back to somebody who is not paying.
+ */
+export function planManualRefundRelease(current: RevocationState): RevocationState | null {
+  if (current.revokedAt === null || current.revokedReason !== REVOKE_REASON_REFUND) {
+    return null;
+  }
+
+  return NO_REVOCATION;
+}
+
+/**
  * Whether an incoming Stripe subscription event has earned access back.
  *
  * Only a subscription that genuinely renewed does - one whose paid period moved
@@ -110,8 +131,8 @@ export function planDisputeWonRelease(current: RevocationState): RevocationState
  * the period they were refunded for.
  *
  * The cost of that strictness is deliberate and was accepted: a member refunded
- * by mistake stays locked out until their next renewal unless somebody corrects
- * the record by hand.
+ * by mistake stays locked out until their next renewal unless an admin restores
+ * them from the members screen - see `planManualRefundRelease` above.
  */
 export function releasesRevocation(
   current: RevocationSubject,

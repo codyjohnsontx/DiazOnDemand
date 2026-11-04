@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { curriculumMetadataSchema } from './curriculum.js';
-import { AccessLevel, Discipline, EntitlementTier, Role, VideoProvider } from './enums.js';
+import {
+  AccessLevel,
+  Discipline,
+  EntitlementTier,
+  MemberAccessAction,
+  Role,
+  VideoProvider,
+} from './enums.js';
 import { isStoredIdentifierAbsent } from './video-source.js';
 
 export const curriculumSchema = curriculumMetadataSchema;
@@ -321,6 +328,105 @@ export const checkoutConflictSchema = z.object({
   message: z.string(),
 });
 
+/**
+ * The optional reason an admin gives for changing a member's access. Blank is
+ * stored as null, so the audit trail never shows an empty reason as if one had
+ * been given.
+ */
+const adminAccessReason = z
+  .string()
+  .trim()
+  .max(500)
+  .nullish()
+  .transform((reason) => (reason ? reason : null));
+
+/** `validUntil` null is a grant with no end date. */
+export const adminGrantMemberAccessSchema = z.object({
+  validUntil: z.string().datetime().nullable(),
+  reason: adminAccessReason,
+});
+
+export const adminRevokeMemberAccessSchema = z.object({
+  reason: adminAccessReason,
+});
+
+/** `subscriptionId` is the stored subscription row's id, not Stripe's. */
+export const adminRestoreMemberRefundSchema = z.object({
+  subscriptionId: z.string().min(1),
+  reason: adminAccessReason,
+});
+
+/**
+ * What a member can watch right now and, when it is nothing, why. Every
+ * no-access kind carries the date of the thing that took access away.
+ */
+export const memberAccessStatusSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('manual-grant'), validUntil: z.string().datetime().nullable() }),
+  z.object({ kind: z.literal('stripe'), validUntil: z.string().datetime().nullable() }),
+  z.object({ kind: z.literal('revoked'), reason: z.string(), at: z.string().datetime() }),
+  z.object({
+    kind: z.literal('admin-revoked'),
+    at: z.string().datetime(),
+    actorClerkUserId: z.string(),
+  }),
+  z.object({ kind: z.literal('expired'), at: z.string().datetime() }),
+  z.object({
+    kind: z.literal('subscription-inactive'),
+    status: z.string(),
+    at: z.string().datetime(),
+  }),
+  z.object({ kind: z.literal('never') }),
+]);
+
+export const adminMemberSummarySchema = z.object({
+  id: z.string(),
+  clerkUserId: z.string(),
+  role: z.nativeEnum(Role),
+  createdAt: z.string().datetime(),
+  hasAccess: z.boolean(),
+  access: memberAccessStatusSchema,
+});
+
+export const adminMemberSubscriptionSchema = z.object({
+  id: z.string(),
+  stripeSubscriptionId: z.string(),
+  stripeCustomerId: z.string(),
+  status: z.string(),
+  currentPeriodEnd: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+  revokedReason: z.string().nullable(),
+  /** A refund revocation an admin can clear. */
+  restorable: z.boolean(),
+  /** Whether clearing it would give access back now, rather than only the record. */
+  restoreGivesAccess: z.boolean(),
+});
+
+export const adminMemberAuditEntrySchema = z.object({
+  id: z.string(),
+  action: z.nativeEnum(MemberAccessAction),
+  actorClerkUserId: z.string(),
+  reason: z.string().nullable(),
+  tierBefore: z.nativeEnum(EntitlementTier),
+  validUntilBefore: z.string().datetime().nullable(),
+  tierAfter: z.nativeEnum(EntitlementTier),
+  validUntilAfter: z.string().datetime().nullable(),
+  stripeSubscriptionId: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const adminMemberDetailSchema = adminMemberSummarySchema.extend({
+  /** A live manual grant, the only access an admin can revoke. */
+  canRevoke: z.boolean(),
+  /** What revoking would leave: access from Stripe, or none. Null when there is nothing to revoke. */
+  accessAfterRevoke: z
+    .object({ hasAccess: z.boolean(), validUntil: z.string().datetime().nullable() })
+    .nullable(),
+  /** Stripe already grants access, so a manual grant is refused. */
+  hasLiveStripeAccess: z.boolean(),
+  subscriptions: z.array(adminMemberSubscriptionSchema),
+  history: z.array(adminMemberAuditEntrySchema),
+});
+
 export type LessonSummary = z.infer<typeof lessonSummarySchema>;
 export type LessonDetailDto = z.infer<typeof lessonDetailSchema>;
 export type CourseDto = z.infer<typeof courseSchema>;
@@ -344,3 +450,11 @@ export type EntitlementsResponse = z.infer<typeof entitlementsResponseSchema>;
 export type CheckoutSessionDto = z.infer<typeof checkoutSessionSchema>;
 export type CheckoutConflictDto = z.infer<typeof checkoutConflictSchema>;
 export type BillingPortalSessionDto = z.infer<typeof billingPortalSessionSchema>;
+export type AdminGrantMemberAccessDto = z.infer<typeof adminGrantMemberAccessSchema>;
+export type AdminRevokeMemberAccessDto = z.infer<typeof adminRevokeMemberAccessSchema>;
+export type AdminRestoreMemberRefundDto = z.infer<typeof adminRestoreMemberRefundSchema>;
+export type MemberAccessStatus = z.infer<typeof memberAccessStatusSchema>;
+export type AdminMemberSummary = z.infer<typeof adminMemberSummarySchema>;
+export type AdminMemberSubscription = z.infer<typeof adminMemberSubscriptionSchema>;
+export type AdminMemberAuditEntry = z.infer<typeof adminMemberAuditEntrySchema>;
+export type AdminMemberDetail = z.infer<typeof adminMemberDetailSchema>;

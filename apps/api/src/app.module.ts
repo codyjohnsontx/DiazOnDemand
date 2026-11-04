@@ -13,6 +13,7 @@ import { MeController } from './me/me.controller.js';
 import { MeService } from './me/me.service.js';
 import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
+import { AdminMembersService } from './admin/admin-members.service.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
 import { BILLING_ALERTER, LoggingBillingAlerter } from './billing/billing-alerter.js';
@@ -38,6 +39,7 @@ import { MuxDirectUploadService } from './mux/mux-direct-upload.service.js';
     FavoritesService,
     MeService,
     AdminService,
+    AdminMembersService,
     MuxDirectUploadService,
     BillingService,
     WebhooksService,
