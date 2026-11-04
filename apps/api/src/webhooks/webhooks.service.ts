@@ -87,7 +87,11 @@ export class WebhooksService {
       throw new Error('Stripe webhook not configured');
     }
 
-    return this.stripe.webhooks.constructEvent(payload, signature, process.env.STRIPE_WEBHOOK_SECRET);
+    return this.stripe.webhooks.constructEvent(
+      payload,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET,
+    );
   }
 
   /**
@@ -161,7 +165,14 @@ export class WebhooksService {
     await this.prisma.client.stripeWebhookEvent.upsert({
       where: { id: event.id },
       update: { status, error, attempts: { increment: 1 }, stripeSubscriptionId },
-      create: { id: event.id, type: event.type, status, stripeCreatedAt, error, stripeSubscriptionId },
+      create: {
+        id: event.id,
+        type: event.type,
+        status,
+        stripeCreatedAt,
+        error,
+        stripeSubscriptionId,
+      },
     });
   }
 
@@ -179,10 +190,7 @@ export class WebhooksService {
     }
 
     if (SUBSCRIPTION_EVENT_TYPES.has(event.type)) {
-      return this.applySubscriptionEvent(
-        event.data.object as Stripe.Subscription,
-        stripeCreatedAt,
-      );
+      return this.applySubscriptionEvent(event.data.object as Stripe.Subscription, stripeCreatedAt);
     }
 
     if (event.type === 'charge.refunded') {
@@ -278,9 +286,7 @@ export class WebhooksService {
 
     await this.syncEntitlementFromSubscriptions(userId);
 
-    this.logger.log(
-      `Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}`,
-    );
+    this.logger.log(`Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}`);
 
     return null;
   }
@@ -368,10 +374,7 @@ export class WebhooksService {
    * checkout that expired or failed never produces one, and those are exactly
    * the cases where a member would otherwise stay locked out until the TTL.
    */
-  private async releaseCheckoutReservation(
-    session: Stripe.Checkout.Session,
-    eventType: string,
-  ) {
+  private async releaseCheckoutReservation(session: Stripe.Checkout.Session, eventType: string) {
     const released = await releaseCheckout(this.prisma, { stripeSessionId: session.id });
 
     this.logger.log(
@@ -395,7 +398,9 @@ export class WebhooksService {
     const charge = await this.resolveDisputedCharge(dispute);
 
     if (!charge) {
-      this.logger.warn(`Won dispute ${dispute.id} could not be traced to a charge; access unchanged`);
+      this.logger.warn(
+        `Won dispute ${dispute.id} could not be traced to a charge; access unchanged`,
+      );
       await this.alerter.send(
         `Dispute ${dispute.id} was won but could not be traced to a charge - the money stayed with ` +
           `us and the member is still locked out. Restore access by hand and check Stripe.`,
@@ -604,11 +609,7 @@ export class WebhooksService {
     // Only a *live* manual grant is protected. A MANUAL row that is FREE, or a
     // PREMIUM one that has expired, is not a grant anybody is relying on, so
     // Stripe still writes those - including the FREE row created at checkout.
-    if (
-      existing &&
-      existing.source === EntitlementSource.MANUAL &&
-      isEntitlementActive(existing)
-    ) {
+    if (existing && existing.source === EntitlementSource.MANUAL && isEntitlementActive(existing)) {
       this.logger.log(
         'Left a live manually granted entitlement in place rather than overwriting it from Stripe',
       );
@@ -866,7 +867,9 @@ export class WebhooksService {
       return { lesson: null, matchedByUpload: false };
     }
 
-    const byUpload = await this.prisma.client.lesson.findFirst({ where: { muxUploadId: uploadId } });
+    const byUpload = await this.prisma.client.lesson.findFirst({
+      where: { muxUploadId: uploadId },
+    });
 
     return { lesson: byUpload, matchedByUpload: byUpload !== null };
   }

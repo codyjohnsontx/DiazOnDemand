@@ -9,6 +9,8 @@
     "build": "turbo run build",
     "start": "pnpm --filter api start",
     "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "db:generate": "pnpm --filter @diaz/db db:generate",

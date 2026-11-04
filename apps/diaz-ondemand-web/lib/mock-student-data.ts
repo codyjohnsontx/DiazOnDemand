@@ -16,7 +16,8 @@ const lessons = [
     id: '33333333-3333-3333-3333-333333333331',
     courseId,
     title: 'Frame Fundamentals',
-    description: 'Learn the first layer of guard retention with frames, elbow position, and safe distance management.',
+    description:
+      'Learn the first layer of guard retention with frames, elbow position, and safe distance management.',
     orderIndex: 1,
     isPublished: true,
     accessLevel: AccessLevel.FREE,
@@ -42,7 +43,8 @@ const lessons = [
     id: '33333333-3333-3333-3333-333333333332',
     courseId,
     title: 'Hip Escape to Guard Recovery',
-    description: 'Connect your frames to hip movement and recover inside position before the pass settles.',
+    description:
+      'Connect your frames to hip movement and recover inside position before the pass settles.',
     orderIndex: 2,
     isPublished: true,
     accessLevel: AccessLevel.PAID,
@@ -68,7 +70,8 @@ const lessons = [
     id: '33333333-3333-3333-3333-333333333333',
     courseId,
     title: 'Leg Pummel Timing',
-    description: 'Build the timing needed to reinsert your legs and stay ahead of pressure passing sequences.',
+    description:
+      'Build the timing needed to reinsert your legs and stay ahead of pressure passing sequences.',
     orderIndex: 3,
     isPublished: true,
     accessLevel: AccessLevel.PAID,
@@ -96,7 +99,8 @@ export const mockPrograms: ProgramWithContentDto[] = [
   {
     id: programId,
     title: 'Diaz Fundamentals',
-    description: 'Core BJJ structure for students building dependable escapes, frames, and recovery habits.',
+    description:
+      'Core BJJ structure for students building dependable escapes, frames, and recovery habits.',
     orderIndex: 1,
     discipline: Discipline.BJJ,
     isFeaturedDemo: false,
@@ -106,7 +110,8 @@ export const mockPrograms: ProgramWithContentDto[] = [
         id: courseId,
         programId,
         title: 'Guard Retention 101',
-        description: 'A first-step progression through frames, hip movement, and early guard recovery.',
+        description:
+          'A first-step progression through frames, hip movement, and early guard recovery.',
         orderIndex: 1,
         isPublished: true,
         lessons: lessons.map(({ tags: _tags, ...lesson }) => lesson),

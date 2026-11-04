@@ -35,10 +35,14 @@ export function CourseCard({ course }: { course: CourseCardModel }) {
               </div>
             )}
 
-            <h3 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">{course.title}</h3>
+            <h3 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">
+              {course.title}
+            </h3>
 
             <div className="space-y-3">
-              {course.description ? <p className="type-meta text-white/78">{course.description}</p> : null}
+              {course.description ? (
+                <p className="type-meta text-white/78">{course.description}</p>
+              ) : null}
               <div className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.18em] text-white/58">
                 {course.progressPercent !== null ? <span>{course.lessonCount} lessons</span> : null}
                 {course.totalDurationLabel ? <span>{course.totalDurationLabel}</span> : null}

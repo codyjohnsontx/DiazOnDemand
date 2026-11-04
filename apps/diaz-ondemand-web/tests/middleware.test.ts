@@ -83,7 +83,10 @@ describe('signed-out visitors', () => {
   );
 
   it('answers 404 rather than an HTML redirect to a non-page request', async () => {
-    const res = await run('false', '/account', { accept: 'application/json', cookie: SIGNED_OUT_COOKIES });
+    const res = await run('false', '/account', {
+      accept: 'application/json',
+      cookie: SIGNED_OUT_COOKIES,
+    });
 
     expect(res?.headers.get('location')).toBeNull();
     // Clerk throws Next's notFound(), which middleware turns into a rewrite

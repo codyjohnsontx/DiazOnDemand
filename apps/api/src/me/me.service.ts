@@ -31,8 +31,7 @@ export class MeService {
       return null;
     }
 
-    const subscription =
-      user.subscriptions.find(isLiveStripeSubscription) ?? user.subscriptions[0];
+    const subscription = user.subscriptions.find(isLiveStripeSubscription) ?? user.subscriptions[0];
 
     // A revoked row still carries the Stripe status and period end it had when
     // the refund or chargeback landed, and reporting those next to a FREE
@@ -85,11 +84,7 @@ export class MeService {
     // MVP rule: gym membership is true if a User row exists (we upsert above).
     const gymMember = true;
 
-    const tier: EntitlementsResponse['tier'] = vod
-      ? 'VOD'
-      : gymMember
-        ? 'GYM_MEMBER'
-        : 'FREE';
+    const tier: EntitlementsResponse['tier'] = vod ? 'VOD' : gymMember ? 'GYM_MEMBER' : 'FREE';
 
     return entitlementsResponseSchema.parse({
       gymMember,

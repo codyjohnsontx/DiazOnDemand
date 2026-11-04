@@ -25,7 +25,9 @@ export default async function AccountPage() {
           <div className={ROW_CLASSES}>
             <div className="min-w-0 flex-1 space-y-1">
               <p className="type-kicker text-[var(--text-muted)]">Entitlement</p>
-              <h2 className="font-display text-2xl leading-none text-[var(--text)]">{me.entitlementTier}</h2>
+              <h2 className="font-display text-2xl leading-none text-[var(--text)]">
+                {me.entitlementTier}
+              </h2>
             </div>
           </div>
 
@@ -87,11 +89,7 @@ export default async function AccountPage() {
     console.error('[AccountPage] Failed to load account data', error);
     return (
       <AppShell>
-        <EmptyState
-          ctaHref="/sign-in"
-          ctaLabel="Sign in"
-          title="Account unavailable"
-        />
+        <EmptyState ctaHref="/sign-in" ctaLabel="Sign in" title="Account unavailable" />
       </AppShell>
     );
   }

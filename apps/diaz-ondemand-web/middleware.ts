@@ -20,35 +20,38 @@ const clerkConfigured = !devBypassEnabled && Boolean(process.env.NEXT_PUBLIC_CLE
 const comingSoonEnabled =
   process.env.VOD_COMING_SOON === 'true' || process.env.NEXT_PUBLIC_VOD_COMING_SOON === 'true';
 
-export default clerkMiddleware(async (auth, req) => {
-  if (comingSoonEnabled && req.nextUrl.pathname !== '/') {
-    const url = req.nextUrl.clone();
-    url.pathname = '/';
-    url.search = '';
-    // NextResponse, not Response.redirect: clerkMiddleware appends its auth
-    // headers to whatever this returns, and Response.redirect's headers are
-    // immutable, so every walled path answered 500 (TypeError: immutable).
-    return NextResponse.redirect(url, 302);
-  }
-
-  if (!clerkConfigured) {
-    if (devBypassEnabled || !isProtectedRoute(req)) {
-      return;
+export default clerkMiddleware(
+  async (auth, req) => {
+    if (comingSoonEnabled && req.nextUrl.pathname !== '/') {
+      const url = req.nextUrl.clone();
+      url.pathname = '/';
+      url.search = '';
+      // NextResponse, not Response.redirect: clerkMiddleware appends its auth
+      // headers to whatever this returns, and Response.redirect's headers are
+      // immutable, so every walled path answered 500 (TypeError: immutable).
+      return NextResponse.redirect(url, 302);
     }
 
-    return new Response('Clerk misconfigured for protected route', { status: 500 });
-  }
+    if (!clerkConfigured) {
+      if (devBypassEnabled || !isProtectedRoute(req)) {
+        return;
+      }
 
-  if (isProtectedRoute(req)) {
-    await auth.protect();
-    return;
-  }
-}, {
-  // Without this, a signed-out page load of a protected route is redirected to
-  // Clerk's hosted Account Portal on another domain rather than to the app's
-  // own sign-in page. Clerk appends redirect_url so sign-in returns here.
-  signInUrl: '/sign-in',
-});
+      return new Response('Clerk misconfigured for protected route', { status: 500 });
+    }
+
+    if (isProtectedRoute(req)) {
+      await auth.protect();
+      return;
+    }
+  },
+  {
+    // Without this, a signed-out page load of a protected route is redirected to
+    // Clerk's hosted Account Portal on another domain rather than to the app's
+    // own sign-in page. Clerk appends redirect_url so sign-in returns here.
+    signInUrl: '/sign-in',
+  },
+);
 
 export const config = {
   matcher: [

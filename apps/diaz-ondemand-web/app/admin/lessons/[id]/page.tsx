@@ -282,7 +282,11 @@ export default function AdminLessonDetailPage() {
       // Mux issues the playback id later, on `video.asset.ready`, and the webhook
       // finds the lesson by exactly this asset id. Demanding a playback id here
       // was what left ingestion with no entrance at all.
-      if (current.videoProvider === VideoProvider.MUX && !outgoing.muxPlaybackId && !outgoing.muxAssetId) {
+      if (
+        current.videoProvider === VideoProvider.MUX &&
+        !outgoing.muxPlaybackId &&
+        !outgoing.muxAssetId
+      ) {
         setStatus('Set the Mux asset ID or the playback ID when the lesson uses Mux.');
         return;
       }
@@ -376,7 +380,9 @@ export default function AdminLessonDetailPage() {
     return (
       <AppShell>
         <div className="surface-panel p-8">
-          <p className="font-display text-2xl leading-tight text-[var(--text-muted)]">Loading lesson...</p>
+          <p className="font-display text-2xl leading-tight text-[var(--text-muted)]">
+            Loading lesson...
+          </p>
         </div>
       </AppShell>
     );
@@ -385,7 +391,10 @@ export default function AdminLessonDetailPage() {
   if (lessonContext === null || !lesson) {
     return (
       <AppShell>
-        <EmptyState description="The selected lesson could not be found." title="Lesson unavailable" />
+        <EmptyState
+          description="The selected lesson could not be found."
+          title="Lesson unavailable"
+        />
       </AppShell>
     );
   }
@@ -426,12 +435,17 @@ export default function AdminLessonDetailPage() {
       <form className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]" onSubmit={onSave}>
         <section className="surface-panel space-y-5 p-6">
           <div className="flex items-start justify-between gap-4">
-            <h1 className="font-display text-4xl leading-none text-[var(--text)]">{lesson.title}</h1>
+            <h1 className="font-display text-4xl leading-none text-[var(--text)]">
+              {lesson.title}
+            </h1>
             <div className="flex flex-wrap items-center gap-2">
               {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
               {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
               <LessonVideoStateBadge lesson={lesson} />
-              <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
+              <PremiumBadge
+                label={lesson.isPublished ? 'Published' : 'Draft'}
+                tone={lesson.isPublished ? 'accent' : 'neutral'}
+              />
             </div>
           </div>
 
@@ -455,7 +469,9 @@ export default function AdminLessonDetailPage() {
               className="min-h-[180px] w-full rounded-[24px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               rows={6}
               value={form.description}
-              onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, description: event.target.value }))
+              }
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -486,7 +502,10 @@ export default function AdminLessonDetailPage() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={durationSecondsInputId}>
+              <label
+                className="type-kicker text-[var(--text-muted)]"
+                htmlFor={durationSecondsInputId}
+              >
                 Duration seconds
               </label>
               <input
@@ -494,7 +513,9 @@ export default function AdminLessonDetailPage() {
                 className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 placeholder="Duration seconds"
                 value={form.durationSeconds}
-                onChange={(event) => setForm((prev) => ({ ...prev, durationSeconds: event.target.value }))}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, durationSeconds: event.target.value }))
+                }
               />
             </div>
           </div>
@@ -560,8 +581,8 @@ export default function AdminLessonDetailPage() {
               />
               <p className="type-meta text-[var(--text-muted)]">
                 Filled in by an upload above, or paste the ID of an asset that already exists in
-                Mux. Either way the Mux webhook fills in the playback ID and duration once the
-                asset finishes encoding.
+                Mux. Either way the Mux webhook fills in the playback ID and duration once the asset
+                finishes encoding.
               </p>
             </div>
           ) : null}
@@ -647,7 +668,10 @@ export default function AdminLessonDetailPage() {
             <h2 className="type-title-lg text-[var(--text)]">Guided path</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumDisciplineInputId}>
+                <label
+                  className="type-kicker text-[var(--text-muted)]"
+                  htmlFor={curriculumDisciplineInputId}
+                >
                   Curriculum discipline
                 </label>
                 <select
@@ -657,7 +681,9 @@ export default function AdminLessonDetailPage() {
                   onChange={(event) =>
                     setForm((prev) => ({
                       ...prev,
-                      curriculum: createDefaultCurriculum(event.target.value as CurriculumMetadata['discipline']),
+                      curriculum: createDefaultCurriculum(
+                        event.target.value as CurriculumMetadata['discipline'],
+                      ),
                     }))
                   }
                 >
@@ -669,7 +695,10 @@ export default function AdminLessonDetailPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumPhaseInputId}>
+                <label
+                  className="type-kicker text-[var(--text-muted)]"
+                  htmlFor={curriculumPhaseInputId}
+                >
                   Curriculum phase
                 </label>
                 <select
@@ -683,8 +712,10 @@ export default function AdminLessonDetailPage() {
                         ...prev.curriculum,
                         phase: event.target.value,
                         track:
-                          getCurriculumTrackKeys(prev.curriculum.discipline, event.target.value)[0] ??
-                          prev.curriculum.track,
+                          getCurriculumTrackKeys(
+                            prev.curriculum.discipline,
+                            event.target.value,
+                          )[0] ?? prev.curriculum.track,
                       },
                     }))
                   }
@@ -697,7 +728,10 @@ export default function AdminLessonDetailPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumTrackInputId}>
+                <label
+                  className="type-kicker text-[var(--text-muted)]"
+                  htmlFor={curriculumTrackInputId}
+                >
                   Curriculum track
                 </label>
                 <select
@@ -719,7 +753,10 @@ export default function AdminLessonDetailPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumSkillInputId}>
+                <label
+                  className="type-kicker text-[var(--text-muted)]"
+                  htmlFor={curriculumSkillInputId}
+                >
                   Curriculum skill
                 </label>
                 <select
@@ -742,7 +779,10 @@ export default function AdminLessonDetailPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={curriculumLevelInputId}>
+                <label
+                  className="type-kicker text-[var(--text-muted)]"
+                  htmlFor={curriculumLevelInputId}
+                >
                   Curriculum level
                 </label>
                 <select
@@ -775,7 +815,9 @@ export default function AdminLessonDetailPage() {
               <PremiumBadge label={`discipline:${form.curriculum.discipline}`} />
               <PremiumBadge label={`phase:${form.curriculum.phase}`} />
               <PremiumBadge label={`track:${form.curriculum.track}`} />
-              {form.curriculum.skill ? <PremiumBadge label={`skill:${form.curriculum.skill}`} /> : null}
+              {form.curriculum.skill ? (
+                <PremiumBadge label={`skill:${form.curriculum.skill}`} />
+              ) : null}
               <PremiumBadge label={`level:${form.curriculum.level}`} />
             </div>
           </div>

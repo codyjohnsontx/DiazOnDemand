@@ -254,7 +254,9 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
 
   afterEach(async () => {
     await prismaClient!.stripeWebhookEvent.deleteMany({});
-    await prismaClient!.user.deleteMany({ where: { clerkUserId: { startsWith: 'billing-test-' } } });
+    await prismaClient!.user.deleteMany({
+      where: { clerkUserId: { startsWith: 'billing-test-' } },
+    });
     vi.restoreAllMocks();
   });
 
@@ -556,7 +558,9 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
         where: { id: refund.id },
       });
       expect(recorded?.status).toBe('FAILED');
-      expect(alerts.some((alert) => alert.includes('Stripe is temporarily unavailable'))).toBe(true);
+      expect(alerts.some((alert) => alert.includes('Stripe is temporarily unavailable'))).toBe(
+        true,
+      );
 
       // Stripe retries, the read succeeds, and the revocation finally lands.
       retrieve.mockResolvedValue({ id: 'in_test', subscription: 'sub_stripe_down' });
@@ -1397,7 +1401,9 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
     stripeStub.checkout.sessions.expire.mockReset();
     stripeStub.checkout.sessions.retrieve.mockReset();
     stripeStub.billingPortal.sessions.create.mockReset();
-    await prismaClient!.user.deleteMany({ where: { clerkUserId: { startsWith: 'billing-test-' } } });
+    await prismaClient!.user.deleteMany({
+      where: { clerkUserId: { startsWith: 'billing-test-' } },
+    });
   });
 
   /**
@@ -1536,7 +1542,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       expect(stripeStub.checkout.sessions.create.mock.calls.length).toBe(2);
     });
 
-    it('clears only the cancelling member\'s own lock', async () => {
+    it("clears only the cancelling member's own lock", async () => {
       const other = await createUser('billing-test-reservation-other');
       await createUser('billing-test-reservation-canceller');
       const service = createService();
@@ -1695,7 +1701,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
      * expires, and its default is 24 hours - long after the lock has lapsed.
      * Tying the session to the reservation is what keeps the two agreeing.
      */
-    it('expires the Stripe session on the reservation\'s own clock', async () => {
+    it("expires the Stripe session on the reservation's own clock", async () => {
       await createUser('billing-test-reservation-expires-at');
       const service = createService();
       stripeStub.checkout.sessions.create.mockResolvedValue({
@@ -1706,8 +1712,9 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       const before = Date.now();
       await service.createCheckoutSession('billing-test-reservation-expires-at');
 
-      const [{ expires_at: expiresAt }] = stripeStub.checkout.sessions.create.mock
-        .calls[0] as [{ expires_at: number }];
+      const [{ expires_at: expiresAt }] = stripeStub.checkout.sessions.create.mock.calls[0] as [
+        { expires_at: number },
+      ];
       // Never under Stripe's 30-minute floor, and never so far out that the
       // event lands long after the lock it is meant to match.
       expect(expiresAt * 1000).toBeGreaterThan(before + CHECKOUT_RESERVATION_TTL_MS);
@@ -1781,9 +1788,9 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
         url: 'https://stripe.test/session',
       });
 
-      await expect(service.createCheckoutSession('billing-test-checkout-guard')).rejects.toMatchObject(
-        { status: 409 },
-      );
+      await expect(
+        service.createCheckoutSession('billing-test-checkout-guard'),
+      ).rejects.toMatchObject({ status: 409 });
       expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
     });
 

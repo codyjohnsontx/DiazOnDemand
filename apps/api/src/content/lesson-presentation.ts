@@ -165,7 +165,10 @@ function publicPlaybackIdentifiers(lesson: LessonLike) {
  * Staff see the stored provider instead - see `mapAdminLessonSummary`.
  */
 function resolveVideoProvider(lesson: LessonLike) {
-  if (lesson.videoProvider === VideoProvider.YOUTUBE && isValidYouTubeVideoId(lesson.youtubeVideoId)) {
+  if (
+    lesson.videoProvider === VideoProvider.YOUTUBE &&
+    isValidYouTubeVideoId(lesson.youtubeVideoId)
+  ) {
     return VideoProvider.YOUTUBE;
   }
 
@@ -213,7 +216,8 @@ export function mapLessonSummary(lesson: LessonLike): LessonSummary {
 export function mapAdminLessonSummary(lesson: LessonLike): AdminLessonSummary {
   return {
     ...mapLessonSummary(lesson),
-    videoProvider: (lesson.videoProvider as AdminLessonSummary['videoProvider']) ?? VideoProvider.MUX,
+    videoProvider:
+      (lesson.videoProvider as AdminLessonSummary['videoProvider']) ?? VideoProvider.MUX,
     muxPlaybackId: lesson.muxPlaybackId ?? null,
     youtubeVideoId: lesson.youtubeVideoId ?? null,
     muxAssetId: lesson.muxAssetId ?? null,

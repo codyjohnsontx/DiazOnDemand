@@ -195,7 +195,10 @@ const apiEnvSchema = z
       });
     }
 
-    if ((value.MUX_TOKEN_ID && !value.MUX_TOKEN_SECRET) || (!value.MUX_TOKEN_ID && value.MUX_TOKEN_SECRET)) {
+    if (
+      (value.MUX_TOKEN_ID && !value.MUX_TOKEN_SECRET) ||
+      (!value.MUX_TOKEN_ID && value.MUX_TOKEN_SECRET)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['MUX_TOKEN_ID'],

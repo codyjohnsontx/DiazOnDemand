@@ -170,7 +170,10 @@ export function formatCurriculumLabel(lesson: LessonSummary) {
   return formatCurriculumMetadataLabel(lesson.curriculum);
 }
 
-export function buildCourseProgress(course: CourseWithLessons, progress: ProgressDto[]): CourseProgressModel {
+export function buildCourseProgress(
+  course: CourseWithLessons,
+  progress: ProgressDto[],
+): CourseProgressModel {
   const lessons = sortLessons(course.lessons ?? []);
 
   if (lessons.length === 0) {
@@ -209,7 +212,8 @@ export function buildCourseProgress(course: CourseWithLessons, progress: Progres
     percent: totalPercent,
     completedLessons,
     totalLessons: lessons.length,
-    continueLessonId: inProgress[0]?.lesson.id ?? firstIncomplete?.lesson.id ?? lessons[0]?.id ?? null,
+    continueLessonId:
+      inProgress[0]?.lesson.id ?? firstIncomplete?.lesson.id ?? lessons[0]?.id ?? null,
     nextLessonId: firstIncomplete?.lesson.id ?? null,
     inProgressLessonId: inProgress[0]?.lesson.id ?? null,
   };
@@ -262,7 +266,9 @@ export function buildRecommendation(
     const currentProgress = buildCourseProgress(currentCourse, progress);
 
     if (currentProgress.inProgressLessonId) {
-      const lesson = currentCourse.lessons?.find((entry) => entry.id === currentProgress.inProgressLessonId) ?? null;
+      const lesson =
+        currentCourse.lessons?.find((entry) => entry.id === currentProgress.inProgressLessonId) ??
+        null;
 
       return {
         lessonId: lesson?.id ?? null,
@@ -275,7 +281,8 @@ export function buildRecommendation(
     }
 
     if (currentProgress.nextLessonId) {
-      const lesson = currentCourse.lessons?.find((entry) => entry.id === currentProgress.nextLessonId) ?? null;
+      const lesson =
+        currentCourse.lessons?.find((entry) => entry.id === currentProgress.nextLessonId) ?? null;
 
       return {
         lessonId: lesson?.id ?? null,

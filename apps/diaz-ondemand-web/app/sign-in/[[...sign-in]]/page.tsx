@@ -16,7 +16,9 @@ export default function SignInPage() {
               ? 'Sign-in is temporarily bypassed for development. You can keep working through the library as the configured local dev user.'
               : 'Clerk keys are not configured for this environment. Configure Clerk for real member sign-in or explicitly enable development bypass locally.'
           }
-          title={devBypassEnabled ? 'Development access is enabled' : 'Member access is not configured'}
+          title={
+            devBypassEnabled ? 'Development access is enabled' : 'Member access is not configured'
+          }
         />
       </AppShell>
     );

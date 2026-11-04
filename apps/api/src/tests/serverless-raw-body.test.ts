@@ -57,7 +57,9 @@ async function applyVercelRequestHelpers(req: Request): Promise<void> {
   const originalOn = req.on.bind(req);
   req.read = replicateBody.read.bind(replicateBody) as Request['read'];
   req.on = req.addListener = ((name: string, cb: (...args: unknown[]) => void) =>
-    name === 'data' || name === 'end' ? on(name, cb) : originalOn(name, cb)) as unknown as Request['on'];
+    name === 'data' || name === 'end'
+      ? on(name, cb)
+      : originalOn(name, cb)) as unknown as Request['on'];
   replicateBody.write(Buffer.concat(chunks));
   replicateBody.end();
 }

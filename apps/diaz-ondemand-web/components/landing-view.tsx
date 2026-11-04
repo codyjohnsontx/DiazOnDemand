@@ -25,7 +25,9 @@ export function LandingView() {
         </section>
 
         <aside className="surface-panel space-y-5 p-8">
-          <h2 className="font-display text-4xl leading-none text-[var(--text)]">Unlock the full library</h2>
+          <h2 className="font-display text-4xl leading-none text-[var(--text)]">
+            Unlock the full library
+          </h2>
           <Link
             className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
             href="/subscribe"

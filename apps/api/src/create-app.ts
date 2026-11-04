@@ -75,9 +75,7 @@ export async function createApiApp(): Promise<{ app: INestApplication; env: ApiE
   const env = validateApiEnv(process.env);
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
-  const corsOrigins = env.CORS_ORIGIN
-    .split(',')
-    .map((origin) => origin.trim());
+  const corsOrigins = env.CORS_ORIGIN.split(',').map((origin) => origin.trim());
 
   app.enableCors({
     origin: corsOrigins,

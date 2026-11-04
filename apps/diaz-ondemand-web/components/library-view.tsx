@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import { startTransition, useDeferredValue, useEffect, useState } from 'react';
-import { buildRecommendation, Discipline, getDisciplineLabel, type ProgramWithContentDto, type ProgressDto } from '@diaz/shared';
+import {
+  buildRecommendation,
+  Discipline,
+  getDisciplineLabel,
+  type ProgramWithContentDto,
+  type ProgressDto,
+} from '@diaz/shared';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 import { buildContinueWatching, buildCourseCardModel } from '@/lib/student-ui';
@@ -48,7 +54,9 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   );
   const firstProgram = filteredPrograms.find((program) => program.courses.length > 0) ?? null;
   const firstCourse = firstProgram?.courses[0] ?? null;
-  const recommendation = firstCourse ? buildRecommendation(filteredPrograms, firstCourse.id, progress) : null;
+  const recommendation = firstCourse
+    ? buildRecommendation(filteredPrograms, firstCourse.id, progress)
+    : null;
 
   return (
     <AppShell className="space-y-16">
@@ -113,7 +121,10 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
           <div className="space-y-1">
             {featuredPrograms.flatMap((program) =>
               program.courses.map((course) => (
-                <CourseRow course={buildCourseCardModel(program, course, progress)} key={course.id} />
+                <CourseRow
+                  course={buildCourseCardModel(program, course, progress)}
+                  key={course.id}
+                />
               )),
             )}
           </div>
@@ -122,7 +133,10 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
 
       {trainingPrograms.length > 0 && continueWatching.length > 0 ? (
         <section className="space-y-5">
-          <SectionHeader detail={`${continueWatching.length} active lessons`} title="Continue watching" />
+          <SectionHeader
+            detail={`${continueWatching.length} active lessons`}
+            title="Continue watching"
+          />
           <div className="space-y-1">
             {continueWatching.slice(0, 8).map((item) => (
               <ContinueRow item={item} key={item.lessonId} />
@@ -138,15 +152,17 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
       ) : null}
 
       {(deferredDiscipline === 'all' ? disciplineOrder : [deferredDiscipline]).map((discipline) => {
-        const programsForDiscipline = filteredPrograms.filter((program) => program.discipline === discipline);
+        const programsForDiscipline = filteredPrograms.filter(
+          (program) => program.discipline === discipline,
+        );
 
         if (programsForDiscipline.length === 0) {
           return (
             <section className="space-y-5" key={discipline}>
               <SectionHeader title={getDisciplineLabel(discipline)} />
               <p className="type-body text-[var(--text-muted)]">
-                No published programs are available for {getDisciplineLabel(discipline)} yet.
-                Try another discipline or check back after new content is published.
+                No published programs are available for {getDisciplineLabel(discipline)} yet. Try
+                another discipline or check back after new content is published.
               </p>
             </section>
           );
@@ -160,15 +176,13 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
             />
             <div className="space-y-8">
               {programsForDiscipline.map((program) => {
-                const courses = program.courses.map((course) => buildCourseCardModel(program, course, progress));
+                const courses = program.courses.map((course) =>
+                  buildCourseCardModel(program, course, progress),
+                );
 
                 return (
                   <div className="space-y-3" key={program.id}>
-                    <SectionHeader
-                      as="h3"
-                      detail={program.description}
-                      title={program.title}
-                    />
+                    <SectionHeader as="h3" detail={program.description} title={program.title} />
                     <div className="space-y-1">
                       {courses.map((course) => (
                         <CourseRow course={course} key={course.id} />

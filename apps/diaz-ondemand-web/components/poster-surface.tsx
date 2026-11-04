@@ -27,9 +27,13 @@ export function PosterSurface({
       className={[
         'group relative overflow-hidden rounded-[28px] border border-white/10 bg-[var(--surface)] shadow-[0_24px_72px_rgba(0,0,0,0.28)]',
         className,
-      ].filter(Boolean).join(' ')}
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
-      <div className={`absolute inset-0 bg-gradient-to-br ${theme} transition-transform duration-500 group-hover:scale-[1.03]`} />
+      <div
+        className={`absolute inset-0 bg-gradient-to-br ${theme} transition-transform duration-500 group-hover:scale-[1.03]`}
+      />
       <div className="poster-grid absolute inset-0 opacity-20" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_28%)]" />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,rgba(7,8,10,0.1)_35%,rgba(7,8,10,0.92)_100%)]" />

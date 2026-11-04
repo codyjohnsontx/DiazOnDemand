@@ -245,9 +245,7 @@ export function programDisciplineToCurriculumDiscipline(
   }
 }
 
-export function getDisciplineLabel(
-  discipline: Discipline | CurriculumDiscipline,
-) {
+export function getDisciplineLabel(discipline: Discipline | CurriculumDiscipline) {
   const slug =
     typeof discipline === 'string' && discipline in curriculumCatalog
       ? (discipline as CurriculumDiscipline)
@@ -260,10 +258,7 @@ export function getCurriculumPhaseKeys(discipline: CurriculumDiscipline) {
   return Object.keys(getDisciplineCatalog(discipline).phases);
 }
 
-export function getCurriculumTrackKeys(
-  discipline: CurriculumDiscipline,
-  phase: string,
-) {
+export function getCurriculumTrackKeys(discipline: CurriculumDiscipline, phase: string) {
   return Object.keys(getDisciplineCatalog(discipline).phases[phase]?.tracks ?? {});
 }
 
@@ -275,10 +270,7 @@ export function getCurriculumLevelKeys(discipline: CurriculumDiscipline) {
   return [...getDisciplineCatalog(discipline).levels];
 }
 
-export function getCurriculumPhaseLabel(
-  discipline: CurriculumDiscipline,
-  phase: string,
-) {
+export function getCurriculumPhaseLabel(discipline: CurriculumDiscipline, phase: string) {
   return getDisciplineCatalog(discipline).phases[phase]?.label ?? titleCaseFallback(phase);
 }
 
@@ -294,7 +286,10 @@ export function getCurriculumSkillLabel(metadata: CurriculumMetadata) {
     return null;
   }
 
-  return getDisciplineCatalog(metadata.discipline).skills[metadata.skill] ?? titleCaseFallback(metadata.skill);
+  return (
+    getDisciplineCatalog(metadata.discipline).skills[metadata.skill] ??
+    titleCaseFallback(metadata.skill)
+  );
 }
 
 export function getCurriculumLevelLabel(level: CurriculumLevel) {

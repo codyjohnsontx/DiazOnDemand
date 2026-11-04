@@ -6,11 +6,11 @@ Lessons play on the web and in the mobile app. Staff upload and publish lessons 
 
 **Live web app:** https://diaz-on-demand-diaz-ondemand-web.vercel.app
 
-| App | Stack |
-|---|---|
-| `apps/api` | NestJS 11, Prisma 6, PostgreSQL, Stripe subscriptions and webhooks, Mux signed playback and direct upload, Clerk auth |
-| `apps/diaz-ondemand-web` | Next.js 15, React 19, Tailwind, Clerk, Mux Player (member web player and admin portal) |
-| `apps/mobile` | Expo SDK 54, React Native, React Navigation, Clerk |
+| App                      | Stack                                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`               | NestJS 11, Prisma 6, PostgreSQL, Stripe subscriptions and webhooks, Mux signed playback and direct upload, Clerk auth |
+| `apps/diaz-ondemand-web` | Next.js 15, React 19, Tailwind, Clerk, Mux Player (member web player and admin portal)                                |
+| `apps/mobile`            | Expo SDK 54, React Native, React Navigation, Clerk                                                                    |
 
 The three share a Turborepo + pnpm workspace, TypeScript throughout, with shared zod schemas and
 rules in `packages/shared` and the Prisma schema and migrations in `packages/db`.
@@ -20,13 +20,14 @@ mobile. Two API suites run against a real Postgres instead of a mocked Prisma cl
 `apps/api/src/tests/billing-lifecycle.db.test.ts` and `apps/api/src/tests/mux-ingestion.db.test.ts`.
 See [Tests](#tests) for how to run them.
 
-| Landing | Library |
-|---|---|
+| Landing                                       | Library                                         |
+| --------------------------------------------- | ----------------------------------------------- |
 | ![Landing page](docs/screenshots/landing.png) | ![Lesson library](docs/screenshots/library.png) |
 
 ## Developer guide
 
 Video-on-demand product monorepo for Diaz on Demand. This repo contains:
+
 - `apps/diaz-ondemand-web`: Next.js web app (admin portal + student web player)
 - `apps/api`: NestJS REST API
 - `apps/mobile`: Expo React Native student app
@@ -35,6 +36,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `packages/ui`: minimal shared UI component(s)
 
 ### Stack Summary
+
 - Monorepo: Turborepo + pnpm workspaces
 - Language: TypeScript everywhere
 - Web: Next.js 15 + Tailwind
@@ -45,6 +47,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Video: Mux playback IDs with public/free and signed/premium playback handling
 
 ### MVP Features Included
+
 - Browse Programs/Courses/Lessons (published only)
 - Lesson playback on web and mobile using Mux playback IDs
 - Progress upsert (`lastPositionSeconds`, `completed`), and the web and mobile players resume
@@ -58,6 +61,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Mux webhook with signature verification, syncing playback ID + duration on `video.asset.ready`
 
 ### Repository Layout
+
 - `/apps/api`
 - `/apps/diaz-ondemand-web`
 - `/apps/mobile`
@@ -66,15 +70,18 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - `/packages/ui`
 
 ### Separate Website Repo
+
 - `https://github.com/codyjohnsontx/DiazMartialArts.git`
 - `git@github.com:codyjohnsontx/DiazMartialArts.git`
 
 ### Environment Variables
+
 Root `.env.example` is the catalog of every variable. At runtime each app loads its own
 file: the API the monorepo-root `.env`, Next.js `apps/diaz-ondemand-web/.env`, Expo
 `apps/mobile/.env`. See "Local Setup" below.
 
 Required core values:
+
 - `DATABASE_URL`
 - `DEV_BYPASS_AUTH` (`false` everywhere except local development - see below)
 - `DEFAULT_DEV_CLERK_USER_ID`
@@ -86,6 +93,7 @@ Required core values:
 - `EXPO_PUBLIC_DEV_BYPASS_AUTH` (`true` only for local development bypass)
 
 Auth (Clerk):
+
 - `CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 - `CLERK_JWT_ISSUER`
@@ -93,6 +101,7 @@ Auth (Clerk):
 - `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`
 
 Stripe:
+
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_ID_MONTHLY`
@@ -103,6 +112,7 @@ Stripe:
 
 Mux (optional locally; the webhook secret and the signing key pair are required on any
 deployment):
+
 - `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` (API access token, from Settings > Access Tokens; the
   lesson editor's direct upload needs it with video write permission, and without it that one
   route answers 503 while the rest of the API runs)
@@ -115,19 +125,22 @@ deployment):
   Optional locally, **required on any deployment** - see "Vercel Deployment Notes")
 
 Seed helper:
+
 - `SEED_DEV_CLERK_USER_ID`
 
 ### Local Setup
+
 1. Install deps:
+
 ```bash
 corepack prepare pnpm@9.12.3 --activate
 pnpm install
 ```
 
 2. Configure env. Each app reads its own `.env`, and turbo forwards nothing between them:
-the API loads the monorepo-root `.env` (see `apps/api/src/create-app.ts`), Next.js loads
-`apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy the root and mobile
-ones:
+   the API loads the monorepo-root `.env` (see `apps/api/src/create-app.ts`), Next.js loads
+   `apps/diaz-ondemand-web/.env`, and Expo loads `apps/mobile/.env`. Copy the root and mobile
+   ones:
 
 ```bash
 cp .env.example .env
@@ -160,14 +173,15 @@ shipped `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable
 secret key, and `500`s identically. The middleware behaviour is not new, but copying that
 example is what puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`,
 `pnpm dev` starts and serves every route with no Clerk error, protected ones included, while a
-production build of that same tree refuses every route, `/` included, with `Missing
-publishableKey`. Both measured on `@clerk/nextjs` 6.37.5, whose `canUseKeyless` sends
+production build of that same tree refuses every route, `/` included, with
+`Missing publishableKey`. Both measured on `@clerk/nextjs` 6.37.5, whose `canUseKeyless` sends
 development to a keyless middleware that returns `NextResponse.next()` before either key
 assertion or our own handler runs - so the `Clerk misconfigured for protected route` branch in
 `middleware.ts` is real code that never executes in dev, and must not be read as what a missing
 `.env` does.
 
 What actually works, each verified by running it:
+
 - **Local bypass (fastest), and the recommended local setup:** set `DEV_BYPASS_AUTH=true` in
   the root `.env`, and `EXPO_PUBLIC_DEV_BYPASS_AUTH=true` in `apps/mobile/.env` only if you are
   running the Expo app. Leave `apps/diaz-ondemand-web/.env` absent. The API then authenticates a
@@ -195,34 +209,42 @@ What actually works, each verified by running it:
   `CLERK_SECRET_KEY` and `CLERK_JWT_ISSUER` in the root `.env`.
 
 3. Generate Prisma client and run migration:
+
 ```bash
 pnpm db:generate
 pnpm db:migrate
 ```
 
 4. Seed sample data:
+
 ```bash
 pnpm db:seed
 ```
 
 5. Start web + api:
+
 ```bash
 pnpm dev
 ```
+
 This also runs workspace `@diaz/shared` and `@diaz/db` TypeScript watchers used by the API.
 
 6. Start mobile separately:
+
 ```bash
 pnpm dev:mobile
 ```
 
 ### Running Each App
+
 - API: `pnpm --filter api dev` (`http://localhost:4000`, Swagger at `/docs`)
 - Web: `pnpm --filter diaz-ondemand-web dev` (`http://localhost:3000`)
 - Mobile: `pnpm --filter mobile dev`
 
 ### Vertical Slice Walkthrough
+
 After seed:
+
 1. Open web library at `http://localhost:3000/library`.
 2. Open a lesson in the Instructor Showcase program and play it. Those three carry real
    YouTube demonstration clips and are the only seeded lessons with a video; the other 64
@@ -247,13 +269,14 @@ After seed:
 6. Paid lessons require premium entitlement (returns HTTP 402 otherwise).
 
 ### Catalogue Video States
+
 Every published lesson resolves to exactly one of three states, and nothing else is allowed:
 
-| State                            | Seeded lessons | What a member sees                                    |
-| -------------------------------- | -------------: | ----------------------------------------------------- |
-| Real playable video              |              0 | The player, with real Diaz instruction                |
-| Labelled demonstration clip      |              3 | A YouTube clip, badged `Demo video` in the showcase    |
-| Not yet filmed                   |             64 | "This lesson has not been filmed", no player, no error |
+| State                       | Seeded lessons | What a member sees                                     |
+| --------------------------- | -------------: | ------------------------------------------------------ |
+| Real playable video         |              0 | The player, with real Diaz instruction                 |
+| Labelled demonstration clip |              3 | A YouTube clip, badged `Demo video` in the showcase    |
+| Not yet filmed              |             64 | "This lesson has not been filmed", no player, no error |
 
 The catalogue previously seeded 16 lessons with mnemonic Mux playback ids (`seedgrddef101`
 and siblings). Every one of them loaded the player and then failed with "Video does not
@@ -301,9 +324,9 @@ complete.
 
 A lesson can sit there indefinitely, and nothing alerts or times out. The four causes are
 encoding still running, an upload that failed at Mux, a webhook that was never configured, and
-- for an asset ID pasted in by hand - a `video.asset.ready` that was delivered *before* any
+(for an asset ID pasted in by hand) a `video.asset.ready` that was delivered _before_ any
 lesson held the asset ID. The webhook answers 201 for an asset no lesson matches, so Mux never
-retries it. **Remedy:** if the asset is already Ready in Mux *and* carries the playback policy
+retries it. **Remedy:** if the asset is already Ready in Mux _and_ carries the playback policy
 the lesson's access level requires - signed-only for `PAID`, public for `FREE`, see "Video
 Notes" below - redeliver its `video.asset.ready` event from the Mux dashboard now that the
 lesson holds the asset ID. For any other asset that redelivery is refused every time, and the fix
@@ -331,13 +354,13 @@ asset id, and `muxVideoError`, the last failure Mux reported. Staff see **one st
 derived by `resolveLessonVideoState` in `packages/shared` and worded in one component
 (`apps/diaz-ondemand-web/components/lesson-video-state.tsx`) for both admin surfaces:
 
-| State | Row | Badge |
-| --- | --- | --- |
-| No video | nothing stored | No video |
-| Upload in progress | `muxUploadId` set | Upload in progress |
-| Processing | `muxAssetId` set, no playback id (the waiting-for-Mux state above) | Waiting for Mux |
-| Ready | a playback identifier stored | Video ready |
-| Failed | `muxVideoError` set | Upload failed, with Mux's message |
+| State              | Row                                                                | Badge                             |
+| ------------------ | ------------------------------------------------------------------ | --------------------------------- |
+| No video           | nothing stored                                                     | No video                          |
+| Upload in progress | `muxUploadId` set                                                  | Upload in progress                |
+| Processing         | `muxAssetId` set, no playback id (the waiting-for-Mux state above) | Waiting for Mux                   |
+| Ready              | a playback identifier stored                                       | Video ready                       |
+| Failed             | `muxVideoError` set                                                | Upload failed, with Mux's message |
 
 Failed and Upload in progress outrank Ready on purpose: a replacement in flight over a lesson
 that still plays has to say so, and the note adds that the previous video is unchanged.
@@ -371,9 +394,10 @@ lesson id as passthrough, the ready sync stored the playback id and overwrote th
 length with the measured 10 seconds, the anonymous payload carried the plain url for the free
 lesson, and the entitled payload carried a signed url for the paid one whose unsigned form Mux
 answers 403. A deliberately invalid file produced `video.asset.errored` and the Upload failed
-state with Mux's message. Webhook *transport* was simulated for that run - see "Video Notes".
+state with Mux's message. Webhook _transport_ was simulated for that run - see "Video Notes".
 
 ### Clerk Setup Notes (Web + Expo)
+
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
   seeded admin, so it is local-only. The API refuses to start with it enabled unless
   `DATABASE_URL` points at a loopback host - `localhost`, any `127.x.x.x` address such as
@@ -408,7 +432,9 @@ state with Mux's message. Webhook *transport* was simulated for that run - see "
   live server-side.
 
 ### Stripe + Webhooks
+
 Billing endpoints (both Clerk-authenticated):
+
 - `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for two
   different reasons, told apart by a `code` on the body so the client can say the right thing:
   `subscription_exists` (the member already has an active subscription) and `checkout_in_flight`
@@ -423,6 +449,7 @@ Billing endpoints (both Clerk-authenticated):
   no Stripe customer yet.
 
 Stripe webhook endpoint:
+
 - `POST /webhooks/stripe`
 - Handles:
   - `customer.subscription.created` / `.updated` / `.deleted`
@@ -444,12 +471,13 @@ Stripe webhook endpoint:
     every user who has a `Subscription` row. That is sound because nothing granted an entitlement by
     hand before this change.
   - `validUntil` is the **furthest** `current_period_end` across the granting subscriptions. A
-    subscription Stripe gave no period end for counts as *unknown*, not "never expires", so it can
+    subscription Stripe gave no period end for counts as _unknown_, not "never expires", so it can
     never override a sibling that has a real date. `validUntil` stays open only while **every**
     granting subscription lacks a date, and the live status is what holds that case up: a
     `canceled` or `deleted` event drops it to `FREE`.
 
 Refund and chargeback scoping:
+
 - A revocation applies to **exactly one subscription** - the one the charge paid for, resolved
   through charge -> invoice -> subscription. It is never applied customer-wide: checkout reuses a
   returning member's Stripe customer, so a refund of an old charge would otherwise take access from
@@ -464,12 +492,13 @@ Refund and chargeback scoping:
   - `stripe.charges.retrieve`, only when `charge.dispute.created` arrives with an unexpanded charge.
     The expanded fast path is tested; **this fallback is not exercised**, because doing so would
     require a real Stripe call.
-- A read that **throws** (429, 5xx, network) is deliberately *not* swallowed: it returns 5xx so
+- A read that **throws** (429, 5xx, network) is deliberately _not_ swallowed: it returns 5xx so
   Stripe retries, exactly as a database failure does. Only a charge that genuinely resolves to no
   subscription takes the leave-access-alone-and-alert path. Treating the two the same is how a
   transient blip would have become a refunded member with permanent access and a `PROCESSED` row.
 
 One checkout at a time (`CheckoutReservation`):
+
 - Checking for an active subscription is a read-then-act test, and two concurrent requests both
   pass it. Measured against a real database before this existed: an **established member with no
   active subscription**, clicking twice at once, opened **two** Stripe checkout sessions and could
@@ -484,7 +513,7 @@ One checkout at a time (`CheckoutReservation`):
     - an **open** session is expired before the lock goes, because dropping the lock alone would
       leave it payable until its own `expires_at` - a member with checkout still open in a second
       tab could then pay twice.
-    - a session Stripe reports **complete** *keeps* the lock. The member has already paid, and
+    - a session Stripe reports **complete** _keeps_ the lock. The member has already paid, and
       releasing here is the last remaining way two payable sessions can exist: they could press
       Subscribe again before `customer.subscription.created` lands, while the live-subscription
       check still has no row to refuse them on. Nothing real waits on it -
@@ -492,7 +521,7 @@ One checkout at a time (`CheckoutReservation`):
     - **everything else releases**, including a failed status read or a failed expire. Failures
       release, a confirmed completion holds: no member stays locked out because Stripe was
       unreachable. The status has to be read rather than inferred from a failed expire, which
-      reports a non-open session generically and cannot tell *complete* from *expired*.
+      reports a non-open session generically and cannot tell _complete_ from _expired_.
   - Stripe saying the checkout resolved - `checkout.session.completed`, `.expired`, or
     `.async_payment_failed` - rather than being inferred from subscription rows, because a checkout
     that expired or failed never produces one. **Subscribe to those three events on the Stripe
@@ -514,24 +543,25 @@ One checkout at a time (`CheckoutReservation`):
   reconciliation path.
 
 Giving access back:
+
 - A revocation is cleared on exactly two events, and nothing else. A **genuine paid renewal**
-  (`current_period_end` moving strictly forward) clears a *refund* revocation; a status of `active`
+  (`current_period_end` moving strictly forward) clears a _refund_ revocation; a status of `active`
   is not enough on its own, because `cancel_at_period_end`, a card update and a plan change all
   keep it active.
-- `charge.dispute.closed` with status **`won`** clears a *chargeback* revocation, because the money
+- `charge.dispute.closed` with status **`won`** clears a _chargeback_ revocation, because the money
   stayed with Diaz and the member is a paying customer again. Any other close status leaves the
   revocation standing. Without this a chargeback is a one-way door: the revocation is sticky against
   renewals by design, so a member who disputes and loses would keep paying and never get access
   back.
 - Every revocation stores `revokedAt` **and** `revokedReason` together, so a member without access
-  can always be shown *why* ("revoked by refund on <date>") rather than an unexplained gap. The
+  can always be shown _why_ ("revoked by refund on <date>") rather than an unexplained gap. The
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
   just its first caller.
 - A revoke is not a one-way door, but only a **genuine renewal** opens it:
   - Resubscribing always works. A new Stripe subscription id is a new row, which was never revoked.
   - For the same subscription, a **refund** revocation clears only when a later Stripe event moves
     `current_period_end` **strictly forward** - i.e. the member was actually charged again. A live
-    status is deliberately *not* enough: `cancel_at_period_end`, a card update and a plan change all
+    status is deliberately _not_ enough: `cancel_at_period_end`, a card update and a plan change all
     keep the status `active`, and treating those as proof would let a refunded member press Cancel
     and keep the period they were refunded for.
   - The cost of that strictness is accepted knowingly: a member refunded **by mistake** stays locked
@@ -539,21 +569,23 @@ Giving access back:
   - A **chargeback** revocation is sticky and never clears. The customer forcibly took the money
     back, so they have to subscribe again. A chargeback landing on a subscription already revoked by
     a refund **upgrades** the stored reason, so the sticky outcome cannot inherit the clearable one.
-  - Only an event Stripe generated *after* the revocation can clear it. The subscription ordering
+  - Only an event Stripe generated _after_ the revocation can clear it. The subscription ordering
     guard alone does not cover this, because a revoke does not advance `lastEventAt`.
 
 Delivery safety:
+
 - Every verified event is recorded in `StripeWebhookEvent` with `PROCESSED` or `FAILED`. That table
   is the answer to "somebody paid and did not get access" - query it rather than the Stripe
   dashboard.
 - An event already recorded `PROCESSED` is skipped, so Stripe's redeliveries are safe. A `FAILED`
   one is retried.
-- An event Stripe generated *before* the state already recorded on a subscription is ignored, so an
+- An event Stripe generated _before_ the state already recorded on a subscription is ignored, so an
   out-of-order delivery cannot restore access after a cancellation.
 - A signature failure returns 400. A verified event that fails to persist returns **5xx**, so Stripe
   retries it instead of dropping it.
 
 Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
+
 - Every failure logs at `error` level prefixed `BILLING_ALERT`, which any host's log viewer can
   alert on. The alert is raised **before** the `FAILED` row is written and neither step can mask the
   original error, because the usual reason a delivery fails is the database - which is also what
@@ -571,11 +603,13 @@ Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
   incoming webhook. Unset means log-only.
 
 Test locally with Stripe CLI:
+
 ```bash
 stripe listen --forward-to localhost:4000/webhooks/stripe
 ```
 
 ### Video Notes
+
 - Lessons store `muxAssetId` and `muxPlaybackId`.
 - API returns `playbackUrl` for clients to treat as an opaque playback source.
 - Free lessons use a public playback URL; paid lessons use a signed playback URL.
@@ -610,7 +644,7 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   content - the lesson is re-ingested against an asset the access level accepts instead.
   `clearsMuxPlaybackIdOnPaidTransition` in `packages/shared` holds the rule;
   `planPaidAccessTransition` in `apps/api/src/admin/admin.service.ts` applies it on the one write
-  path both admin lesson PATCH routes go through. A write supplying a *different* playback id is
+  path both admin lesson PATCH routes go through. A write supplying a _different_ playback id is
   the rotation itself and is left alone. A lesson that keeps its `muxAssetId` lands in the
   **waiting-for-Mux** state; one with no asset id to fall back on drops to `videoProvider = NONE`,
   the not-yet-filmed state, because `lesson_video_provider_consistency_chk` refuses a Mux row
@@ -637,7 +671,7 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   asset ID, and deleting the ID by hand is a save the editor refuses - then redeliver the event.
   A lesson holding the asset id with no playback id yet is the **waiting-for-Mux** state - see
   "Catalogue Video States" above. It is normal: Mux issues the playback id later. It is also
-  where a lesson lands when `video.asset.ready` was delivered *before* the asset id was pasted
+  where a lesson lands when `video.asset.ready` was delivered _before_ the asset id was pasted
   into the editor, which is the likely order for an asset uploaded in the Mux dashboard rather
   than from the lesson editor. The
   handler answers 201 for an asset no lesson matches (assets exist in the account this app never
@@ -655,7 +689,7 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
   carries none: a free lesson is served over a plain `stream.mux.com` url, so an id with any
   other policy would be stored and then silently fail to play. Either way the stored id
   comes from the policy the access level requires, never from whichever id arrived first.
-- Signed playback needs a Mux *signing key* (`MUX_SIGNING_KEY_ID` /
+- Signed playback needs a Mux _signing key_ (`MUX_SIGNING_KEY_ID` /
   `MUX_SIGNING_KEY_PRIVATE`), which is a different credential from the `MUX_TOKEN_ID` /
   `MUX_TOKEN_SECRET` API access token.
 - What none of this fixes: an asset already uploaded to Mux with a `public` playback policy
@@ -677,10 +711,12 @@ stripe listen --forward-to localhost:4000/webhooks/stripe
 
 Test webhooks locally with the Mux CLI - it forwards to localhost and prints a signing
 secret to use as `MUX_WEBHOOK_SECRET`:
+
 ```bash
 mux webhooks listen --forward-to http://localhost:4000/webhooks/mux
 mux webhooks trigger video.asset.ready --forward-to http://localhost:4000/webhooks/mux
 ```
+
 `listen` needs an access token with the webhooks permission. Measured on `mux` 1.3.2: with a
 token holding only `video:read, video:write` it prints the secret and then exits with
 "Permission denied or this route does not exist", so nothing is forwarded. Without such a token,
@@ -703,13 +739,13 @@ pin: 15.2.9.** `eslint-config-next`, which `next lint` loads through
 The safe version is the intersection of five constraints, not the newest release. Each floor is
 the lowest version that satisfies that one constraint on the 15.2 line.
 
-| Constraint | Floor | Why it binds |
-| --- | --- | --- |
-| GHSA-9qr9-h5gf-34mp / CVE-2025-55182, named CVE-2025-66478 by Vercel - React2Shell, critical, CVSS 10.0, RCE in the RSC flight protocol | 15.2.6 | Vercel fails the build outright: "Vulnerable version of Next.js detected". This is the only advisory the deploy gate is keyed to. See the identifier note under this table before looking any of the three up. |
+| Constraint                                                                                                                                              | Floor  | Why it binds                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GHSA-9qr9-h5gf-34mp / CVE-2025-55182, named CVE-2025-66478 by Vercel - React2Shell, critical, CVSS 10.0, RCE in the RSC flight protocol                 | 15.2.6 | Vercel fails the build outright: "Vulnerable version of Next.js detected". This is the only advisory the deploy gate is keyed to. See the identifier note under this table before looking any of the three up.                                                                                                                          |
 | The 2025-12-11 follow-ups: CVE-2025-55183 (source code exposure) and CVE-2025-55184 (DoS), then the incomplete-fix CVE-2025-67779 / GHSA-5j59-xgg2-r9c4 | 15.2.8 | 15.2.8 is the floor for the group, but not for each member: 55183 and 55184 are both fixed at 15.2.7, and it is 67779 - the incomplete fix for 55184, introduced by 15.2.7 itself - that requires 15.2.8. That is also why npm security-deprecates 15.2.7 as well as 15.2.6, so a version clearing React2Shell can still be deprecated. |
-| GHSA-h25m-26qc-wcjf - high, App Router RSC request-deserialization DoS | 15.2.9 | The only one of the five that 15.2.8 does not satisfy, and therefore the reason the pin is 15.2.9. |
-| CVE-2025-29927 - `x-middleware-subrequest` authorization bypass | 15.2.3 | `middleware.ts` is the app's only authorization boundary. Vercel-hosted deployments were architecturally not exploitable, because Vercel runs routing out of process, but the floor still holds for `next start` and local runs. |
-| `@clerk/nextjs` 6.37.5 peer range on `next` | 15.2.3 | `^13.5.7 \|\| ^14.2.25 \|\| ^15.2.3 \|\| ^16`. The previous pin, 15.1.7, did not satisfy it. |
+| GHSA-h25m-26qc-wcjf - high, App Router RSC request-deserialization DoS                                                                                  | 15.2.9 | The only one of the five that 15.2.8 does not satisfy, and therefore the reason the pin is 15.2.9.                                                                                                                                                                                                                                      |
+| CVE-2025-29927 - `x-middleware-subrequest` authorization bypass                                                                                         | 15.2.3 | `middleware.ts` is the app's only authorization boundary. Vercel-hosted deployments were architecturally not exploitable, because Vercel runs routing out of process, but the floor still holds for `next start` and local runs.                                                                                                        |
+| `@clerk/nextjs` 6.37.5 peer range on `next`                                                                                                             | 15.2.3 | `^13.5.7 \|\| ^14.2.25 \|\| ^15.2.3 \|\| ^16`. The previous pin, 15.1.7, did not satisfy it.                                                                                                                                                                                                                                            |
 
 **Three identifiers, one vulnerability, and one of them looks broken.** `GHSA-9qr9-h5gf-34mp` is
 the advisory record. `CVE-2025-55182` is the identifier the vulnerability databases recognise: NVD
@@ -731,7 +767,7 @@ are recorded with the condition each one needs, because "affected by version ran
 - **GHSA-p9j2-gv94-2wf4 / CVE-2026-64645** - high, SSRF via `rewrites()` with an
   attacker-controlled destination hostname. Fixed in 15.5.21 / 16.2.11. **Not reachable here.**
   The advisory needs a `rewrites()` or `redirects()` rule that interpolates a dynamic segment
-  into an *external* destination hostname (`destination: 'https://:tenant.api.example.com'`).
+  into an _external_ destination hostname (`destination: 'https://:tenant.api.example.com'`).
   `apps/diaz-ondemand-web/next.config.ts` declares neither, and is the repo's only Next config.
   The repo's single `rewrites` entry is `apps/api/vercel.json` (`/(.*)` to `/api`) - a Vercel
   platform rewrite in a different app, with a relative destination and no hostname to make
@@ -760,9 +796,9 @@ are recorded with the condition each one needs, because "affected by version ran
   Two things that read like reasons and gate nothing, recorded so they are not counted as margin:
   that the app imports `next/image` nowhere is irrelevant, because the Next server serves
   `/_next/image` whether or not any component imports it; and the default
-  `formats: ["image/webp"]` is irrelevant, because `images.formats` selects the *output* encoding
-  negotiated through the `Accept` header, while the advisory fires on *decoding* an
-  attacker-supplied AVIF *input*.
+  `formats: ["image/webp"]` is irrelevant, because `images.formats` selects the _output_ encoding
+  negotiated through the `Accept` header, while the advisory fires on _decoding_ an
+  attacker-supplied AVIF _input_.
 - **CVE-2026-75604 / GHSA-p293-qw3h-jr36** - critical, unauthenticated RCE on Windows-hosted
   servers, in applications using the Pages and App routers without Cache Components. Fixed in
   15.5.24 / 16.3.3, outside the 15.2 line. **Not applicable to this deployment**, and the
@@ -872,6 +908,7 @@ Clerk unconfigured), that `/account`, `/favorites`, `/subscribe/success`, `/subs
 [Clerk Setup Notes](#clerk-setup-notes-web--expo) still answers 200.
 
 ### Vercel Deployment Notes
+
 - Web app deploy: set Vercel project root to `apps/diaz-ondemand-web`.
 - API deploy: its own Vercel project, rooted at `apps/api`, running as serverless functions.
   Step-by-step in [API Deploy Runbook (Vercel serverless)](#api-deploy-runbook-vercel-serverless)
@@ -929,6 +966,7 @@ Clerk unconfigured), that `/account`, `/favorites`, `/subscribe/success`, `/subs
   asset still carries whatever playback policy it was created with, and a playback id that
   has already been served cannot be retracted. See the audit list at the end of "Video Notes" -
   that part is the account owner's job in the Mux dashboard.
+
 - **Before this change deploys, confirm three values on the host**, not one. Three startup
   checks widened from `NODE_ENV === 'production'` to `isDeployment`, so any of them can now
   refuse a deployment that booted yesterday: `DIAZ_INTERNAL_API_KEY`, `MUX_WEBHOOK_SECRET`,
@@ -958,6 +996,7 @@ Clerk unconfigured), that `/account`, `/favorites`, `/subscribe/success`, `/subs
   Overstating it costs three environment-variable checks. Understating it means an API that
   refuses to boot after a deploy, with nothing said beforehand. The answer is confirming the
   values on the host, never relaxing a check to get the deploy green.
+
 - Prefer real host environment variables for those production values, with the monorepo-root
   `.env` as the local fallback. That is ordinary good practice for a deployed service, not a
   workaround for a load-ordering bug. `apps/api/.env` is **not** a blind spot: `app.module.ts`
@@ -1061,10 +1100,10 @@ runs its own Prisma client with its own connection pool, and instances come and 
 
 Measured locally against Postgres 17, on this repository's own code:
 
-| Configuration | Instances | Postgres backends |
-| --- | --- | --- |
-| Direct URL, no `connection_limit` | 1 | **21** (`cpus x 2 + 1`) |
-| PgBouncer, `?pgbouncer=true&connection_limit=1` | 3 (90 concurrent requests) | **3** |
+| Configuration                                   | Instances                  | Postgres backends       |
+| ----------------------------------------------- | -------------------------- | ----------------------- |
+| Direct URL, no `connection_limit`               | 1                          | **21** (`cpus x 2 + 1`) |
+| PgBouncer, `?pgbouncer=true&connection_limit=1` | 3 (90 concurrent requests) | **3**                   |
 
 So `DATABASE_URL` on the Vercel project must be the **pooled** endpoint, with both parameters:
 
@@ -1094,7 +1133,7 @@ Nothing runs migrations on deploy, on purpose, so "migrate first, then deploy" w
 enforced by nobody. It shipped the wrong way round once: `Entitlement.source` was added by
 `20260801095656_stripe_billing_lifecycle` on 1 August and never applied to the production Neon
 database. Every read path kept working, because reads only touch older stable schema, so the
-deployment looked healthy for weeks. The first *write* - the first sign-in ever attempted
+deployment looked healthy for weeks. The first _write_ - the first sign-in ever attempted
 against it - answered 500 with Prisma `P2022`, "The column `source` does not exist in the
 current database".
 
@@ -1131,15 +1170,15 @@ hand as `pnpm db:check`; the API build runs it first, from the `buildCommand` in
 Measured on Prisma 6.19.2 against Postgres 17, applying six of the seven migrations to a local
 database and holding the seventh back:
 
-| Situation | Gate |
-| --- | --- |
-| Behind by one, `VERCEL_ENV=production` | names `20260901090000_lesson_mux_awaiting_playback`, exits 1, turbo never runs |
-| Behind by one, preview | same message as a warning, build continues |
-| Up to date | `migration check ok`, build proceeds |
-| No `DATABASE_URL`, off Vercel | skips |
-| No `DATABASE_URL`, production | refuses - a Production-only variable is absent from previews, and that is worth saying |
-| Database unreachable, or migrations directory not visible | refuses in production, warns in preview |
-| Histories diverged | refuses in production, warns in preview - reported as its own state, not as a backlog |
+| Situation                                                 | Gate                                                                                   |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Behind by one, `VERCEL_ENV=production`                    | names `20260901090000_lesson_mux_awaiting_playback`, exits 1, turbo never runs         |
+| Behind by one, preview                                    | same message as a warning, build continues                                             |
+| Up to date                                                | `migration check ok`, build proceeds                                                   |
+| No `DATABASE_URL`, off Vercel                             | skips                                                                                  |
+| No `DATABASE_URL`, production                             | refuses - a Production-only variable is absent from previews, and that is worth saying |
+| Database unreachable, or migrations directory not visible | refuses in production, warns in preview                                                |
+| Histories diverged                                        | refuses in production, warns in preview - reported as its own state, not as a backlog  |
 
 The diverged case is separated because `prisma migrate status` prints the same "have not yet
 been applied" header for it as for a plain backlog, while meaning something else: the database
@@ -1150,8 +1189,8 @@ prisma/migrations" list that says what happened - so the gate prints Prisma's ou
 points at <https://pris.ly/d/migrate-resolve> instead.
 
 For that one state this gate is not a second opinion, it is the only opinion. Measured on Prisma
-6.19.2 against Postgres 17 with the recipe just above: the gate refused, and `prisma migrate
-deploy` against that same database then applied `20260901090000_lesson_mux_awaiting_playback` and
+6.19.2 against Postgres 17 with the recipe just above: the gate refused, and
+`prisma migrate deploy` against that same database then applied `20260901090000_lesson_mux_awaiting_playback` and
 **exited 0**, leaving that migration recorded under both names. Prisma does not refuse a diverged
 history on deploy, so removing this branch as redundant would let that state ship. Re-measure it
 on a Prisma upgrade rather than trusting this paragraph - it is a claim about someone else's
@@ -1163,7 +1202,7 @@ Three details that are easy to assume and were checked instead: `prisma migrate 
 through a PgBouncer transaction pooler, so the gate reads the same pooled `DATABASE_URL` the
 functions use and needs no second connection string; it leaves an empty database with no tables
 at all, and answers correctly as a role holding only `CONNECT`/`USAGE`/`SELECT` in a read-only
-transaction; and it reports only *pending* migrations, so a database **ahead** of the checkout
+transaction; and it reports only _pending_ migrations, so a database **ahead** of the checkout
 is "up to date" and a deliberate rollback still deploys.
 
 CI asserts both directions - it runs `pnpm db:check` against the service container before
@@ -1180,20 +1219,20 @@ Set these on the API project (Production, and Preview if you use it). The API **
 start** without the first group, and names the one it is missing in the build log - see the
 pre-deploy checklist above for why each exists.
 
-| Variable | Notes |
-| --- | --- |
-| `DATABASE_URL` | The pooled URL from step 2. |
-| `DIAZ_INTERNAL_API_KEY` | Required on any deployment. |
-| `MUX_WEBHOOK_SECRET` | Required on any deployment. From the Mux webhook you create in step 6. |
-| `MUX_SIGNING_KEY_ID`, `MUX_SIGNING_KEY_PRIVATE` | Required on any deployment, as a pair. |
-| `STRIPE_WEBHOOK_SECRET` | Required whenever `STRIPE_SECRET_KEY` is set, which it is. |
-| `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER` | Required whenever `DEV_BYPASS_AUTH` is false. |
-| `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_MONTHLY` | Billing is live, so both. |
-| `CORS_ORIGIN` | See step 4. |
-| `WEB_APP_URL` | Where Stripe checkout returns the member to. |
-| `VOD_COMING_SOON` | `true` on production until launch. |
-| `DEV_BYPASS_AUTH` | `false`. It cannot be anything else against a non-loopback database. |
-| `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET` | Only as a pair, or not at all. |
+| Variable                                        | Notes                                                                  |
+| ----------------------------------------------- | ---------------------------------------------------------------------- |
+| `DATABASE_URL`                                  | The pooled URL from step 2.                                            |
+| `DIAZ_INTERNAL_API_KEY`                         | Required on any deployment.                                            |
+| `MUX_WEBHOOK_SECRET`                            | Required on any deployment. From the Mux webhook you create in step 6. |
+| `MUX_SIGNING_KEY_ID`, `MUX_SIGNING_KEY_PRIVATE` | Required on any deployment, as a pair.                                 |
+| `STRIPE_WEBHOOK_SECRET`                         | Required whenever `STRIPE_SECRET_KEY` is set, which it is.             |
+| `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER`          | Required whenever `DEV_BYPASS_AUTH` is false.                          |
+| `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_MONTHLY`  | Billing is live, so both.                                              |
+| `CORS_ORIGIN`                                   | See step 4.                                                            |
+| `WEB_APP_URL`                                   | Where Stripe checkout returns the member to.                           |
+| `VOD_COMING_SOON`                               | `true` on production until launch.                                     |
+| `DEV_BYPASS_AUTH`                               | `false`. It cannot be anything else against a non-loopback database.   |
+| `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`              | Only as a pair, or not at all.                                         |
 
 Do not set `NODE_ENV`. Every deployment check keys on `isDeployment`, which is already true
 because `DATABASE_URL` is not loopback.
@@ -1293,8 +1332,8 @@ verbatim.
   workspace root - check "Include source files outside of the Root Directory".
 - **Runtime error about the Prisma query engine.** `prisma generate` runs during the Vercel
   build, on the same platform the function runs on, so the right engine should be produced and
-  traced. If it is not, add `binaryTargets = ["native", "rhel-openssl-3.0.x"]` to the `generator
-  client` block in `packages/db/prisma/schema.prisma`.
+  traced. If it is not, add `binaryTargets = ["native", "rhel-openssl-3.0.x"]` to the
+  `generator client` block in `packages/db/prisma/schema.prisma`.
 - **Cold starts time out.** Nest initialises the whole application on the first request to a new
   instance. Raise the function's max duration.
 
@@ -1338,11 +1377,13 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
   `includeFiles` glob into a pnpm store path that cannot be verified without deploying.
 
 ### Scripts
+
 - `pnpm dev` -> API + web
 - `pnpm dev:mobile` -> Expo mobile
 - `pnpm start` -> built API as a long-running server, with `NODE_ENV=production`. Not what
   Vercel runs - see [API Deploy Runbook](#api-deploy-runbook-vercel-serverless).
 - `pnpm lint`
+- `pnpm format` -> rewrite files with Prettier; `pnpm format:check` is the read-only check CI runs
 - `pnpm typecheck`
 - `pnpm test` (see [Tests](#tests))
 - `pnpm db:generate`
@@ -1401,6 +1442,7 @@ TEST_DATABASE_URL='postgresql://postgres:postgres@localhost:55433/diaz?schema=pu
 ```
 
 ### MVP TODO / Roadmap
+
 - Better admin UX for content ordering and bulk operations
 - Offline-safe mobile progress queueing
 - CI pipeline for lint/typecheck/test + deploy previews
@@ -1408,9 +1450,11 @@ TEST_DATABASE_URL='postgresql://postgres:postgres@localhost:55433/diaz?schema=pu
 ### Entitlements Endpoints
 
 #### GET /me/entitlements (Clerk-authenticated)
+
 Returns current user entitlements using Clerk auth (or `DEV_BYPASS_AUTH=true` in local dev).
 
 Example response:
+
 ```json
 {
   "gymMember": true,
@@ -1421,20 +1465,24 @@ Example response:
 ```
 
 MVP truth mapping:
+
 - `gymMember`: true if a `User` row exists (endpoint upserts user on first request)
 - `vod`: true when `Entitlement.tier === PREMIUM` and `validUntil` is null or in the future
 - `tier`: `VOD` if `vod=true`, else `GYM_MEMBER` if `gymMember=true`, else `FREE`
 
 #### GET /users/:clerkUserId/entitlements (Server-to-server)
+
 Internal endpoint for external website redirect logic.
 Not for browser/client use - server-to-server only.
 
 Security:
+
 - Requires header `x-diaz-api-key`
 - Must match API env var `DIAZ_INTERNAL_API_KEY`
 - Returns `401` if missing/invalid
 
 Example:
+
 ```bash
 curl -H "x-diaz-api-key: $DIAZ_INTERNAL_API_KEY" \
   http://localhost:4000/users/user_123/entitlements

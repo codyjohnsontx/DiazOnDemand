@@ -35,7 +35,9 @@ export function LessonRow({
       <div
         className={[
           'font-display flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-sm tracking-[0.16em]',
-          isCurrent ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--progress)]' : 'border-white/10 text-white/55',
+          isCurrent
+            ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--progress)]'
+            : 'border-white/10 text-white/55',
         ].join(' ')}
       >
         {isCompleted ? 'OK' : orderLabel}
@@ -53,7 +55,9 @@ export function LessonRow({
       </div>
       <div className="flex shrink-0 items-center gap-4">
         {durationLabel ? <span className="text-sm text-white/55">{durationLabel}</span> : null}
-        <span className="text-xl text-white/45 transition-transform duration-300 group-hover:translate-x-1">▶</span>
+        <span className="text-xl text-white/45 transition-transform duration-300 group-hover:translate-x-1">
+          ▶
+        </span>
       </div>
     </Link>
   );

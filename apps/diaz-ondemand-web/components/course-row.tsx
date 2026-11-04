@@ -19,9 +19,7 @@ export function CourseRow({ course }: { course: CourseCardModel }) {
           <span className="text-white/25">/</span>
           <span>{course.disciplineLabel}</span>
         </div>
-        {course.progressPercent !== null ? (
-          <ProgressBar value={course.progressPercent} />
-        ) : null}
+        {course.progressPercent !== null ? <ProgressBar value={course.progressPercent} /> : null}
       </div>
       <div className="flex shrink-0 items-center gap-4">
         {course.accessLabel === 'Includes premium lessons' ? (

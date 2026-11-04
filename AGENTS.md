@@ -62,11 +62,15 @@ pnpm build
 pnpm lint
 pnpm test
 pnpm typecheck
+pnpm format
+pnpm format:check
 ```
 
 Before finishing work run:
 - pnpm build
 - pnpm lint
+- pnpm format
+- pnpm format:check
 
 Do not claim tests passed unless executed.
 
