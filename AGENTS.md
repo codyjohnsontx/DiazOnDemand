@@ -384,7 +384,7 @@ the reason it exists is stated with it.
   `/admin/programs`, and a second Save in that window PATCHes it back onto a row that is PAID by
   then: the transition is PAID -> PAID, no clear is due, and the identifier is written straight
   back under a plain "Lesson saved.". An in-flight guard on submit closes the same window from the
-  other side. `apps/diaz-ondemand-web`'s only tests cover `middleware.ts`, so nothing mechanical
+  other side. `apps/diaz-ondemand-web` has no tests of its pages, so nothing mechanical
   guards this: an agent deleting the adoption as a redundant pre-reload write re-opens the leak
   with every check still green, which is why the rule and its tests live in `packages/shared` and pin the rule
   rather than the wiring.
