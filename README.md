@@ -1342,6 +1342,7 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 - `pnpm start` -> built API as a long-running server, with `NODE_ENV=production`. Not what
   Vercel runs - see [API Deploy Runbook](#api-deploy-runbook-vercel-serverless).
 - `pnpm lint`
+- `pnpm format` -> rewrite files with Prettier; `pnpm format:check` is the read-only check CI runs
 - `pnpm typecheck`
 - `pnpm test` (see [Tests](#tests))
 - `pnpm db:generate`
