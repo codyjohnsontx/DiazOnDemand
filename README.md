@@ -173,8 +173,8 @@ shipped `NEXT_PUBLIC_DEV_BYPASS_AUTH=true` with the same placeholder publishable
 secret key, and `500`s identically. The middleware behaviour is not new, but copying that
 example is what puts a web `.env` in place at all - with no `apps/diaz-ondemand-web/.env`,
 `pnpm dev` starts and serves every route with no Clerk error, protected ones included, while a
-production build of that same tree refuses every route, `/` included, with `Missing
-publishableKey`. Both measured on `@clerk/nextjs` 6.37.5, whose `canUseKeyless` sends
+production build of that same tree refuses every route, `/` included, with
+`Missing publishableKey`. Both measured on `@clerk/nextjs` 6.37.5, whose `canUseKeyless` sends
 development to a keyless middleware that returns `NextResponse.next()` before either key
 assertion or our own handler runs - so the `Clerk misconfigured for protected route` branch in
 `middleware.ts` is real code that never executes in dev, and must not be read as what a missing
@@ -324,16 +324,15 @@ complete.
 
 A lesson can sit there indefinitely, and nothing alerts or times out. The four causes are
 encoding still running, an upload that failed at Mux, a webhook that was never configured, and
-
-- for an asset ID pasted in by hand - a `video.asset.ready` that was delivered _before_ any
-  lesson held the asset ID. The webhook answers 201 for an asset no lesson matches, so Mux never
-  retries it. **Remedy:** if the asset is already Ready in Mux _and_ carries the playback policy
-  the lesson's access level requires - signed-only for `PAID`, public for `FREE`, see "Video
-  Notes" below - redeliver its `video.asset.ready` event from the Mux dashboard now that the
-  lesson holds the asset ID. For any other asset that redelivery is refused every time, and the fix
-  is the asset itself: re-create it signed-only for a paid lesson, give it a public playback policy
-  for a free one. Both admin surfaces say exactly that, from one shared component
-  (`apps/diaz-ondemand-web/components/awaiting-mux-playback-note.tsx`), so the two cannot drift.
+(for an asset ID pasted in by hand) a `video.asset.ready` that was delivered _before_ any
+lesson held the asset ID. The webhook answers 201 for an asset no lesson matches, so Mux never
+retries it. **Remedy:** if the asset is already Ready in Mux _and_ carries the playback policy
+the lesson's access level requires - signed-only for `PAID`, public for `FREE`, see "Video
+Notes" below - redeliver its `video.asset.ready` event from the Mux dashboard now that the
+lesson holds the asset ID. For any other asset that redelivery is refused every time, and the fix
+is the asset itself: re-create it signed-only for a paid lesson, give it a public playback policy
+for a free one. Both admin surfaces say exactly that, from one shared component
+(`apps/diaz-ondemand-web/components/awaiting-mux-playback-note.tsx`), so the two cannot drift.
 
 #### Uploading from the lesson editor
 
@@ -1189,8 +1188,8 @@ prisma/migrations" list that says what happened - so the gate prints Prisma's ou
 points at <https://pris.ly/d/migrate-resolve> instead.
 
 For that one state this gate is not a second opinion, it is the only opinion. Measured on Prisma
-6.19.2 against Postgres 17 with the recipe just above: the gate refused, and `prisma migrate
-deploy` against that same database then applied `20260901090000_lesson_mux_awaiting_playback` and
+6.19.2 against Postgres 17 with the recipe just above: the gate refused, and
+`prisma migrate deploy` against that same database then applied `20260901090000_lesson_mux_awaiting_playback` and
 **exited 0**, leaving that migration recorded under both names. Prisma does not refuse a diverged
 history on deploy, so removing this branch as redundant would let that state ship. Re-measure it
 on a Prisma upgrade rather than trusting this paragraph - it is a claim about someone else's
@@ -1332,8 +1331,8 @@ verbatim.
   workspace root - check "Include source files outside of the Root Directory".
 - **Runtime error about the Prisma query engine.** `prisma generate` runs during the Vercel
   build, on the same platform the function runs on, so the right engine should be produced and
-  traced. If it is not, add `binaryTargets = ["native", "rhel-openssl-3.0.x"]` to the `generator
-client` block in `packages/db/prisma/schema.prisma`.
+  traced. If it is not, add `binaryTargets = ["native", "rhel-openssl-3.0.x"]` to the
+  `generator client` block in `packages/db/prisma/schema.prisma`.
 - **Cold starts time out.** Nest initialises the whole application on the first request to a new
   instance. Raise the function's max duration.
 
