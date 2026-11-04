@@ -35,6 +35,9 @@ export default function AdminProgramDetailPage() {
 
   useEffect(() => {
     void load();
+    // Mount-only load, kept as-is: listing load would re-run it whenever apiFetch changes
+    // identity with Clerk's getToken, which changes runtime fetching, not just lint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
