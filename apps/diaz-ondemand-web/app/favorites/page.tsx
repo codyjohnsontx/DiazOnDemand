@@ -36,8 +36,8 @@ export default function FavoritesPage() {
 
   useEffect(() => {
     void loadFavorites();
-    // Mount-only load, kept as-is: listing loadFavorites would re-run it whenever apiFetch changes
-    // identity with Clerk's getToken, which changes runtime fetching, not just lint.
+    // Mount-only load, kept as-is: loadFavorites is a new closure on every render, so listing it would
+    // re-run this effect after every render, and since loadFavorites sets state that is an endless fetch loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
