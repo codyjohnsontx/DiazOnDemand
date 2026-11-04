@@ -23,9 +23,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className={`${bodyFont.variable} ${displayFont.variable} antialiased`}>
         <AuthProvider>
           {!comingSoonEnabled && <Nav />}
-          <main
-            className={comingSoonEnabled ? 'py-16 sm:py-20' : 'pb-28 pt-28 sm:pb-20 sm:pt-32'}
-          >
+          <main className={comingSoonEnabled ? 'py-16 sm:py-20' : 'pb-28 pt-36 sm:pb-20 md:pt-32'}>
             {children}
           </main>
         </AuthProvider>

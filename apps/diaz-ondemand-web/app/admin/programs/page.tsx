@@ -81,7 +81,17 @@ export default function AdminProgramsPage() {
 
   return (
     <AppShell className="space-y-8">
-      <PageHeader title="Programs" />
+      <PageHeader
+        actions={
+          <Link
+            className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+            href="/admin/members"
+          >
+            Members
+          </Link>
+        }
+        title="Programs"
+      />
 
       {error ? (
         <EmptyState description={error} title="Admin unavailable" />

@@ -16,8 +16,9 @@ The three share a Turborepo + pnpm workspace, TypeScript throughout, with shared
 rules in `packages/shared` and the Prisma schema and migrations in `packages/db`.
 
 **Tests:** `pnpm test` runs vitest in the API, shared and web workspaces and Jest (`jest-expo`) in
-mobile. Two API suites run against a real Postgres instead of a mocked Prisma client:
-`apps/api/src/tests/billing-lifecycle.db.test.ts` and `apps/api/src/tests/mux-ingestion.db.test.ts`.
+mobile. Three API suites run against a real Postgres instead of a mocked Prisma client:
+`apps/api/src/tests/billing-lifecycle.db.test.ts`, `apps/api/src/tests/mux-ingestion.db.test.ts`
+and `apps/api/src/tests/admin-members.db.test.ts`.
 See [Tests](#tests) for how to run them.
 
 | Landing | Library |
@@ -51,6 +52,8 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
   a lesson at its saved position
 - Favorites create/list/remove
 - Admin CRUD + publish/unpublish for programs/courses/lessons
+- Admin members screen (`/admin/members`): find a member, see their access and why they have
+  none, grant or revoke a manual grant, restore a refund made by mistake, with an audit trail
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
 - Stripe checkout session endpoint, and a Stripe billing portal endpoint so members can cancel
 - Stripe webhook handler syncing `Subscription` history + `Entitlement`, including refunds and
@@ -514,7 +517,7 @@ One checkout at a time (`CheckoutReservation`):
   reconciliation path.
 
 Giving access back:
-- A revocation is cleared on exactly two events, and nothing else. A **genuine paid renewal**
+- A revocation is cleared in exactly three ways, and nothing else. A **genuine paid renewal**
   (`current_period_end` moving strictly forward) clears a *refund* revocation; a status of `active`
   is not enough on its own, because `cancel_at_period_end`, a card update and a plan change all
   keep it active.
@@ -523,6 +526,11 @@ Giving access back:
   revocation standing. Without this a chargeback is a one-way door: the revocation is sticky against
   renewals by design, so a member who disputes and loses would keep paying and never get access
   back.
+- An admin clears a *refund* revocation from **`/admin/members`** - the immediate way back for a
+  refund issued by mistake. It never clears a chargeback. The entitlement is then re-derived from
+  the subscription rows exactly as the webhook would (`syncEntitlementFromSubscriptions` in
+  `apps/api/src/billing/entitlement-sync.ts`), so a subscription that was also cancelled gets its
+  record cleared and no access back.
 - Every revocation stores `revokedAt` **and** `revokedReason` together, so a member without access
   can always be shown *why* ("revoked by refund on <date>") rather than an unexplained gap. The
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
@@ -535,12 +543,28 @@ Giving access back:
     keep the status `active`, and treating those as proof would let a refunded member press Cancel
     and keep the period they were refunded for.
   - The cost of that strictness is accepted knowingly: a member refunded **by mistake** stays locked
-    out until their next renewal unless somebody corrects the record by hand.
+    out until their next renewal unless an admin restores them from `/admin/members`.
   - A **chargeback** revocation is sticky and never clears. The customer forcibly took the money
     back, so they have to subscribe again. A chargeback landing on a subscription already revoked by
     a refund **upgrades** the stored reason, so the sticky outcome cannot inherit the clearable one.
   - Only an event Stripe generated *after* the revocation can clear it. The subscription ordering
     guard alone does not cover this, because a revoke does not advance `lastEventAt`.
+
+The admin members screen (`/admin/members`, same `ADMIN`/`COACH` guards as every other admin
+route):
+- Search matches a Clerk user id, a member id, or a Stripe customer or subscription id. `User`
+  stores no email or name, so these are the identifiers to copy from the Clerk and Stripe
+  dashboards.
+- A member without access is always shown why - revoked by refund or chargeback, revoked by a named
+  admin, expired, or subscription inactive, each with its date - whichever happened most recently.
+- **Grant** writes a `MANUAL` premium entitlement with an optional end date. It is refused while the
+  member's Stripe subscription already grants access: a live manual grant makes the webhook skip
+  every renewal, so once it lapsed a paying member would be locked out until the next one.
+- **Revoke** ends a live manual grant only; access paid for through Stripe ends in Stripe. What is
+  left is what the member's subscriptions grant.
+- Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,
+  action, reason, the stored access before and after, and when - shown as the member's history. An
+  acting admin's rows outlive their own account.
 
 Delivery safety:
 - Every verified event is recorded in `StripeWebhookEvent` with `PROCESSED` or `FAILED`. That table
@@ -1368,7 +1392,7 @@ is still signed in, and the guard that refuses a second revoke while one is in f
 them needs a simulator, an emulator or a device. Run the suite alone with
 `pnpm --filter mobile test`.
 
-Most of the API suite mocks Prisma. Two suites deliberately do not, because what they cover is
+Most of the API suite mocks Prisma. Three suites deliberately do not, because what they cover is
 invisible to a mocked client:
 
 - `apps/api/src/tests/billing-lifecycle.db.test.ts` - the resubscribe and double-subscription
@@ -1384,8 +1408,11 @@ invisible to a mocked client:
   overtakes the binding, and a replacement over a playing lesson - because the binding sets MUX on
   a row that may have been NONE and the replacement clears a playback id in the same write that
   sets the asset id. `mux-direct-upload.test.ts` is the mocked half: what the API asks Mux for.
+- `apps/api/src/tests/admin-members.db.test.ts` - an access change and its audit row have to commit
+  together or not at all, and a refund restore has to land on what the webhook derives from the
+  stored rows. `member-access.test.ts` is the pure half.
 
-Both run the real services against a real Postgres, and both have the same contract: they
+All three run the real services against a real Postgres, and both have the same contract: they
 **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
 around - except on CI, where a missing `TEST_DATABASE_URL` fails the run rather than silently
 dropping the coverage. CI provides a Postgres service container.

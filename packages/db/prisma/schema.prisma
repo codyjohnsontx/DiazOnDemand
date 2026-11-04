@@ -43,6 +43,13 @@ enum EntitlementSource {
   STRIPE
 }
 
+/// What an admin did to a member's access from the admin members screen.
+enum MemberAccessAction {
+  GRANT
+  REVOKE
+  RESTORE_REFUND
+}
+
 enum StripeWebhookEventStatus {
   PROCESSED
   FAILED
@@ -58,6 +65,8 @@ model User {
   subscriptions       Subscription[]
   entitlement         Entitlement?
   checkoutReservation CheckoutReservation?
+  accessAudit         MemberAccessAudit[]  @relation("MemberAccessAuditMember")
+  accessAuditActions  MemberAccessAudit[]  @relation("MemberAccessAuditActor")
 }
 
 model Program {
@@ -243,4 +252,33 @@ model StripeWebhookEvent {
 
   @@index([status, receivedAt])
   @@index([stripeSubscriptionId])
+}
+
+/// Who changed a member's access from the admin members screen, what they did,
+/// why, and when. Append-only: nothing in the API updates or deletes a row.
+///
+/// The before and after values are the stored entitlement around the change, so
+/// a row says what the member could watch on either side of it without having
+/// to replay the history.
+model MemberAccessAudit {
+  id                   String             @id @default(uuid())
+  memberId             String
+  /// Null once the acting admin's own account is deleted, so their history does
+  /// not vanish with them; `actorClerkUserId` still says who it was.
+  actorId              String?
+  actorClerkUserId     String
+  action               MemberAccessAction
+  reason               String?
+  tierBefore           EntitlementTier
+  validUntilBefore     DateTime?
+  tierAfter            EntitlementTier
+  validUntilAfter      DateTime?
+  /// The subscription a RESTORE_REFUND cleared the refund revocation from.
+  stripeSubscriptionId String?
+  createdAt            DateTime           @default(now())
+  member               User               @relation("MemberAccessAuditMember", fields: [memberId], references: [id], onDelete: Cascade)
+  actor                User?              @relation("MemberAccessAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([memberId, createdAt])
+  @@index([actorId])
 }
