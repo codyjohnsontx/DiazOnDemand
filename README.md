@@ -695,7 +695,8 @@ transport and never bypasses the signature check.
 
 `apps/diaz-ondemand-web` pins `next` exactly. `AGENTS.md` carries the rule; this section carries
 the evidence, so the next person moving the pin can re-derive it instead of guessing. **Current
-pin: 15.2.9.**
+pin: 15.2.9.** `eslint-config-next`, which `next lint` loads through
+`apps/diaz-ondemand-web/.eslintrc.cjs`, is pinned to the same exact version and moves with it.
 
 #### Why 15.2.9, and not lower
 
