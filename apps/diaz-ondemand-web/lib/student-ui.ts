@@ -110,7 +110,8 @@ export function buildContinueWatching(programs: ProgramWithContentDto[], progres
     .filter((entry) => entry.completed || entry.lastPositionSeconds > 0)
     .sort((left, right) => {
       const leftDate = left.updatedAt instanceof Date ? left.updatedAt : new Date(left.updatedAt);
-      const rightDate = right.updatedAt instanceof Date ? right.updatedAt : new Date(right.updatedAt);
+      const rightDate =
+        right.updatedAt instanceof Date ? right.updatedAt : new Date(right.updatedAt);
       return rightDate.getTime() - leftDate.getTime();
     })
     .map((entry) => {
@@ -126,7 +127,9 @@ export function buildContinueWatching(programs: ProgramWithContentDto[], progres
         courseTitle: match.courseTitle,
         programTitle: match.programTitle,
         progressPercent: getLessonProgressPercent(match.lesson, entry),
-        posterIndex: getPosterIndex(`${match.programTitle}:${match.courseTitle}:${match.lesson.title}`),
+        posterIndex: getPosterIndex(
+          `${match.programTitle}:${match.courseTitle}:${match.lesson.title}`,
+        ),
       } satisfies ContinueWatchingItem;
     })
     .filter((entry): entry is ContinueWatchingItem => entry !== null);

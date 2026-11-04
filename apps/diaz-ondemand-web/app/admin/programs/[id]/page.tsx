@@ -90,7 +90,10 @@ export default function AdminProgramDetailPage() {
   if (!program) {
     return (
       <AppShell>
-        <EmptyState description="The selected program could not be found." title="Program unavailable" />
+        <EmptyState
+          description="The selected program could not be found."
+          title="Program unavailable"
+        />
       </AppShell>
     );
   }
@@ -100,11 +103,16 @@ export default function AdminProgramDetailPage() {
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <form className="surface-panel space-y-5 p-6" onSubmit={saveProgram}>
           <div className="flex items-start justify-between gap-4">
-            <h1 className="font-display text-4xl leading-none text-[var(--text)]">{program.title}</h1>
+            <h1 className="font-display text-4xl leading-none text-[var(--text)]">
+              {program.title}
+            </h1>
             <div className="flex flex-wrap items-center gap-2">
               <PremiumBadge label={getDisciplineLabel(program.discipline)} />
               {program.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
-              <PremiumBadge label={program.isPublished ? 'Published' : 'Draft'} tone={program.isPublished ? 'accent' : 'neutral'} />
+              <PremiumBadge
+                label={program.isPublished ? 'Published' : 'Draft'}
+                tone={program.isPublished ? 'accent' : 'neutral'}
+              />
             </div>
           </div>
 
@@ -122,7 +130,9 @@ export default function AdminProgramDetailPage() {
           <select
             className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
             value={draft.discipline}
-            onChange={(event) => setDraft((prev) => ({ ...prev, discipline: event.target.value as Discipline }))}
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, discipline: event.target.value as Discipline }))
+            }
           >
             {Object.values(Discipline).map((discipline) => (
               <option key={discipline} value={discipline}>
@@ -134,7 +144,9 @@ export default function AdminProgramDetailPage() {
             <input
               checked={draft.isFeaturedDemo}
               className="h-4 w-4 rounded border-white/10 bg-[var(--surface-2)]"
-              onChange={(event) => setDraft((prev) => ({ ...prev, isFeaturedDemo: event.target.checked }))}
+              onChange={(event) =>
+                setDraft((prev) => ({ ...prev, isFeaturedDemo: event.target.checked }))
+              }
               type="checkbox"
             />
             Featured demo program
@@ -176,14 +188,26 @@ export default function AdminProgramDetailPage() {
 
           <div className="space-y-3">
             {program.courses.map((course) => (
-              <div className="surface-panel-muted flex items-center justify-between gap-4 p-4" key={course.id}>
+              <div
+                className="surface-panel-muted flex items-center justify-between gap-4 p-4"
+                key={course.id}
+              >
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{course.title}</h3>
-                    {program.isFeaturedDemo ? <PremiumBadge label="Demo track" tone="accent" /> : null}
-                    <PremiumBadge label={course.isPublished ? 'Published' : 'Draft'} tone={course.isPublished ? 'accent' : 'neutral'} />
+                    <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
+                      {course.title}
+                    </h3>
+                    {program.isFeaturedDemo ? (
+                      <PremiumBadge label="Demo track" tone="accent" />
+                    ) : null}
+                    <PremiumBadge
+                      label={course.isPublished ? 'Published' : 'Draft'}
+                      tone={course.isPublished ? 'accent' : 'neutral'}
+                    />
                   </div>
-                  <p className="text-sm text-[var(--text-muted)]">{course.lessons.length} lessons in this course</p>
+                  <p className="text-sm text-[var(--text-muted)]">
+                    {course.lessons.length} lessons in this course
+                  </p>
                 </div>
                 <Link
                   className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"

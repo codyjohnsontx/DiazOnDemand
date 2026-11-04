@@ -105,7 +105,9 @@ export default function SubscribePage() {
         </section>
 
         <aside className="surface-panel space-y-6 p-8">
-          <h2 className="font-display text-4xl leading-none text-[var(--text)]">Monthly premium access</h2>
+          <h2 className="font-display text-4xl leading-none text-[var(--text)]">
+            Monthly premium access
+          </h2>
 
           <button
             className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"

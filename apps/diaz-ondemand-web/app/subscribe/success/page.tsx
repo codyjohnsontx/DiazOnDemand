@@ -38,7 +38,13 @@ export default async function SubscribeSuccessPage() {
               ? 'Stripe completed successfully. Your entitlement should update as soon as the webhook finishes processing.'
               : 'Stripe completed successfully, but account status could not be checked right now.'
         }
-        title={premiumActive ? 'Premium is active' : processing ? 'Subscription processing' : 'Account check unavailable'}
+        title={
+          premiumActive
+            ? 'Premium is active'
+            : processing
+              ? 'Subscription processing'
+              : 'Account check unavailable'
+        }
       />
       <div className="surface-panel space-y-6 p-8">
         <div className="flex flex-wrap gap-3">

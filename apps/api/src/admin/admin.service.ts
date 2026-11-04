@@ -333,12 +333,13 @@ export class AdminService {
       include: { tag: true },
     });
 
-    const managedExisting = existing.filter((entry) =>
-      entry.tag.name.startsWith('discipline:') ||
-      entry.tag.name.startsWith('phase:') ||
-      entry.tag.name.startsWith('track:') ||
-      entry.tag.name.startsWith('skill:') ||
-      entry.tag.name.startsWith('level:'),
+    const managedExisting = existing.filter(
+      (entry) =>
+        entry.tag.name.startsWith('discipline:') ||
+        entry.tag.name.startsWith('phase:') ||
+        entry.tag.name.startsWith('track:') ||
+        entry.tag.name.startsWith('skill:') ||
+        entry.tag.name.startsWith('level:'),
     );
 
     const toRemove = managedExisting.filter((entry) => !desiredNames.includes(entry.tag.name));

@@ -122,7 +122,10 @@ export default function AdminCourseDetailPage() {
   if (!course) {
     return (
       <AppShell>
-        <EmptyState description="The selected course could not be found." title="Course unavailable" />
+        <EmptyState
+          description="The selected course could not be found."
+          title="Course unavailable"
+        />
       </AppShell>
     );
   }
@@ -134,21 +137,30 @@ export default function AdminCourseDetailPage() {
       <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
         <section className="surface-panel space-y-5 p-6">
           <div className="flex items-start justify-between gap-4">
-            <h1 className="font-display text-4xl leading-none text-[var(--text)]">{course.title}</h1>
+            <h1 className="font-display text-4xl leading-none text-[var(--text)]">
+              {course.title}
+            </h1>
             <div className="flex flex-wrap items-center gap-2">
               {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
               {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
-              <PremiumBadge label={course.isPublished ? 'Published' : 'Draft'} tone={course.isPublished ? 'accent' : 'neutral'} />
+              <PremiumBadge
+                label={course.isPublished ? 'Published' : 'Draft'}
+                tone={course.isPublished ? 'accent' : 'neutral'}
+              />
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="surface-panel-muted p-4">
               <p className="type-kicker text-[var(--text-muted)]">Lessons</p>
-              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{course.lessons.length}</p>
+              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
+                {course.lessons.length}
+              </p>
             </div>
             <div className="surface-panel-muted p-4">
               <p className="type-kicker text-[var(--text-muted)]">Published</p>
-              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{publishedLessons}</p>
+              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
+                {publishedLessons}
+              </p>
             </div>
             <div className="surface-panel-muted p-4">
               <p className="type-kicker text-[var(--text-muted)]">Premium</p>
@@ -188,10 +200,15 @@ export default function AdminCourseDetailPage() {
             {[...course.lessons]
               .sort((left, right) => left.orderIndex - right.orderIndex)
               .map((lesson, index, sorted) => (
-                <div className="surface-panel-muted flex items-center justify-between gap-4 p-4" key={lesson.id}>
+                <div
+                  className="surface-panel-muted flex items-center justify-between gap-4 p-4"
+                  key={lesson.id}
+                >
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{lesson.title}</h3>
+                      <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
+                        {lesson.title}
+                      </h3>
                       {/*
                         The provider badge names where the video comes from; the
                         state badge beside it says whether there is one. A lesson
@@ -205,8 +222,14 @@ export default function AdminCourseDetailPage() {
                         <PremiumBadge label="Video ID will not play" tone="premium" />
                       ) : null}
                       <LessonVideoStateBadge lesson={lesson} />
-                      <PremiumBadge label={lesson.accessLevel === 'PAID' ? 'Premium' : 'Free'} tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'} />
-                      <PremiumBadge label={lesson.isPublished ? 'Published' : 'Draft'} tone={lesson.isPublished ? 'accent' : 'neutral'} />
+                      <PremiumBadge
+                        label={lesson.accessLevel === 'PAID' ? 'Premium' : 'Free'}
+                        tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'}
+                      />
+                      <PremiumBadge
+                        label={lesson.isPublished ? 'Published' : 'Draft'}
+                        tone={lesson.isPublished ? 'accent' : 'neutral'}
+                      />
                     </div>
                     <p className="text-sm text-[var(--text-muted)]">
                       {lesson.curriculum

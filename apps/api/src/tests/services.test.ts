@@ -239,7 +239,9 @@ describe('ContentService', () => {
       }),
     );
 
-    expect(lesson.video.playbackUrl).toBe('https://stream.mux.com/muxPlaybackId000000000000000000001.m3u8');
+    expect(lesson.video.playbackUrl).toBe(
+      'https://stream.mux.com/muxPlaybackId000000000000000000001.m3u8',
+    );
   });
 
   it('keeps missing lessons as not found errors', async () => {
@@ -834,10 +836,7 @@ describe('entitlement resolution', () => {
 
       it('holds for a chargeback however genuine the renewal looks', () => {
         expect(
-          releasesRevocation(
-            { ...refunded, revokedReason: REVOKE_REASON_CHARGEBACK },
-            renewal,
-          ),
+          releasesRevocation({ ...refunded, revokedReason: REVOKE_REASON_CHARGEBACK }, renewal),
         ).toBe(false);
       });
 
@@ -1083,7 +1082,9 @@ describe('Mux signed playback tokens', () => {
       mapLessonDetail({ ...paidLesson, accessLevel: 'FREE' as const }),
     );
 
-    expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playbackAbc00000000000000000000001.m3u8');
+    expect(detail.video.playbackUrl).toBe(
+      'https://stream.mux.com/playbackAbc00000000000000000000001.m3u8',
+    );
   });
 
   // Measured against @mux/mux-player 3.11.4 in Chrome: a player handed both a
@@ -1143,7 +1144,9 @@ describe('Mux signed playback tokens', () => {
         withSigningKey(undefined, undefined, () => mapLessonDetail(paidLesson)),
       );
 
-      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playbackAbc00000000000000000000001.m3u8');
+      expect(detail.video.playbackUrl).toBe(
+        'https://stream.mux.com/playbackAbc00000000000000000000001.m3u8',
+      );
     });
 
     it('never applies to a free lesson, which is meant to be unsigned', async () => {
@@ -1153,7 +1156,9 @@ describe('Mux signed playback tokens', () => {
         ),
       );
 
-      expect(detail.video.playbackUrl).toBe('https://stream.mux.com/playbackAbc00000000000000000000001.m3u8');
+      expect(detail.video.playbackUrl).toBe(
+        'https://stream.mux.com/playbackAbc00000000000000000000001.m3u8',
+      );
     });
   });
 });
@@ -1233,7 +1238,13 @@ describe('published lessons never resolve to an unplayable identifier', () => {
   // isValidMuxPlaybackId in @diaz/shared. A short made-up id like 'TODO' is
   // therefore accepted here and fails in the player instead, which is the
   // honest boundary of what shape can decide.
-  const unplayableMuxIds = ['seedgrddef101', 'seedbcdoff802', 'a1B2c3D4e5F6g7H8i9/../x', ' pad ', ''];
+  const unplayableMuxIds = [
+    'seedgrddef101',
+    'seedbcdoff802',
+    'a1B2c3D4e5F6g7H8i9/../x',
+    ' pad ',
+    '',
+  ];
   const unplayableYoutubeIds = ['not-filmed', 'https://youtu.be/M7lc1UVf-VE', 'TBD', ''];
 
   it.each(unplayableMuxIds)('reports a Mux lesson holding "%s" as having no video', async (id) => {
@@ -1436,7 +1447,11 @@ describe('WebhooksService Mux asset sync', () => {
     await expect(
       service.handleMuxWebhook({
         type: 'video.asset.ready',
-        data: { id: 'asset-1', duration: 60, playback_ids: [{ id: 'signed-only', policy: 'signed' }] },
+        data: {
+          id: 'asset-1',
+          duration: 60,
+          playback_ids: [{ id: 'signed-only', policy: 'signed' }],
+        },
       }),
     ).rejects.toThrow(/asset-1 has no public playback id.*FREE lesson lesson-1/);
 
@@ -1480,7 +1495,10 @@ describe('WebhooksService Mux asset sync', () => {
     );
 
     await expect(
-      service.handleMuxWebhook({ type: 'video.asset.ready', data: { id: 'asset-1', duration: 60 } }),
+      service.handleMuxWebhook({
+        type: 'video.asset.ready',
+        data: { id: 'asset-1', duration: 60 },
+      }),
     ).rejects.toThrow(/has no public playback id/);
 
     expect(update).not.toHaveBeenCalled();
@@ -1511,7 +1529,9 @@ describe('WebhooksService Mux asset sync', () => {
     });
 
     expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ muxPlaybackId: 'publicOne0000000000000000000000001' }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ muxPlaybackId: 'publicOne0000000000000000000000001' }),
+      }),
     );
   });
 
@@ -1656,7 +1676,10 @@ describe('WebhooksService Mux asset sync', () => {
         type: 'video.asset.ready',
         data: {
           id: 'asset-1',
-          playback_ids: [{ id: 'publicPlayback00000000000000000001' }, { id: 'another-public', policy: 'public' }],
+          playback_ids: [
+            { id: 'publicPlayback00000000000000000001' },
+            { id: 'another-public', policy: 'public' },
+          ],
         },
       }),
     ).rejects.toThrow(/has a public playback id/);

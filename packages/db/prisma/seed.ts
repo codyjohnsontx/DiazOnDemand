@@ -1,10 +1,4 @@
-import {
-  PrismaClient,
-  Discipline,
-  EntitlementTier,
-  Role,
-  VideoProvider,
-} from '@prisma/client';
+import { PrismaClient, Discipline, EntitlementTier, Role, VideoProvider } from '@prisma/client';
 import { createCurriculumTags } from '@diaz/shared';
 import { curriculumProgramsSeed } from './seed-curriculum/programs.js';
 

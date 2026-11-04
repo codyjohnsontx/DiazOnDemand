@@ -42,9 +42,9 @@ describe('isLoopbackDatabaseUrl', () => {
 
 describe('dev auth bypass startup refusal', () => {
   it('refuses the bypass against a non-local database with NODE_ENV unset', () => {
-    expect(() =>
-      validateApiEnv({ DATABASE_URL: REMOTE_DB, DEV_BYPASS_AUTH: 'true' }),
-    ).toThrow(/DEV_BYPASS_AUTH.*DATABASE_URL points at a loopback host.*127\.0\.0\.1.*\[::1\]/s);
+    expect(() => validateApiEnv({ DATABASE_URL: REMOTE_DB, DEV_BYPASS_AUTH: 'true' })).toThrow(
+      /DEV_BYPASS_AUTH.*DATABASE_URL points at a loopback host.*127\.0\.0\.1.*\[::1\]/s,
+    );
   });
 
   it('refuses the bypass against a non-local database in development and test', () => {
@@ -155,7 +155,10 @@ const DEPLOYMENT_MATRIX: { databaseUrl: string | undefined; deployedWhenNotProdu
     { databaseUrl: 'postgresql://u:p@LOCALHOST:5432/db', deployedWhenNotProduction: false },
     { databaseUrl: REMOTE_DB, deployedWhenNotProduction: true },
     { databaseUrl: 'postgresql://u:p@10.0.0.4:5432/db', deployedWhenNotProduction: true },
-    { databaseUrl: 'postgresql://u:p@localhost.example.com:5432/db', deployedWhenNotProduction: true },
+    {
+      databaseUrl: 'postgresql://u:p@localhost.example.com:5432/db',
+      deployedWhenNotProduction: true,
+    },
     { databaseUrl: 'not-a-url', deployedWhenNotProduction: true },
     { databaseUrl: '', deployedWhenNotProduction: true },
     { databaseUrl: undefined, deployedWhenNotProduction: true },
@@ -413,12 +416,12 @@ describe('existing startup refusals', () => {
   });
 
   it('requires Clerk credentials when the bypass is off', () => {
-    expect(() =>
-      validateApiEnv(envWithoutBypass({ CLERK_SECRET_KEY: undefined })),
-    ).toThrow(/CLERK_SECRET_KEY: required when DEV_BYPASS_AUTH=false/);
-    expect(() =>
-      validateApiEnv(envWithoutBypass({ CLERK_JWT_ISSUER: undefined })),
-    ).toThrow(/CLERK_JWT_ISSUER: required when DEV_BYPASS_AUTH=false/);
+    expect(() => validateApiEnv(envWithoutBypass({ CLERK_SECRET_KEY: undefined }))).toThrow(
+      /CLERK_SECRET_KEY: required when DEV_BYPASS_AUTH=false/,
+    );
+    expect(() => validateApiEnv(envWithoutBypass({ CLERK_JWT_ISSUER: undefined }))).toThrow(
+      /CLERK_JWT_ISSUER: required when DEV_BYPASS_AUTH=false/,
+    );
   });
 
   it('requires a monthly price when Stripe is enabled', () => {

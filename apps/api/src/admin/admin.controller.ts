@@ -86,10 +86,13 @@ export class AdminController {
     const payload = adminCreateLessonSchema.parse(body);
     const { courseId, curriculum, ...rest } = payload;
 
-    return this.adminService.createLesson({
-      ...rest,
-      course: { connect: { id: courseId } },
-    }, curriculum);
+    return this.adminService.createLesson(
+      {
+        ...rest,
+        course: { connect: { id: courseId } },
+      },
+      curriculum,
+    );
   }
 
   @Get('lessons/:id')
@@ -114,10 +117,14 @@ export class AdminController {
     const payload = adminUpdateLessonSchema.parse(body);
     const { courseId, curriculum, ...rest } = payload;
 
-    return this.adminService.updateLesson(id, {
-      ...rest,
-      ...(courseId ? { course: { connect: { id: courseId } } } : {}),
-    }, curriculum);
+    return this.adminService.updateLesson(
+      id,
+      {
+        ...rest,
+        ...(courseId ? { course: { connect: { id: courseId } } } : {}),
+      },
+      curriculum,
+    );
   }
 
   @Patch('lessons/:id/publish')

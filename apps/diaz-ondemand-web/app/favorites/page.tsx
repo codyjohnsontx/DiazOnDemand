@@ -59,7 +59,11 @@ export default function FavoritesPage() {
     <AppShell className="space-y-8">
       <PageHeader title="Favorites" />
 
-      {error ? <p className="text-sm text-[var(--danger)]" role="alert">{error}</p> : null}
+      {error ? (
+        <p className="text-sm text-[var(--danger)]" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       {favorites.length === 0 ? (
         <EmptyState

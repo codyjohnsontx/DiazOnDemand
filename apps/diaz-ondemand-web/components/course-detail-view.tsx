@@ -12,7 +12,12 @@ import {
 } from '@diaz/shared';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
-import { buildCourseProgress, buildLessonQueue, formatDuration, getAccessLabel } from '@/lib/student-ui';
+import {
+  buildCourseProgress,
+  buildLessonQueue,
+  formatDuration,
+  getAccessLabel,
+} from '@/lib/student-ui';
 import { AppShell } from './app-shell';
 import { EmptyState } from './empty-state';
 import { LessonRow } from './lesson-row';
@@ -49,23 +54,33 @@ export function CourseDetailView({
   }, [apiFetch]);
 
   const courseProgress = buildCourseProgress(course, progress);
-  const queue = buildLessonQueue(course, progress, courseProgress.inProgressLessonId ?? courseProgress.nextLessonId ?? '');
-  const totalDuration = formatDuration((course.lessons ?? []).reduce((sum, lesson) => sum + (lesson.durationSeconds ?? 0), 0));
+  const queue = buildLessonQueue(
+    course,
+    progress,
+    courseProgress.inProgressLessonId ?? courseProgress.nextLessonId ?? '',
+  );
+  const totalDuration = formatDuration(
+    (course.lessons ?? []).reduce((sum, lesson) => sum + (lesson.durationSeconds ?? 0), 0),
+  );
   const primaryLessonId = courseProgress.continueLessonId ?? course.lessons?.[0]?.id ?? null;
   const primaryCtaLabel = courseProgress.percent > 0 ? 'Continue' : 'Start course';
   const recommendation = buildRecommendation(programs, course.id, progress);
   const firstCurriculum = course.lessons?.find((lesson) => lesson.curriculum)?.curriculum ?? null;
-  const curriculumLabels = [...new Set((course.lessons ?? []).flatMap((lesson) => {
-    const curriculum = lesson.curriculum;
-    if (!curriculum) {
-      return [];
-    }
+  const curriculumLabels = [
+    ...new Set(
+      (course.lessons ?? []).flatMap((lesson) => {
+        const curriculum = lesson.curriculum;
+        if (!curriculum) {
+          return [];
+        }
 
-    return [
-      getCurriculumTrackLabel(curriculum),
-      ...(curriculum.skill ? [getCurriculumSkillLabel(curriculum)] : []),
-    ].filter((label): label is string => Boolean(label));
-  }))];
+        return [
+          getCurriculumTrackLabel(curriculum),
+          ...(curriculum.skill ? [getCurriculumSkillLabel(curriculum)] : []),
+        ].filter((label): label is string => Boolean(label));
+      }),
+    ),
+  ];
   const nextLesson = queue.find((item) => item.isCurrent || item.isNext) ?? queue[0] ?? null;
   const monogram = course.title
     .split(' ')
@@ -76,11 +91,7 @@ export function CourseDetailView({
   if (!course.lessons || course.lessons.length === 0) {
     return (
       <AppShell>
-        <EmptyState
-          ctaHref="/library"
-          ctaLabel="Back to library"
-          title="No lessons yet"
-        />
+        <EmptyState ctaHref="/library" ctaLabel="Back to library" title="No lessons yet" />
       </AppShell>
     );
   }
@@ -91,11 +102,15 @@ export function CourseDetailView({
         <section className="space-y-6">
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-3">
-              {programDiscipline ? <PremiumBadge label={getDisciplineLabel(programDiscipline)} /> : null}
+              {programDiscipline ? (
+                <PremiumBadge label={getDisciplineLabel(programDiscipline)} />
+              ) : null}
               {isFeaturedDemo ? <PremiumBadge label="Featured demo" tone="accent" /> : null}
               <PremiumBadge label={getAccessLabel(course.lessons)} tone="premium" />
               {firstCurriculum ? (
-                <PremiumBadge label={getCurriculumPhaseLabel(firstCurriculum.discipline, firstCurriculum.phase)} />
+                <PremiumBadge
+                  label={getCurriculumPhaseLabel(firstCurriculum.discipline, firstCurriculum.phase)}
+                />
               ) : null}
             </div>
             <div className="space-y-3">
@@ -142,7 +157,9 @@ export function CourseDetailView({
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="surface-panel-muted p-4">
                 <p className="type-kicker text-[var(--text-muted)]">Completed</p>
-                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">{courseProgress.completedLessons}</p>
+                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
+                  {courseProgress.completedLessons}
+                </p>
               </div>
               <div className="surface-panel-muted p-4">
                 <p className="type-kicker text-[var(--text-muted)]">Remaining</p>
@@ -152,7 +169,9 @@ export function CourseDetailView({
               </div>
               <div className="surface-panel-muted p-4">
                 <p className="type-kicker text-[var(--text-muted)]">Runtime</p>
-                <p className="mt-3 text-base text-[var(--text)]">{totalDuration || `${course.lessons.length} lessons`}</p>
+                <p className="mt-3 text-base text-[var(--text)]">
+                  {totalDuration || `${course.lessons.length} lessons`}
+                </p>
               </div>
             </div>
           </div>
@@ -165,7 +184,11 @@ export function CourseDetailView({
             </div>
           ) : null}
 
-          {progressError ? <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]">{progressError}</div> : null}
+          {progressError ? (
+            <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]">
+              {progressError}
+            </div>
+          ) : null}
         </section>
 
         <section className="space-y-6">

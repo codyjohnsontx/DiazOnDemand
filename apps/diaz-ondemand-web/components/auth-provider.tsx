@@ -23,16 +23,16 @@ export function useAuthToken() {
 function ClerkTokenProvider({ children }: { children: ReactNode }) {
   const { getToken } = useAuth();
 
-  return (
-    <AuthTokenContext.Provider value={{ getToken }}>
-      {children}
-    </AuthTokenContext.Provider>
-  );
+  return <AuthTokenContext.Provider value={{ getToken }}>{children}</AuthTokenContext.Provider>;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   if (!clerkEnabled) {
-    return <AuthTokenContext.Provider value={BYPASS_AUTH_TOKEN_VALUE}>{children}</AuthTokenContext.Provider>;
+    return (
+      <AuthTokenContext.Provider value={BYPASS_AUTH_TOKEN_VALUE}>
+        {children}
+      </AuthTokenContext.Provider>
+    );
   }
 
   return (

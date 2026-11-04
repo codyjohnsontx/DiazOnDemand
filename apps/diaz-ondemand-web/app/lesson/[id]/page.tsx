@@ -288,7 +288,9 @@ export default function LessonPage() {
       return;
     }
 
-    const lastPositionSeconds = lesson.durationSeconds ?? Math.max(progress.find((entry) => entry.lessonId === lesson.id)?.lastPositionSeconds ?? 0, 1);
+    const lastPositionSeconds =
+      lesson.durationSeconds ??
+      Math.max(progress.find((entry) => entry.lessonId === lesson.id)?.lastPositionSeconds ?? 0, 1);
 
     try {
       setSaveState('saving');
@@ -333,11 +335,7 @@ export default function LessonPage() {
   if (error instanceof ApiError && error.status === 401) {
     return (
       <AppShell>
-        <EmptyState
-          ctaHref="/sign-in"
-          ctaLabel="Sign in"
-          title="Sign in to keep training"
-        />
+        <EmptyState ctaHref="/sign-in" ctaLabel="Sign in" title="Sign in to keep training" />
       </AppShell>
     );
   }
@@ -359,7 +357,9 @@ export default function LessonPage() {
     return (
       <AppShell>
         <div className="surface-panel p-8">
-          <p className="font-display text-2xl leading-tight text-[var(--text-muted)]">Loading lesson...</p>
+          <p className="font-display text-2xl leading-tight text-[var(--text-muted)]">
+            Loading lesson...
+          </p>
         </div>
       </AppShell>
     );
@@ -371,14 +371,19 @@ export default function LessonPage() {
   const queue = course ? buildLessonQueue(course, progress, lesson.id) : [];
   const courseProgress = course ? buildCourseProgress(course, progress) : null;
   const currentLessonIndex = course?.lessons?.findIndex((entry) => entry.id === lesson.id) ?? -1;
-  const previousLesson = currentLessonIndex > 0 ? course?.lessons?.[currentLessonIndex - 1] ?? null : null;
+  const previousLesson =
+    currentLessonIndex > 0 ? (course?.lessons?.[currentLessonIndex - 1] ?? null) : null;
   const nextLesson =
-    currentLessonIndex >= 0 && course?.lessons ? course.lessons[currentLessonIndex + 1] ?? null : null;
+    currentLessonIndex >= 0 && course?.lessons
+      ? (course.lessons[currentLessonIndex + 1] ?? null)
+      : null;
   const curriculumLabel = formatCurriculumLabel(lesson);
   const durationLabel = hasPlayableVideo(lesson) ? formatDuration(lesson.durationSeconds) : null;
   const currentCompleted = Boolean(currentProgress?.completed);
   const trustedYoutubeEmbedUrl =
-    video.provider === VideoProvider.YOUTUBE && video.embedUrl && isTrustedYouTubeEmbed(video.embedUrl)
+    video.provider === VideoProvider.YOUTUBE &&
+    video.embedUrl &&
+    isTrustedYouTubeEmbed(video.embedUrl)
       ? video.embedUrl
       : null;
 
@@ -398,16 +403,17 @@ export default function LessonPage() {
               {course ? <PremiumBadge label={course.title} /> : null}
               {lesson.curriculum ? (
                 <PremiumBadge
-                  label={getCurriculumPhaseLabel(lesson.curriculum.discipline, lesson.curriculum.phase)}
+                  label={getCurriculumPhaseLabel(
+                    lesson.curriculum.discipline,
+                    lesson.curriculum.phase,
+                  )}
                 />
               ) : null}
               {curriculumLabel ? <PremiumBadge label={curriculumLabel} /> : null}
               {durationLabel ? <PremiumBadge label={durationLabel} /> : null}
             </div>
             <div className="space-y-3">
-              <h1 className="type-title-xl max-w-4xl text-[var(--text)]">
-                {lesson.title}
-              </h1>
+              <h1 className="type-title-xl max-w-4xl text-[var(--text)]">{lesson.title}</h1>
               {lesson.description ? (
                 <p className="type-body max-w-3xl text-[var(--text-muted)]">{lesson.description}</p>
               ) : null}
@@ -449,7 +455,11 @@ export default function LessonPage() {
                 // for what counts as nothing to resume.
                 startTime={resumeStartTime > 0 ? resumeStartTime : undefined}
                 streamType="on-demand"
-                onError={() => setPlaybackError('Playback failed. Verify the Mux playback ID and signed playback configuration.')}
+                onError={() =>
+                  setPlaybackError(
+                    'Playback failed. Verify the Mux playback ID and signed playback configuration.',
+                  )
+                }
                 onTimeUpdate={(event) => {
                   playerRef.current = event.currentTarget as unknown as PlayerHandle;
                   playerLessonIdRef.current = lesson.id;
@@ -479,7 +489,9 @@ export default function LessonPage() {
                 */}
                 <div className="space-y-3">
                   <h2 className="font-display text-4xl leading-none text-[var(--text)]">
-                    {video.provider === VideoProvider.YOUTUBE ? 'YouTube embed unavailable' : 'This lesson has not been filmed'}
+                    {video.provider === VideoProvider.YOUTUBE
+                      ? 'YouTube embed unavailable'
+                      : 'This lesson has not been filmed'}
                   </h2>
                   <p className="max-w-xl text-sm leading-7 text-[var(--text-muted)]">
                     {video.provider === VideoProvider.YOUTUBE
@@ -492,7 +504,9 @@ export default function LessonPage() {
           </div>
 
           {playbackError ? (
-            <div className="surface-panel-muted p-4 text-sm leading-7 text-[var(--danger)]">{playbackError}</div>
+            <div className="surface-panel-muted p-4 text-sm leading-7 text-[var(--danger)]">
+              {playbackError}
+            </div>
           ) : null}
 
           <div className="surface-panel space-y-5 p-6">
@@ -530,7 +544,9 @@ export default function LessonPage() {
               </div>
             </div>
             <ProgressBar label="Lesson progress" value={currentProgressPercent} />
-            {courseProgress ? <ProgressBar label="Course progress" value={courseProgress.percent} /> : null}
+            {courseProgress ? (
+              <ProgressBar label="Course progress" value={courseProgress.percent} />
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
               {previousLesson ? (
                 <Link
@@ -539,12 +555,18 @@ export default function LessonPage() {
                 >
                   <div>
                     <p className="type-kicker text-[var(--text-muted)]">Previous</p>
-                    <p className="mt-2 text-sm font-semibold text-[var(--text)]">{previousLesson.title}</p>
+                    <p className="mt-2 text-sm font-semibold text-[var(--text)]">
+                      {previousLesson.title}
+                    </p>
                   </div>
-                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Open</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">
+                    Open
+                  </span>
                 </Link>
               ) : (
-                <div className="surface-panel-muted p-4 text-sm text-[var(--text-muted)]">Start of course.</div>
+                <div className="surface-panel-muted p-4 text-sm text-[var(--text-muted)]">
+                  Start of course.
+                </div>
               )}
 
               {nextLesson ? (
@@ -554,12 +576,18 @@ export default function LessonPage() {
                 >
                   <div>
                     <p className="type-kicker text-[var(--text-muted)]">Next</p>
-                    <p className="mt-2 text-sm font-semibold text-[var(--text)]">{nextLesson.title}</p>
+                    <p className="mt-2 text-sm font-semibold text-[var(--text)]">
+                      {nextLesson.title}
+                    </p>
                   </div>
-                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">Open</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">
+                    Open
+                  </span>
                 </Link>
               ) : (
-                <div className="surface-panel-muted p-4 text-sm text-[var(--text-muted)]">End of course.</div>
+                <div className="surface-panel-muted p-4 text-sm text-[var(--text-muted)]">
+                  End of course.
+                </div>
               )}
             </div>
           </div>

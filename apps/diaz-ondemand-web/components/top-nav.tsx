@@ -40,7 +40,9 @@ export function TopNav() {
                 <p className="font-display text-xl leading-none tracking-[0.04em] text-[var(--text)] sm:text-2xl">
                   Diaz
                 </p>
-                <p className="type-kicker text-[10px] text-[var(--text-muted)] sm:text-xs">On Demand</p>
+                <p className="type-kicker text-[10px] text-[var(--text-muted)] sm:text-xs">
+                  On Demand
+                </p>
               </div>
             </Link>
 
@@ -51,7 +53,9 @@ export function TopNav() {
                 return (
                   <Link
                     key={link.href}
-                    className={['nav-link', active ? 'nav-link-active' : ''].filter(Boolean).join(' ')}
+                    className={['nav-link', active ? 'nav-link-active' : '']
+                      .filter(Boolean)
+                      .join(' ')}
                     href={link.href}
                   >
                     {link.label}

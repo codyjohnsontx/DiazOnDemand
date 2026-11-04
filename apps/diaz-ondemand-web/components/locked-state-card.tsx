@@ -11,7 +11,9 @@ export function LockedStateCard() {
             <PremiumBadge label="Premium lesson" tone="premium" />
             <PremiumBadge label="Monthly access" />
           </div>
-          <h1 className="type-title-xl max-w-3xl text-[var(--text)]">Unlock the full training library</h1>
+          <h1 className="type-title-xl max-w-3xl text-[var(--text)]">
+            Unlock the full training library
+          </h1>
         </div>
         <Link
           className="inline-flex items-center rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"

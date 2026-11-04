@@ -95,7 +95,9 @@ export default function AdminProgramsPage() {
                 className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 placeholder="New program title"
                 value={form.title}
-                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, title: event.target.value }))
+                }
               />
             </div>
             <div className="space-y-2">
@@ -107,7 +109,10 @@ export default function AdminProgramsPage() {
                 className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 value={form.discipline}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, discipline: event.target.value as Discipline }))
+                  setForm((current) => ({
+                    ...current,
+                    discipline: event.target.value as Discipline,
+                  }))
                 }
               >
                 {Object.values(Discipline).map((discipline) => (
@@ -117,7 +122,10 @@ export default function AdminProgramsPage() {
                 ))}
               </select>
             </div>
-            <label className="flex items-center gap-3 text-sm text-[var(--text-muted)]" htmlFor={featuredDemoId}>
+            <label
+              className="flex items-center gap-3 text-sm text-[var(--text-muted)]"
+              htmlFor={featuredDemoId}
+            >
               <input
                 id={featuredDemoId}
                 checked={form.isFeaturedDemo}
@@ -150,9 +158,7 @@ export default function AdminProgramsPage() {
 
           <div className="surface-panel space-y-4 p-6">
             <div className="flex items-end justify-between gap-4">
-              <h2 className="type-title-lg text-[var(--text)]">
-                {programs.length} programs
-              </h2>
+              <h2 className="type-title-lg text-[var(--text)]">{programs.length} programs</h2>
               <PremiumBadge label="Operations view" />
             </div>
             {programs.length === 0 ? (
@@ -164,16 +170,28 @@ export default function AdminProgramsPage() {
             ) : (
               <div className="space-y-3">
                 {programs.map((program) => (
-                  <div className="surface-panel-muted flex items-center justify-between gap-4 p-4" key={program.id}>
+                  <div
+                    className="surface-panel-muted flex items-center justify-between gap-4 p-4"
+                    key={program.id}
+                  >
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-display text-2xl leading-tight text-[var(--text)]">{program.title}</h3>
+                        <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
+                          {program.title}
+                        </h3>
                         <PremiumBadge label={getDisciplineLabel(program.discipline)} />
-                        {program.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
-                        <PremiumBadge label={program.isPublished ? 'Published' : 'Draft'} tone={program.isPublished ? 'accent' : 'neutral'} />
+                        {program.isFeaturedDemo ? (
+                          <PremiumBadge label="Demo" tone="accent" />
+                        ) : null}
+                        <PremiumBadge
+                          label={program.isPublished ? 'Published' : 'Draft'}
+                          tone={program.isPublished ? 'accent' : 'neutral'}
+                        />
                       </div>
                       <p className="text-sm text-[var(--text-muted)]">
-                        {program.courses.length} courses, {program.courses.reduce((sum, course) => sum + course.lessons.length, 0)} lessons
+                        {program.courses.length} courses,{' '}
+                        {program.courses.reduce((sum, course) => sum + course.lessons.length, 0)}{' '}
+                        lessons
                       </p>
                     </div>
                     <Link

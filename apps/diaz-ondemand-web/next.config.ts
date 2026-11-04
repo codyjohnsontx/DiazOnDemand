@@ -6,7 +6,10 @@ const nextConfig: NextConfig = {
   webpack: (config) => {
     config.resolve ??= {};
     config.resolve.alias ??= {};
-    config.resolve.alias['@diaz/shared'] = path.resolve(process.cwd(), '../../packages/shared/dist/index.js');
+    config.resolve.alias['@diaz/shared'] = path.resolve(
+      process.cwd(),
+      '../../packages/shared/dist/index.js',
+    );
     return config;
   },
 };
