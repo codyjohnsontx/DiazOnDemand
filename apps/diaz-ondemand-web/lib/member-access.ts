@@ -17,6 +17,16 @@ export function formatDate(iso: string) {
   });
 }
 
+/**
+ * The end of a date field's day in the admin's own time zone, or null when the
+ * value names no date: empty, or a year too long for `Date` to parse.
+ */
+export function endOfDayIso(date: string) {
+  const end = new Date(`${date}T23:59:59`);
+
+  return Number.isNaN(end.getTime()) ? null : end.toISOString();
+}
+
 function until(validUntil: string | null) {
   return validUntil ? `until ${formatDate(validUntil)}` : 'with no end date';
 }

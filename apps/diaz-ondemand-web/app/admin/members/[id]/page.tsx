@@ -13,6 +13,7 @@ import {
   describeAccess,
   describeAuditAction,
   describeAuditChange,
+  endOfDayIso,
   formatDate,
 } from '@/lib/member-access';
 
@@ -47,11 +48,13 @@ function ConfirmedAction({
   label,
   confirmation,
   onConfirm,
+  confirmDisabled = false,
   reasonRequired = false,
 }: {
   label: string;
   confirmation: string;
   onConfirm: (reason: string) => Promise<void>;
+  confirmDisabled?: boolean;
   reasonRequired?: boolean;
 }) {
   const reasonId = useId();
@@ -113,7 +116,7 @@ function ConfirmedAction({
       <div className="flex flex-wrap gap-3">
         <button
           className={PRIMARY_BUTTON}
-          disabled={submitting || (reasonRequired && !reason.trim())}
+          disabled={submitting || confirmDisabled || (reasonRequired && !reason.trim())}
           onClick={confirm}
           type="button"
         >
@@ -227,8 +230,8 @@ export default function AdminMemberPage() {
     }
   };
 
-  // The end of the chosen day, in the admin's own time zone.
-  const grantUntilIso = grantUntil ? new Date(`${grantUntil}T23:59:59`).toISOString() : null;
+  const grantUntilIso = endOfDayIso(grantUntil);
+  const grantDateInvalid = grantUntil !== '' && grantUntilIso === null;
 
   if (loadError) {
     return (
@@ -337,6 +340,7 @@ export default function AdminMemberPage() {
               <input
                 id={validUntilId}
                 className={FIELD}
+                max="9999-12-31"
                 type="date"
                 value={grantUntil}
                 onChange={(event) => setGrantUntil(event.target.value)}
@@ -344,10 +348,13 @@ export default function AdminMemberPage() {
             </div>
             <ConfirmedAction
               confirmation={
-                grantUntilIso
-                  ? `Grant premium access until ${formatDate(grantUntilIso)}?`
-                  : 'Grant premium access with no end date?'
+                grantDateInvalid
+                  ? 'That end date is not a real date. Fix it or clear it to continue.'
+                  : grantUntilIso
+                    ? `Grant premium access until ${formatDate(grantUntilIso)}?`
+                    : 'Grant premium access with no end date?'
               }
+              confirmDisabled={grantDateInvalid}
               label={hasManualGrant ? 'Update access' : 'Grant access'}
               onConfirm={async (reason) => {
                 await act(
