@@ -5,7 +5,9 @@
  * `admin-members.db.test.ts` is the database-backed half: the same transitions
  * run through the real service, with the audit rows they write.
  */
+import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants.js';
+import { Reflector } from '@nestjs/core';
 import { EntitlementSource, EntitlementTier } from '@diaz/db';
 import { Role } from '@diaz/shared';
 import { describe, expect, it } from 'vitest';
@@ -21,10 +23,15 @@ import { ROLES_KEY } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import {
   NO_REVOCATION,
+  REVOKE_REASON_ADMIN,
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
-  planManualRefundRelease,
+  planDisputeWonRelease,
+  planManualRelease,
+  planRevocation,
+  releasesRevocation,
 } from '../billing/subscription-revocation.js';
+import { manualGrantOutlastsStripe } from '../common/entitlement.js';
 
 const NOW = new Date('2026-11-04T12:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -53,21 +60,98 @@ function entitlement(
 const refunded = (at = daysFromNow(-2)) =>
   subscription({ revokedAt: at, revokedReason: REVOKE_REASON_REFUND });
 
-describe('planManualRefundRelease', () => {
+describe('planManualRelease', () => {
   it('clears a refund revocation', () => {
-    expect(
-      planManualRefundRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_REFUND }),
-    ).toEqual(NO_REVOCATION);
+    expect(planManualRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_REFUND })).toEqual(
+      NO_REVOCATION,
+    );
+  });
+
+  it('clears an admin revocation, which nothing else can', () => {
+    expect(planManualRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_ADMIN })).toEqual(
+      NO_REVOCATION,
+    );
   });
 
   it('never clears a chargeback, which only a won dispute releases', () => {
     expect(
-      planManualRefundRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_CHARGEBACK }),
+      planManualRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_CHARGEBACK }),
     ).toBeNull();
   });
 
   it('has nothing to clear on a row that was never revoked', () => {
-    expect(planManualRefundRelease(NO_REVOCATION)).toBeNull();
+    expect(planManualRelease(NO_REVOCATION)).toBeNull();
+  });
+});
+
+describe('an admin revocation', () => {
+  const adminRevoked = { revokedAt: NOW, revokedReason: REVOKE_REASON_ADMIN };
+
+  it('is written with its reason on a live row', () => {
+    expect(planRevocation(NO_REVOCATION, REVOKE_REASON_ADMIN, NOW)).toEqual(adminRevoked);
+  });
+
+  it('survives a genuine paid renewal', () => {
+    expect(
+      releasesRevocation(
+        { ...adminRevoked, currentPeriodEnd: daysFromNow(20) },
+        {
+          status: 'active',
+          currentPeriodEnd: daysFromNow(50),
+          stripeCreatedAt: daysFromNow(1),
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it('is not released by a won dispute', () => {
+    expect(planDisputeWonRelease(adminRevoked)).toBeNull();
+  });
+
+  it('gives way to a chargeback, which no admin may clear', () => {
+    expect(planRevocation(adminRevoked, REVOKE_REASON_CHARGEBACK, daysFromNow(1))).toEqual({
+      revokedAt: daysFromNow(1),
+      revokedReason: REVOKE_REASON_CHARGEBACK,
+    });
+  });
+});
+
+describe('manualGrantOutlastsStripe', () => {
+  const stripeUntil = (validUntil: Date | null) => ({ tier: EntitlementTier.PREMIUM, validUntil });
+
+  it('keeps a grant that ends after Stripe access', () => {
+    expect(manualGrantOutlastsStripe(daysFromNow(30), stripeUntil(daysFromNow(20)), NOW)).toBe(
+      true,
+    );
+  });
+
+  it('gives way to Stripe access that ends later', () => {
+    expect(manualGrantOutlastsStripe(daysFromNow(5), stripeUntil(daysFromNow(20)), NOW)).toBe(
+      false,
+    );
+  });
+
+  it('lets paid access win a tie', () => {
+    expect(manualGrantOutlastsStripe(daysFromNow(20), stripeUntil(daysFromNow(20)), NOW)).toBe(
+      false,
+    );
+  });
+
+  it('reads a grant with no end date as forever', () => {
+    expect(manualGrantOutlastsStripe(null, stripeUntil(null), NOW)).toBe(true);
+    expect(manualGrantOutlastsStripe(null, stripeUntil(daysFromNow(20)), NOW)).toBe(true);
+  });
+
+  it('does not let a dated grant outlast Stripe access with no known end', () => {
+    expect(manualGrantOutlastsStripe(daysFromNow(30), stripeUntil(null), NOW)).toBe(false);
+  });
+
+  it('keeps any grant when Stripe grants nothing', () => {
+    const free = { tier: EntitlementTier.FREE, validUntil: null };
+    const paidUpThroughYesterday = stripeUntil(daysFromNow(-1));
+
+    expect(manualGrantOutlastsStripe(daysFromNow(1), free, NOW)).toBe(true);
+    expect(manualGrantOutlastsStripe(daysFromNow(1), paidUpThroughYesterday, NOW)).toBe(true);
   });
 });
 
@@ -95,10 +179,34 @@ describe('planManualGrant', () => {
     expect(planManualGrant({ validUntil: NOW, subscriptions: [] }, NOW).ok).toBe(false);
   });
 
-  it('refuses while Stripe already grants access, so a lapsing grant cannot strand a payer', () => {
-    expect(planManualGrant({ validUntil: null, subscriptions: [subscription()] }, NOW).ok).toBe(
-      false,
+  it('refuses a grant that ends before Stripe access, naming the date to beat', () => {
+    const plan = planManualGrant(
+      { validUntil: daysFromNow(5), subscriptions: [subscription()] },
+      NOW,
     );
+
+    expect(plan).toEqual({
+      ok: false,
+      message: expect.stringContaining(daysFromNow(20).toISOString().slice(0, 10)),
+    });
+  });
+
+  it('accepts a grant that outlasts Stripe access', () => {
+    expect(
+      planManualGrant({ validUntil: daysFromNow(60), subscriptions: [subscription()] }, NOW).ok,
+    ).toBe(true);
+    expect(planManualGrant({ validUntil: null, subscriptions: [subscription()] }, NOW).ok).toBe(
+      true,
+    );
+  });
+
+  it('refuses a dated grant when Stripe access has no known end', () => {
+    expect(
+      planManualGrant(
+        { validUntil: daysFromNow(60), subscriptions: [subscription({ currentPeriodEnd: null })] },
+        NOW,
+      ),
+    ).toEqual({ ok: false, message: expect.stringContaining('no end date on record') });
   });
 
   it('is allowed for a member whose only subscription was refunded', () => {
@@ -107,7 +215,7 @@ describe('planManualGrant', () => {
 });
 
 describe('planManualRevoke', () => {
-  it('has nothing to revoke when access comes from Stripe', () => {
+  it('has no grant to end when access comes from Stripe', () => {
     expect(
       planManualRevoke(
         entitlement(EntitlementTier.PREMIUM, daysFromNow(20), EntitlementSource.STRIPE),
@@ -182,6 +290,12 @@ describe('restoreGivesAccess', () => {
         NOW,
       ),
     ).toBe(false);
+  });
+
+  it('is true for an admin revocation on a subscription that is still paid up', () => {
+    expect(
+      restoreGivesAccess(subscription({ revokedAt: NOW, revokedReason: REVOKE_REASON_ADMIN }), NOW),
+    ).toBe(true);
   });
 });
 
@@ -309,23 +423,53 @@ describe('describeMemberAccess', () => {
 });
 
 describe('who can reach the members screen', () => {
-  it('is exactly the admin roles every other admin route allows', () => {
-    expect(Reflect.getMetadata(GUARDS_METADATA, AdminController)).toEqual([AuthGuard, RolesGuard]);
-    expect(Reflect.getMetadata(ROLES_KEY, AdminController)).toEqual([Role.ADMIN, Role.COACH]);
-  });
+  const MEMBER_HANDLERS = [
+    'listMembers',
+    'getMember',
+    'grantMemberAccess',
+    'revokeMemberAccess',
+    'restoreMemberAccess',
+  ] as const;
 
-  it('is never widened on a members route', () => {
-    for (const handler of [
-      'listMembers',
-      'getMember',
-      'grantMemberAccess',
-      'revokeMemberAccess',
-      'restoreMemberRefund',
-    ] as const) {
-      expect(Reflect.getMetadata(ROLES_KEY, AdminController.prototype[handler])).toBeUndefined();
+  const guard = new RolesGuard(new Reflector());
+
+  function allows(role: Role, handler: keyof AdminController) {
+    return guard.canActivate({
+      getHandler: () => AdminController.prototype[handler],
+      getClass: () => AdminController,
+      switchToHttp: () => ({ getRequest: () => ({ user: { role } }) }),
+    } as unknown as ExecutionContext);
+  }
+
+  it('sits behind the same guards as every other admin route', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, AdminController)).toEqual([AuthGuard, RolesGuard]);
+
+    for (const handler of MEMBER_HANDLERS) {
       expect(
         Reflect.getMetadata(GUARDS_METADATA, AdminController.prototype[handler]),
       ).toBeUndefined();
     }
+  });
+
+  it('is ADMIN only on every members route', () => {
+    for (const handler of MEMBER_HANDLERS) {
+      expect(Reflect.getMetadata(ROLES_KEY, AdminController.prototype[handler])).toEqual([
+        Role.ADMIN,
+      ]);
+      expect(allows(Role.ADMIN, handler)).toBe(true);
+    }
+  });
+
+  it('refuses a COACH and a STUDENT on every members route', () => {
+    for (const handler of MEMBER_HANDLERS) {
+      expect(() => allows(Role.COACH, handler)).toThrow(ForbiddenException);
+      expect(() => allows(Role.STUDENT, handler)).toThrow(ForbiddenException);
+    }
+  });
+
+  it('leaves a COACH the content routes', () => {
+    expect(Reflect.getMetadata(ROLES_KEY, AdminController)).toEqual([Role.ADMIN, Role.COACH]);
+    expect(allows(Role.COACH, 'listPrograms')).toBe(true);
+    expect(allows(Role.COACH, 'updateLesson')).toBe(true);
   });
 });

@@ -40,19 +40,19 @@ function messageFrom(error: unknown, fallback: string) {
 }
 
 /**
- * An access change: an optional reason, then a second, explicit confirmation
- * that says what will happen before anything is sent.
+ * An access change: a reason, then a second, explicit confirmation that says
+ * what will happen before anything is sent.
  */
 function ConfirmedAction({
   label,
   confirmation,
   onConfirm,
-  disabled = false,
+  reasonRequired = false,
 }: {
   label: string;
   confirmation: string;
   onConfirm: (reason: string) => Promise<void>;
-  disabled?: boolean;
+  reasonRequired?: boolean;
 }) {
   const reasonId = useId();
   const [reason, setReason] = useState('');
@@ -83,12 +83,7 @@ function ConfirmedAction({
 
   if (!confirming) {
     return (
-      <button
-        className={SECONDARY_BUTTON}
-        disabled={disabled}
-        onClick={() => setConfirming(true)}
-        type="button"
-      >
+      <button className={SECONDARY_BUTTON} onClick={() => setConfirming(true)} type="button">
         {label}
       </button>
     );
@@ -103,19 +98,25 @@ function ConfirmedAction({
       <p className="text-sm text-[var(--text)]">{confirmation}</p>
       <div className="space-y-2">
         <label className="type-kicker text-[var(--text-muted)]" htmlFor={reasonId}>
-          Reason (optional)
+          {reasonRequired ? 'Reason' : 'Reason (optional)'}
         </label>
         <textarea
           id={reasonId}
           className={`${FIELD} min-h-[80px]`}
           maxLength={500}
+          required={reasonRequired}
           rows={2}
           value={reason}
           onChange={(event) => setReason(event.target.value)}
         />
       </div>
       <div className="flex flex-wrap gap-3">
-        <button className={PRIMARY_BUTTON} disabled={submitting} onClick={confirm} type="button">
+        <button
+          className={PRIMARY_BUTTON}
+          disabled={submitting || (reasonRequired && !reason.trim())}
+          onClick={confirm}
+          type="button"
+        >
           {submitting ? 'Saving...' : 'Confirm'}
         </button>
         <button
@@ -166,8 +167,8 @@ function SubscriptionRow({
         <ConfirmedAction
           confirmation={
             subscription.restoreGivesAccess
-              ? `Clear the refund on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.`
-              : `Clear the refund on ${subscription.stripeSubscriptionId}? ${periodOver ? `Its paid period ended ${periodEnd}` : `The subscription is ${status}`}, so this clears the record but gives no access back.`
+              ? `Clear the ${subscription.revokedReason} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.`
+              : `Clear the ${subscription.revokedReason} revocation on ${subscription.stripeSubscriptionId}? ${periodOver ? `Its paid period ended ${periodEnd}` : `The subscription is ${status}`}, so this clears the record but gives no access back.`
           }
           label="Restore access"
           onConfirm={(reason) => onRestore(subscription, reason)}
@@ -250,6 +251,8 @@ export default function AdminMemberPage() {
     );
   }
 
+  const hasManualGrant = member.access.kind === 'manual-grant';
+
   return (
     <AppShell className="space-y-8">
       <div className="space-y-4">
@@ -301,54 +304,62 @@ export default function AdminMemberPage() {
               </h3>
               <ConfirmedAction
                 confirmation={
-                  member.accessAfterRevoke?.hasAccess
-                    ? `End this manual grant? Their Stripe subscription still gives them access${member.accessAfterRevoke.validUntil ? ` until ${formatDate(member.accessAfterRevoke.validUntil)}` : ''}.`
-                    : 'End this manual grant? They will have no premium access.'
+                  member.revokeRequiresReason
+                    ? 'Withdraw their Stripe access? It ends at once and stays off through renewals until restored here. This does not cancel the subscription or stop billing; do that in Stripe.'
+                    : member.accessAfterRevoke?.hasAccess
+                      ? `End this manual grant? Their Stripe subscription still gives them access${member.accessAfterRevoke.validUntil ? ` until ${formatDate(member.accessAfterRevoke.validUntil)}` : ''}.`
+                      : 'End this manual grant? They will have no premium access.'
                 }
                 label="Revoke access"
                 onConfirm={(reason) =>
                   act('revoke', { reason }, 'Access revoked.', 'Access could not be revoked.')
                 }
+                reasonRequired={member.revokeRequiresReason}
               />
             </div>
           ) : null}
 
-          {member.hasLiveStripeAccess ? null : (
-            <div className="space-y-4 border-t border-white/10 pt-6">
-              <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-                {member.canRevoke ? 'Change access end date' : 'Grant access'}
-              </h3>
-              <div className="space-y-2">
-                <label className="type-kicker text-[var(--text-muted)]" htmlFor={validUntilId}>
-                  Access ends (leave empty for no end date)
-                </label>
-                <input
-                  id={validUntilId}
-                  className={FIELD}
-                  type="date"
-                  value={grantUntil}
-                  onChange={(event) => setGrantUntil(event.target.value)}
-                />
-              </div>
-              <ConfirmedAction
-                confirmation={
-                  grantUntilIso
-                    ? `Grant premium access until ${formatDate(grantUntilIso)}?`
-                    : 'Grant premium access with no end date?'
-                }
-                label={member.canRevoke ? 'Update access' : 'Grant access'}
-                onConfirm={async (reason) => {
-                  await act(
-                    'grant',
-                    { validUntil: grantUntilIso, reason },
-                    'Access granted.',
-                    'Access could not be granted.',
-                  );
-                  setGrantUntil('');
-                }}
+          <div className="space-y-4 border-t border-white/10 pt-6">
+            <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
+              {hasManualGrant ? 'Change access end date' : 'Grant access'}
+            </h3>
+            {member.stripeAccess ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                {member.stripeAccess.validUntil
+                  ? `Their Stripe subscription runs until ${formatDate(member.stripeAccess.validUntil)}, so a grant has to end later.`
+                  : 'Their Stripe subscription has no end date on record, so only a grant with no end date can outlast it.'}
+              </p>
+            ) : null}
+            <div className="space-y-2">
+              <label className="type-kicker text-[var(--text-muted)]" htmlFor={validUntilId}>
+                Access ends (leave empty for no end date)
+              </label>
+              <input
+                id={validUntilId}
+                className={FIELD}
+                type="date"
+                value={grantUntil}
+                onChange={(event) => setGrantUntil(event.target.value)}
               />
             </div>
-          )}
+            <ConfirmedAction
+              confirmation={
+                grantUntilIso
+                  ? `Grant premium access until ${formatDate(grantUntilIso)}?`
+                  : 'Grant premium access with no end date?'
+              }
+              label={hasManualGrant ? 'Update access' : 'Grant access'}
+              onConfirm={async (reason) => {
+                await act(
+                  'grant',
+                  { validUntil: grantUntilIso, reason },
+                  'Access granted.',
+                  'Access could not be granted.',
+                );
+                setGrantUntil('');
+              }}
+            />
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -363,10 +374,10 @@ export default function AdminMemberPage() {
                     key={subscription.id}
                     onRestore={(row, reason) =>
                       act(
-                        'restore-refund',
+                        'restore',
                         { subscriptionId: row.id, reason },
-                        'Refund cleared.',
-                        'The refund could not be cleared.',
+                        'Revocation cleared.',
+                        'The revocation could not be cleared.',
                       )
                     }
                     subscription={subscription}

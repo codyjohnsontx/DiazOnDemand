@@ -8,7 +8,7 @@
 -- "actorClerkUserId" keeps who it was.
 
 -- CreateEnum
-CREATE TYPE "MemberAccessAction" AS ENUM ('GRANT', 'REVOKE', 'RESTORE_REFUND');
+CREATE TYPE "MemberAccessAction" AS ENUM ('GRANT', 'REVOKE', 'RESTORE');
 
 -- CreateTable
 CREATE TABLE "MemberAccessAudit" (

@@ -21,19 +21,26 @@ import {
   type AdminGrantMemberAccessDto,
   type AdminMemberDetail,
   type AdminMemberSummary,
-  type AdminRestoreMemberRefundDto,
+  type AdminRestoreMemberAccessDto,
   type AdminRevokeMemberAccessDto,
 } from '@diaz/shared';
 import type { AuthUser } from '../common/request-with-user.js';
-import { isEntitlementActive } from '../common/entitlement.js';
+import {
+  isEntitlementActive,
+  isLiveStripeSubscription,
+  resolveStripeEntitlement,
+} from '../common/entitlement.js';
 import { syncEntitlementFromSubscriptions } from '../billing/entitlement-sync.js';
-import { planManualRefundRelease } from '../billing/subscription-revocation.js';
+import {
+  REVOKE_REASON_ADMIN,
+  planManualRelease,
+  planRevocation,
+} from '../billing/subscription-revocation.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   describeMemberAccess,
-  hasLiveManualGrant,
   hasLiveStripeAccess,
-  isRestorableRefund,
+  isRestorable,
   planManualGrant,
   planManualRevoke,
   restoreGivesAccess,
@@ -57,7 +64,7 @@ const ROLE_FROM_DB: Record<DbRole, Role> = {
 const ACTION_FROM_DB: Record<MemberAccessAction, SharedMemberAccessAction> = {
   [MemberAccessAction.GRANT]: SharedMemberAccessAction.GRANT,
   [MemberAccessAction.REVOKE]: SharedMemberAccessAction.REVOKE,
-  [MemberAccessAction.RESTORE_REFUND]: SharedMemberAccessAction.RESTORE_REFUND,
+  [MemberAccessAction.RESTORE]: SharedMemberAccessAction.RESTORE,
 };
 
 const TIER_FROM_DB: Record<EntitlementTier, SharedEntitlementTier> = {
@@ -104,18 +111,24 @@ function mapSummary(member: MemberRow, now: Date): AdminMemberSummary {
 }
 
 function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
-  const afterRevoke = planManualRevoke(member.entitlement, member.subscriptions, now);
+  const afterGrantRevoke = planManualRevoke(member.entitlement, member.subscriptions, now);
+  const stripeLive = hasLiveStripeAccess(member.subscriptions, now);
 
   return {
     ...mapSummary(member, now),
-    canRevoke: hasLiveManualGrant(member.entitlement, now),
-    accessAfterRevoke: afterRevoke
+    canRevoke: afterGrantRevoke !== null || stripeLive,
+    accessAfterRevoke: afterGrantRevoke
       ? {
-          hasAccess: isEntitlementActive(afterRevoke, now),
-          validUntil: iso(afterRevoke.validUntil),
+          hasAccess: isEntitlementActive(afterGrantRevoke, now),
+          validUntil: iso(afterGrantRevoke.validUntil),
         }
+      : stripeLive
+        ? { hasAccess: false, validUntil: null }
+        : null,
+    revokeRequiresReason: afterGrantRevoke === null && stripeLive,
+    stripeAccess: stripeLive
+      ? { validUntil: iso(resolveStripeEntitlement(member.subscriptions).validUntil) }
       : null,
-    hasLiveStripeAccess: hasLiveStripeAccess(member.subscriptions, now),
     subscriptions: [...member.subscriptions]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((subscription) => ({
@@ -126,7 +139,7 @@ function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
         currentPeriodEnd: iso(subscription.currentPeriodEnd),
         revokedAt: iso(subscription.revokedAt),
         revokedReason: subscription.revokedReason,
-        restorable: isRestorableRefund(subscription),
+        restorable: isRestorable(subscription),
         restoreGivesAccess: restoreGivesAccess(subscription, now),
       })),
     history: [...member.accessAudit]
@@ -232,6 +245,10 @@ export class AdminMembersService {
     return this.getMember(memberId);
   }
 
+  /**
+   * Ends what the member can watch now: a live manual grant first, which leaves
+   * any Stripe access standing, and otherwise the Stripe access itself.
+   */
   async revokeAccess(actor: AuthUser, memberId: string, payload: AdminRevokeMemberAccessDto) {
     const now = new Date();
 
@@ -239,30 +256,78 @@ export class AdminMembersService {
       const member = await this.loadMember(tx, memberId);
       const fields = planManualRevoke(member.entitlement, member.subscriptions, now);
 
-      if (!fields) {
-        throw new ConflictException(
-          'This member has no manual grant to revoke. Access that comes from a Stripe ' +
-            'subscription ends in Stripe.',
-        );
+      if (fields) {
+        await tx.entitlement.update({ where: { userId: member.id }, data: fields });
+
+        await tx.memberAccessAudit.create({
+          data: this.auditRow(actor, member, MemberAccessAction.REVOKE, payload.reason, fields),
+        });
+        return;
       }
 
-      await tx.entitlement.update({ where: { userId: member.id }, data: fields });
+      if (!hasLiveStripeAccess(member.subscriptions, now)) {
+        throw new ConflictException('This member has no access to revoke.');
+      }
 
-      await tx.memberAccessAudit.create({
-        data: this.auditRow(actor, member, MemberAccessAction.REVOKE, payload.reason, fields),
-      });
+      if (!payload.reason) {
+        throw new BadRequestException('Withdrawing Stripe access needs a reason.');
+      }
+
+      await this.withdrawStripeAccess(tx, actor, member, payload.reason, now);
     });
 
     return this.getMember(memberId);
   }
 
   /**
-   * The immediate way back for a member refunded by mistake. Clears the refund
-   * revocation through the billing seam and re-derives the entitlement exactly
-   * as the webhook would, so the member gets what their subscription pays for -
-   * nothing more, and nothing at all if it was also cancelled.
+   * Revokes every live subscription through the billing seam and re-derives the
+   * entitlement, so the outcome is one the stored rows support and the next
+   * Stripe event cannot undo it. One audit row per subscription, because each
+   * row is a separate revocation an admin can restore.
    */
-  async restoreRefund(actor: AuthUser, memberId: string, payload: AdminRestoreMemberRefundDto) {
+  private async withdrawStripeAccess(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    member: MemberRow,
+    reason: string,
+    now: Date,
+  ) {
+    const live = member.subscriptions.filter(isLiveStripeSubscription);
+
+    for (const subscription of live) {
+      const revocation = planRevocation(subscription, REVOKE_REASON_ADMIN, now);
+
+      if (revocation) {
+        await tx.subscription.update({ where: { id: subscription.id }, data: revocation });
+      }
+    }
+
+    await syncEntitlementFromSubscriptions(tx, member.id);
+
+    const after = await tx.entitlement.findUnique({ where: { userId: member.id } });
+
+    await tx.memberAccessAudit.createMany({
+      data: live.map((subscription) => ({
+        ...this.auditRow(
+          actor,
+          member,
+          MemberAccessAction.REVOKE,
+          reason,
+          entitlementSnapshot(after),
+        ),
+        stripeSubscriptionId: subscription.stripeSubscriptionId,
+      })),
+    });
+  }
+
+  /**
+   * The immediate way back for a member refunded by mistake, and the only way
+   * back from an admin revocation. Clears the revocation through the billing
+   * seam and re-derives the entitlement exactly as the webhook would, so the
+   * member gets what their subscription pays for - nothing more, and nothing at
+   * all if it was also cancelled.
+   */
+  async restoreAccess(actor: AuthUser, memberId: string, payload: AdminRestoreMemberAccessDto) {
     await this.prisma.client.$transaction(async (tx) => {
       const member = await this.loadMember(tx, memberId);
       const subscription = member.subscriptions.find((row) => row.id === payload.subscriptionId);
@@ -271,12 +336,12 @@ export class AdminMembersService {
         throw new NotFoundException('Subscription not found for this member');
       }
 
-      const release = planManualRefundRelease(subscription);
+      const release = planManualRelease(subscription);
 
       if (!release) {
         throw new ConflictException(
-          'Only a refund revocation can be restored here. A chargeback clears only when the ' +
-            'dispute is won.',
+          'Only a refund or admin revocation can be restored here. A chargeback clears only ' +
+            'when the dispute is won.',
         );
       }
 
@@ -290,7 +355,7 @@ export class AdminMembersService {
           ...this.auditRow(
             actor,
             member,
-            MemberAccessAction.RESTORE_REFUND,
+            MemberAccessAction.RESTORE,
             payload.reason,
             entitlementSnapshot(after),
           ),

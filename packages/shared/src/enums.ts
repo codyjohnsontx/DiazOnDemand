@@ -30,5 +30,5 @@ export enum EntitlementTier {
 export enum MemberAccessAction {
   GRANT = 'GRANT',
   REVOKE = 'REVOKE',
-  RESTORE_REFUND = 'RESTORE_REFUND',
+  RESTORE = 'RESTORE',
 }

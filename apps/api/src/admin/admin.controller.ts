@@ -15,7 +15,7 @@ import {
   adminCreateLessonSchema,
   adminCreateProgramSchema,
   adminGrantMemberAccessSchema,
-  adminRestoreMemberRefundSchema,
+  adminRestoreMemberAccessSchema,
   adminRevokeMemberAccessSchema,
   adminUpdateCourseSchema,
   adminUpdateLessonSchema,
@@ -150,20 +150,25 @@ export class AdminController {
   }
 
   /**
-   * The members screen. Same guards as every other admin route - the class-level
-   * `AuthGuard` + `RolesGuard(ADMIN, COACH)` - and every change below writes an
-   * audit row naming the signed-in admin.
+   * The members screen. ADMIN only: these routes move paid access and expose
+   * billing identifiers, which COACH, a content-editing role, does not get. Each
+   * handler carries its own `@Roles` because `RolesGuard` reads the handler before
+   * the class, so a route added here without one falls back to ADMIN + COACH.
+   * Every change below writes an audit row naming the signed-in admin.
    */
+  @Roles(Role.ADMIN)
   @Get('members')
   listMembers(@Query('q') query?: string) {
     return this.adminMembersService.listMembers(query);
   }
 
+  @Roles(Role.ADMIN)
   @Get('members/:id')
   getMember(@Param('id') id: string) {
     return this.adminMembersService.getMember(id);
   }
 
+  @Roles(Role.ADMIN)
   @Post('members/:id/grant')
   grantMemberAccess(
     @CurrentUser() actor: AuthUser,
@@ -177,6 +182,7 @@ export class AdminController {
     );
   }
 
+  @Roles(Role.ADMIN)
   @Post('members/:id/revoke')
   revokeMemberAccess(
     @CurrentUser() actor: AuthUser,
@@ -190,16 +196,17 @@ export class AdminController {
     );
   }
 
-  @Post('members/:id/restore-refund')
-  restoreMemberRefund(
+  @Roles(Role.ADMIN)
+  @Post('members/:id/restore')
+  restoreMemberAccess(
     @CurrentUser() actor: AuthUser,
     @Param('id') id: string,
     @Body() body: unknown,
   ) {
-    return this.adminMembersService.restoreRefund(
+    return this.adminMembersService.restoreAccess(
       actor,
       id,
-      adminRestoreMemberRefundSchema.parse(body),
+      adminRestoreMemberAccessSchema.parse(body),
     );
   }
 }

@@ -619,6 +619,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
       expect(alerts).toHaveLength(1);
       expect(alerts[0]).toContain('NOT withdrawn');
+      expect(alerts[0]).toContain('/admin/members');
     });
 
     it('leaves access alone and alerts when a chargeback cannot be traced to a subscription', async () => {
@@ -645,6 +646,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
       expect(alerts).toHaveLength(1);
       expect(alerts[0]).toContain('NOT withdrawn');
+      expect(alerts[0]).toContain('/admin/members');
     });
   });
 

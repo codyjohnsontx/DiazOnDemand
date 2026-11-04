@@ -24,6 +24,7 @@ import type Stripe from 'stripe';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AdminMembersService } from '../admin/admin-members.service.js';
 import {
+  REVOKE_REASON_ADMIN,
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
 } from '../billing/subscription-revocation.js';
@@ -48,6 +49,8 @@ const prisma = { client: prismaClient } as unknown as PrismaService;
 const PREFIX = 'members-test-';
 const DAY = 24 * 60 * 60 * 1000;
 const daysFromNow = (days: number) => new Date(Date.now() + days * DAY);
+/** Stripe stamps whole seconds, so a date that goes through an event has to be one. */
+const stripeDate = (days: number) => new Date(Math.floor(daysFromNow(days).getTime() / 1000) * 1000);
 
 let sequence = 0;
 
@@ -111,6 +114,46 @@ async function refundedMember() {
   return { member, subscription };
 }
 
+/** A member with live Stripe access, as the webhook leaves them. */
+async function payingMember() {
+  const member = await createUser();
+  const subscription = await createSubscription(member.id);
+  await prismaClient!.entitlement.update({
+    where: { userId: member.id },
+    data: {
+      tier: EntitlementTier.PREMIUM,
+      validUntil: subscription.currentPeriodEnd,
+      source: EntitlementSource.STRIPE,
+    },
+  });
+  return { member, subscription };
+}
+
+/** The `customer.subscription.updated` Stripe sends for a stored subscription. */
+async function deliverSubscriptionEvent(
+  member: { id: string },
+  subscription: { stripeSubscriptionId: string; stripeCustomerId: string },
+  currentPeriodEnd: Date,
+) {
+  sequence += 1;
+  await new WebhooksService(prisma).handleStripeEvent({
+    id: `evt_${PREFIX}${sequence}`,
+    type: 'customer.subscription.updated',
+    created: Math.floor(Date.now() / 1000) + sequence,
+    data: {
+      object: {
+        id: subscription.stripeSubscriptionId,
+        customer: subscription.stripeCustomerId,
+        status: 'active',
+        current_period_end: Math.floor(currentPeriodEnd.getTime() / 1000),
+        cancel_at_period_end: false,
+        metadata: { userId: member.id },
+        items: { data: [] },
+      },
+    },
+  } as unknown as Stripe.Event);
+}
+
 function entitlementOf(userId: string) {
   return prismaClient!.entitlement.findUnique({ where: { userId } });
 }
@@ -135,6 +178,9 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
 
   afterEach(async () => {
     await prismaClient!.user.deleteMany({ where: { clerkUserId: { startsWith: PREFIX } } });
+    await prismaClient!.stripeWebhookEvent.deleteMany({
+      where: { id: { startsWith: `evt_${PREFIX}` } },
+    });
   });
 
   describe('grant', () => {
@@ -170,17 +216,140 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       expect(detail.history).toHaveLength(1);
     });
 
-    it('is refused for a member Stripe already grants access to, and records nothing', async () => {
+    it('is refused when it ends before Stripe access, and records nothing', async () => {
       const admin = await createAdmin();
-      const member = await createUser();
-      await createSubscription(member.id);
+      const { member, subscription } = await payingMember();
 
       await expect(
-        service.grantAccess(admin, member.id, { validUntil: null, reason: null }),
+        service.grantAccess(admin, member.id, {
+          validUntil: daysFromNow(5).toISOString(),
+          reason: null,
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(await auditOf(member.id)).toEqual([]);
-      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+      expect(await entitlementOf(member.id)).toMatchObject({
+        validUntil: subscription.currentPeriodEnd,
+        source: EntitlementSource.STRIPE,
+      });
+    });
+
+    it('can recover a paying member whose stored access lapsed', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      const subscription = await createSubscription(member.id);
+      await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: {
+          tier: EntitlementTier.PREMIUM,
+          validUntil: daysFromNow(-1),
+          source: EntitlementSource.MANUAL,
+        },
+      });
+
+      const before = await service.getMember(member.id);
+      expect(before.hasAccess).toBe(false);
+      expect(before.stripeAccess).toEqual({
+        validUntil: subscription.currentPeriodEnd!.toISOString(),
+      });
+
+      const after = await service.grantAccess(admin, member.id, {
+        validUntil: daysFromNow(40).toISOString(),
+        reason: 'Stranded by an old grant',
+      });
+
+      expect(after.hasAccess).toBe(true);
+    });
+  });
+
+  describe('a member who pays during a manual grant', () => {
+    it('keeps access after the grant lapses, because Stripe takes over', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      const grantEnds = daysFromNow(3);
+      await service.grantAccess(admin, member.id, {
+        validUntil: grantEnds.toISOString(),
+        reason: 'Paid cash for the week',
+      });
+
+      const paidUntil = stripeDate(30);
+      const subscription = await createSubscription(member.id, { currentPeriodEnd: paidUntil });
+      await deliverSubscriptionEvent(member, subscription, paidUntil);
+
+      expect(await entitlementOf(member.id)).toMatchObject({
+        tier: EntitlementTier.PREMIUM,
+        validUntil: paidUntil,
+        source: EntitlementSource.STRIPE,
+      });
+
+      const afterTheGrantLapsed = new Date(grantEnds.getTime() + DAY);
+      const detail = await service.getMember(member.id, afterTheGrantLapsed);
+
+      expect(detail.hasAccess).toBe(true);
+      expect(detail.access).toEqual({ kind: 'stripe', validUntil: paidUntil.toISOString() });
+    });
+
+    it('keeps a grant that outlasts the paid period, then hands over at the crossing', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      const grantEnds = daysFromNow(40);
+      await service.grantAccess(admin, member.id, {
+        validUntil: grantEnds.toISOString(),
+        reason: null,
+      });
+
+      const firstPeriodEnd = stripeDate(20);
+      const subscription = await createSubscription(member.id, {
+        currentPeriodEnd: firstPeriodEnd,
+      });
+      await deliverSubscriptionEvent(member, subscription, firstPeriodEnd);
+
+      expect(await entitlementOf(member.id)).toMatchObject({
+        validUntil: grantEnds,
+        source: EntitlementSource.MANUAL,
+      });
+
+      const renewedTo = stripeDate(50);
+      await deliverSubscriptionEvent(member, subscription, renewedTo);
+
+      expect(await entitlementOf(member.id)).toMatchObject({
+        validUntil: renewedTo,
+        source: EntitlementSource.STRIPE,
+      });
+    });
+
+    it('keeps a grant with no end date through every renewal', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
+
+      const paidUntil = stripeDate(30);
+      const subscription = await createSubscription(member.id, { currentPeriodEnd: paidUntil });
+      await deliverSubscriptionEvent(member, subscription, paidUntil);
+
+      expect(await entitlementOf(member.id)).toMatchObject({
+        validUntil: null,
+        source: EntitlementSource.MANUAL,
+      });
+    });
+
+    it('lands on the later access when a refund is restored under a grant', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await refundedMember();
+      await service.grantAccess(admin, member.id, {
+        validUntil: daysFromNow(3).toISOString(),
+        reason: null,
+      });
+
+      const detail = await service.restoreAccess(admin, member.id, {
+        subscriptionId: subscription.id,
+        reason: null,
+      });
+
+      expect(detail.access).toEqual({
+        kind: 'stripe',
+        validUntil: subscription.currentPeriodEnd!.toISOString(),
+      });
     });
   });
 
@@ -215,8 +384,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       const admin = await createAdmin();
       const member = await createUser();
       const subscription = await createSubscription(member.id);
-      // A manual grant that predates the subscription; the screen refuses to
-      // create this shape, but the webhook leaves it standing.
+      // A manual grant that outlasts the subscription, which the webhook keeps.
       await prismaClient!.entitlement.update({
         where: { userId: member.id },
         data: { tier: EntitlementTier.PREMIUM, validUntil: null, source: EntitlementSource.MANUAL },
@@ -232,25 +400,159 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
-    it('is refused when access comes from Stripe, and records nothing', async () => {
+    it('is refused when there is no access to revoke, and records nothing', async () => {
       const admin = await createAdmin();
       const member = await createUser();
-      await createSubscription(member.id);
-      await prismaClient!.entitlement.update({
-        where: { userId: member.id },
-        data: {
-          tier: EntitlementTier.PREMIUM,
-          validUntil: daysFromNow(20),
-          source: EntitlementSource.STRIPE,
-        },
+
+      await expect(
+        service.revokeAccess(admin, member.id, { reason: 'Nothing here' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(await auditOf(member.id)).toEqual([]);
+    });
+  });
+
+  describe('withdrawing Stripe access', () => {
+    it('offers the action and says it needs a reason', async () => {
+      const { member, subscription } = await payingMember();
+
+      expect(await service.getMember(member.id)).toMatchObject({
+        canRevoke: true,
+        revokeRequiresReason: true,
+        accessAfterRevoke: { hasAccess: false, validUntil: null },
+        stripeAccess: { validUntil: subscription.currentPeriodEnd!.toISOString() },
+      });
+    });
+
+    it('revokes through the seam, derives FREE and records who and why', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+
+      const detail = await service.revokeAccess(admin, member.id, {
+        reason: 'Untraceable chargeback dp_123',
       });
 
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.access).toMatchObject({
+        kind: 'admin-revoked',
+        actorClerkUserId: admin.clerkUserId,
+      });
+      expect(detail.canRevoke).toBe(false);
+      expect(detail.subscriptions[0]).toMatchObject({
+        revokedReason: REVOKE_REASON_ADMIN,
+        restorable: true,
+        restoreGivesAccess: true,
+      });
+      expect(await entitlementOf(member.id)).toMatchObject({
+        tier: EntitlementTier.FREE,
+        validUntil: null,
+        source: EntitlementSource.STRIPE,
+      });
+
+      const [entry] = await auditOf(member.id);
+      expect(entry).toMatchObject({
+        actorId: admin.id,
+        action: MemberAccessAction.REVOKE,
+        reason: 'Untraceable chargeback dp_123',
+        stripeSubscriptionId: subscription.stripeSubscriptionId,
+        tierBefore: EntitlementTier.PREMIUM,
+        validUntilBefore: subscription.currentPeriodEnd,
+        tierAfter: EntitlementTier.FREE,
+        validUntilAfter: null,
+      });
+    });
+
+    it('is refused without a reason, and changes and records nothing', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+
       await expect(service.revokeAccess(admin, member.id, { reason: null })).rejects.toBeInstanceOf(
-        ConflictException,
+        BadRequestException,
       );
 
       expect(await auditOf(member.id)).toEqual([]);
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
+      const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
+      expect(row).toMatchObject({ revokedAt: null, revokedReason: null });
+    });
+
+    it('takes a member with a grant and a subscription down one step at a time', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
+
+      const afterGrant = await service.revokeAccess(admin, member.id, { reason: null });
+
+      expect(afterGrant.access).toEqual({
+        kind: 'stripe',
+        validUntil: subscription.currentPeriodEnd!.toISOString(),
+      });
+      expect(afterGrant.revokeRequiresReason).toBe(true);
+
+      const afterStripe = await service.revokeAccess(admin, member.id, { reason: 'Banned' });
+
+      expect(afterStripe.hasAccess).toBe(false);
+    });
+
+    it('revokes every live subscription, with one audit row each', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      const second = await createSubscription(member.id, { currentPeriodEnd: daysFromNow(25) });
+
+      await service.revokeAccess(admin, member.id, { reason: 'Double subscription' });
+
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+      expect((await auditOf(member.id)).map((entry) => entry.stripeSubscriptionId).sort()).toEqual(
+        [subscription.stripeSubscriptionId, second.stripeSubscriptionId].sort(),
+      );
+    });
+
+    it('rolls back the revocation when the audit row cannot be written', async () => {
+      const ghost: AuthUser = {
+        id: '00000000-0000-0000-0000-000000000000',
+        clerkUserId: `${PREFIX}ghost`,
+        role: Role.ADMIN,
+        entitlementTier: SharedEntitlementTier.FREE,
+      };
+      const { member, subscription } = await payingMember();
+
+      await expect(service.revokeAccess(ghost, member.id, { reason: 'Nope' })).rejects.toThrow();
+
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
+      const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
+      expect(row).toMatchObject({ revokedAt: null, revokedReason: null });
+    });
+
+    it('stays withdrawn through a genuine paid renewal', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      await service.revokeAccess(admin, member.id, { reason: 'Untraceable refund' });
+
+      await deliverSubscriptionEvent(member, subscription, daysFromNow(50));
+
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+      const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
+      expect(row?.revokedReason).toBe(REVOKE_REASON_ADMIN);
+    });
+
+    it('can be undone from the same screen, and records that too', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      await service.revokeAccess(admin, member.id, { reason: 'Wrong member' });
+
+      const detail = await service.restoreAccess(admin, member.id, {
+        subscriptionId: subscription.id,
+        reason: 'Revoked the wrong member',
+      });
+
+      expect(detail.access).toEqual({
+        kind: 'stripe',
+        validUntil: subscription.currentPeriodEnd!.toISOString(),
+      });
+      expect((await auditOf(member.id)).map((entry) => entry.action)).toEqual([
+        MemberAccessAction.REVOKE,
+        MemberAccessAction.RESTORE,
+      ]);
     });
   });
 
@@ -273,7 +575,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       const admin = await createAdmin();
       const { member, subscription } = await refundedMember();
 
-      const detail = await service.restoreRefund(admin, member.id, {
+      const detail = await service.restoreAccess(admin, member.id, {
         subscriptionId: subscription.id,
         reason: 'Refunded the wrong member',
       });
@@ -290,7 +592,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       const [entry] = await auditOf(member.id);
       expect(entry).toMatchObject({
         actorId: admin.id,
-        action: MemberAccessAction.RESTORE_REFUND,
+        action: MemberAccessAction.RESTORE,
         reason: 'Refunded the wrong member',
         stripeSubscriptionId: subscription.stripeSubscriptionId,
         tierBefore: EntitlementTier.FREE,
@@ -302,7 +604,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
     it('survives the next Stripe event even when that event is not a renewal', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await refundedMember();
-      await service.restoreRefund(admin, member.id, {
+      await service.restoreAccess(admin, member.id, {
         subscriptionId: subscription.id,
         reason: null,
       });
@@ -310,30 +612,11 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       // Not a renewal: the period end does not move. On its own this event
       // would leave a refunded member locked out; after the restore it must not
       // take the access back either.
-      const webhooks = new WebhooksService(prisma);
-      await webhooks.handleStripeEvent({
-        id: `evt_${PREFIX}${sequence}`,
-        type: 'customer.subscription.updated',
-        created: Math.floor(Date.now() / 1000),
-        data: {
-          object: {
-            id: subscription.stripeSubscriptionId,
-            customer: subscription.stripeCustomerId,
-            status: 'active',
-            current_period_end: Math.floor(subscription.currentPeriodEnd!.getTime() / 1000),
-            cancel_at_period_end: true,
-            metadata: { userId: member.id },
-            items: { data: [] },
-          },
-        },
-      } as unknown as Stripe.Event);
+      await deliverSubscriptionEvent(member, subscription, subscription.currentPeriodEnd!);
 
       expect(await entitlementOf(member.id)).toMatchObject({
         tier: EntitlementTier.PREMIUM,
         source: EntitlementSource.STRIPE,
-      });
-      await prismaClient!.stripeWebhookEvent.deleteMany({
-        where: { id: { startsWith: `evt_${PREFIX}` } },
       });
     });
 
@@ -346,7 +629,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         revokedReason: REVOKE_REASON_REFUND,
       });
 
-      const detail = await service.restoreRefund(admin, member.id, {
+      const detail = await service.restoreAccess(admin, member.id, {
         subscriptionId: subscription.id,
         reason: null,
       });
@@ -354,7 +637,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       expect(detail.hasAccess).toBe(false);
       expect(detail.access).toMatchObject({ kind: 'subscription-inactive', status: 'canceled' });
       expect((await auditOf(member.id))[0]).toMatchObject({
-        action: MemberAccessAction.RESTORE_REFUND,
+        action: MemberAccessAction.RESTORE,
         tierAfter: EntitlementTier.FREE,
       });
     });
@@ -368,7 +651,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
 
       await expect(
-        service.restoreRefund(admin, member.id, { subscriptionId: subscription.id, reason: null }),
+        service.restoreAccess(admin, member.id, { subscriptionId: subscription.id, reason: null }),
       ).rejects.toBeInstanceOf(ConflictException);
 
       const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
@@ -382,7 +665,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       const other = await createUser();
 
       await expect(
-        service.restoreRefund(admin, other.id, { subscriptionId: subscription.id, reason: null }),
+        service.restoreAccess(admin, other.id, { subscriptionId: subscription.id, reason: null }),
       ).rejects.toThrow('Subscription not found');
 
       const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
