@@ -56,7 +56,7 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Favorites create/list/remove
 - Admin CRUD + publish/unpublish for programs/courses/lessons
 - Admin members screen (`/admin/members`): find a member, see their access and why they have
-  none, grant or revoke a manual grant, restore a refund made by mistake, with an audit trail
+  none, grant or revoke access, restore a refund made by mistake, with an audit trail
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
 - Stripe checkout session endpoint, and a Stripe billing portal endpoint so members can cancel
 - Stripe webhook handler syncing `Subscription` history + `Entitlement`, including refunds and
@@ -467,8 +467,9 @@ Stripe webhook endpoint:
   - the `Entitlement`, always **derived from the member's stored subscriptions** rather than from
     the event in hand. `PREMIUM` while any unrevoked subscription is `active`/`trialing`/`past_due`,
     otherwise `FREE`. `Entitlement.source` records whether Stripe or a human last set it, and a
-    **live** `MANUAL` `PREMIUM` row is left alone, so access collected in person does not vanish the
-    moment a Stripe event touches that member. The column defaults to `MANUAL`, which would have
+    **live** `MANUAL` `PREMIUM` row is left alone while it ends later than the Stripe access, so
+    access collected in person does not vanish the moment a Stripe event touches that member, and a
+    member who pays during a grant is not locked out when it lapses. The column defaults to `MANUAL`, which would have
     relabelled every row Stripe had already written and made that guard protect them from their own
     refunds - so `20260802120000_backfill_entitlement_source` stamps `STRIPE` on the entitlement of
     every user who has a `Subscription` row. That is sound because nothing granted an entitlement by
@@ -557,7 +558,8 @@ Giving access back:
   renewals by design, so a member who disputes and loses would keep paying and never get access
   back.
 - An admin clears a *refund* revocation from **`/admin/members`** - the immediate way back for a
-  refund issued by mistake. It never clears a chargeback. The entitlement is then re-derived from
+  refund issued by mistake - and an *admin* revocation, which nothing else clears. It never clears a
+  chargeback. The entitlement is then re-derived from
   the subscription rows exactly as the webhook would (`syncEntitlementFromSubscriptions` in
   `apps/api/src/billing/entitlement-sync.ts`), so a subscription that was also cancelled gets its
   record cleared and no access back.
@@ -580,18 +582,28 @@ Giving access back:
   - Only an event Stripe generated _after_ the revocation can clear it. The subscription ordering
     guard alone does not cover this, because a revoke does not advance `lastEventAt`.
 
-The admin members screen (`/admin/members`, same `ADMIN`/`COACH` guards as every other admin
-route):
+The admin members screen (`/admin/members`). Its routes are `ADMIN` only, unlike the other admin
+routes, because they move paid access and expose billing identifiers; `COACH` keeps content editing:
 - Search matches a Clerk user id, a member id, or a Stripe customer or subscription id. `User`
   stores no email or name, so these are the identifiers to copy from the Clerk and Stripe
   dashboards.
 - A member without access is always shown why - revoked by refund or chargeback, revoked by a named
   admin, expired, or subscription inactive, each with its date - whichever happened most recently.
-- **Grant** writes a `MANUAL` premium entitlement with an optional end date. It is refused while the
-  member's Stripe subscription already grants access: a live manual grant makes the webhook skip
-  every renewal, so once it lapsed a paying member would be locked out until the next one.
-- **Revoke** ends a live manual grant only; access paid for through Stripe ends in Stripe. What is
-  left is what the member's subscriptions grant.
+- **Grant** writes a `MANUAL` premium entitlement with an optional end date. It has to end later
+  than what the member's Stripe subscription grants, because the stored entitlement is always
+  whichever access ends later: `syncEntitlementFromSubscriptions` keeps a live grant only while it
+  outlasts Stripe, and writes the Stripe access once it does not. That is what stops a member who
+  pays during a grant being locked out when it lapses. The cost is that the row holds one end date:
+  once Stripe has taken over, a refund before the grant's end date ends access, and the `GRANT`
+  history entry is what is left to re-grant from.
+- **Revoke** ends what the member can watch now. A live manual grant goes first, leaving what their
+  subscriptions grant. Otherwise it withdraws the Stripe access: every live subscription gets an
+  `admin` revocation through `subscription-revocation.ts` and the entitlement is re-derived, so this
+  is the in-app answer to a refund or chargeback alert that could not be traced to a member. It
+  needs a reason, and the API refuses it without one. No Stripe event clears it, renewals included;
+  an admin restores it from the same screen. It does not cancel the subscription or stop billing,
+  and a new checkout gives the member a new, unrevoked subscription, so cancel in Stripe as well
+  when the member should not be charged.
 - Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,
   action, reason, the stored access before and after, and when - shown as the member's history. An
   acting admin's rows outlive their own account.
@@ -1453,7 +1465,7 @@ invisible to a mocked client:
   together or not at all, and a refund restore has to land on what the webhook derives from the
   stored rows. `member-access.test.ts` is the pure half.
 
-All three run the real services against a real Postgres, and both have the same contract: they
+All three run the real services against a real Postgres, and all three have the same contract: they
 **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
 around - except on CI, where a missing `TEST_DATABASE_URL` fails the run rather than silently
 dropping the coverage. CI provides a Postgres service container.

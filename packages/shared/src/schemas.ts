@@ -351,7 +351,7 @@ export const adminRevokeMemberAccessSchema = z.object({
 });
 
 /** `subscriptionId` is the stored subscription row's id, not Stripe's. */
-export const adminRestoreMemberRefundSchema = z.object({
+export const adminRestoreMemberAccessSchema = z.object({
   subscriptionId: z.string().min(1),
   reason: adminAccessReason,
 });
@@ -395,7 +395,7 @@ export const adminMemberSubscriptionSchema = z.object({
   currentPeriodEnd: z.string().datetime().nullable(),
   revokedAt: z.string().datetime().nullable(),
   revokedReason: z.string().nullable(),
-  /** A refund revocation an admin can clear. */
+  /** A refund or admin revocation an admin can clear. */
   restorable: z.boolean(),
   /** Whether clearing it would give access back now, rather than only the record. */
   restoreGivesAccess: z.boolean(),
@@ -415,14 +415,16 @@ export const adminMemberAuditEntrySchema = z.object({
 });
 
 export const adminMemberDetailSchema = adminMemberSummarySchema.extend({
-  /** A live manual grant, the only access an admin can revoke. */
+  /** A live manual grant or live Stripe access. */
   canRevoke: z.boolean(),
   /** What revoking would leave: access from Stripe, or none. Null when there is nothing to revoke. */
   accessAfterRevoke: z
     .object({ hasAccess: z.boolean(), validUntil: z.string().datetime().nullable() })
     .nullable(),
-  /** Stripe already grants access, so a manual grant is refused. */
-  hasLiveStripeAccess: z.boolean(),
+  /** Revoking would withdraw Stripe access, which the API refuses without a reason. */
+  revokeRequiresReason: z.boolean(),
+  /** What the subscriptions grant now, which a manual grant has to outlast. Null when nothing. */
+  stripeAccess: z.object({ validUntil: z.string().datetime().nullable() }).nullable(),
   subscriptions: z.array(adminMemberSubscriptionSchema),
   history: z.array(adminMemberAuditEntrySchema),
 });
@@ -452,7 +454,7 @@ export type CheckoutConflictDto = z.infer<typeof checkoutConflictSchema>;
 export type BillingPortalSessionDto = z.infer<typeof billingPortalSessionSchema>;
 export type AdminGrantMemberAccessDto = z.infer<typeof adminGrantMemberAccessSchema>;
 export type AdminRevokeMemberAccessDto = z.infer<typeof adminRevokeMemberAccessSchema>;
-export type AdminRestoreMemberRefundDto = z.infer<typeof adminRestoreMemberRefundSchema>;
+export type AdminRestoreMemberAccessDto = z.infer<typeof adminRestoreMemberAccessSchema>;
 export type MemberAccessStatus = z.infer<typeof memberAccessStatusSchema>;
 export type AdminMemberSummary = z.infer<typeof adminMemberSummarySchema>;
 export type AdminMemberSubscription = z.infer<typeof adminMemberSubscriptionSchema>;

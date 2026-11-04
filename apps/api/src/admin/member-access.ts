@@ -3,9 +3,10 @@ import type { MemberAccessStatus } from '@diaz/shared';
 import {
   isEntitlementActive,
   isLiveStripeSubscription,
+  manualGrantOutlastsStripe,
   resolveStripeEntitlement,
 } from '../common/entitlement.js';
-import { REVOKE_REASON_REFUND } from '../billing/subscription-revocation.js';
+import { planManualRelease } from '../billing/subscription-revocation.js';
 
 /**
  * The access rules behind the admin members screen, kept pure so they can be
@@ -41,7 +42,7 @@ export type EntitlementFields = {
   source: EntitlementSource;
 };
 
-/** A live manual grant: the only kind of access an admin can revoke. */
+/** A live manual grant, which a revoke ends before it touches Stripe access. */
 export function hasLiveManualGrant(entitlement: EntitlementRow | null, now: Date): boolean {
   return (
     entitlement !== null &&
@@ -58,11 +59,10 @@ export function hasLiveStripeAccess(subscriptions: readonly SubscriptionRow[], n
 /**
  * The entitlement a manual grant writes, or why it is refused.
  *
- * Refused while the member's Stripe subscription already grants access. A
- * manual grant outranks Stripe until it expires, and while it stands every
- * renewal is skipped, so once it lapsed a paying member would sit locked out
- * until the next renewal arrived. Access that comes from Stripe is already
- * there; there is nothing for a grant to add.
+ * Refused unless the grant outlasts what the member's subscriptions grant,
+ * which is the same rule the webhook's sync applies. A shorter grant would add
+ * nothing while Stripe pays, and once it lapsed the member would sit locked out
+ * until the next subscription event re-derived their access.
  */
 export function planManualGrant(
   input: {
@@ -75,12 +75,16 @@ export function planManualGrant(
     return { ok: false, message: 'The access end date has to be in the future.' };
   }
 
-  if (hasLiveStripeAccess(input.subscriptions, now)) {
+  const stripe = resolveStripeEntitlement(input.subscriptions);
+
+  if (!manualGrantOutlastsStripe(input.validUntil, stripe, now)) {
     return {
       ok: false,
-      message:
-        'This member already has access through their Stripe subscription. Grant access only ' +
-        'once that has ended.',
+      message: stripe.validUntil
+        ? `This member's Stripe subscription runs until ${stripe.validUntil.toISOString().slice(0, 10)}. ` +
+          'A grant has to end later than that.'
+        : "This member's Stripe subscription has no end date on record, so only a grant with no " +
+          'end date can outlast it.',
     };
   }
 
@@ -98,9 +102,10 @@ export function planManualGrant(
  * The entitlement revoking a manual grant leaves behind, or `null` when there
  * is no live manual grant to revoke.
  *
- * Revoking ends the grant; it does not reach into Stripe. What remains is
- * exactly what the member's subscriptions grant, derived by the same rule the
- * webhook uses, so a member who is also paying keeps the access they paid for.
+ * Revoking a grant does not reach into Stripe. What remains is exactly what the
+ * member's subscriptions grant, derived by the same rule the webhook uses, so a
+ * member who is also paying keeps the access they paid for until an admin
+ * withdraws that separately.
  */
 export function planManualRevoke(
   entitlement: EntitlementRow | null,
@@ -118,19 +123,19 @@ export function planManualRevoke(
   return { ...resolveStripeEntitlement(subscriptions), source: EntitlementSource.STRIPE };
 }
 
-/** Whether restoring a refund revocation on this row is possible at all. */
-export function isRestorableRefund(subscription: SubscriptionRow): boolean {
-  return subscription.revokedAt !== null && subscription.revokedReason === REVOKE_REASON_REFUND;
+/** Whether an admin can clear this row's revocation at all. */
+export function isRestorable(subscription: SubscriptionRow): boolean {
+  return planManualRelease(subscription) !== null;
 }
 
 /**
- * Whether restoring this refunded subscription would give access back now.
- * A subscription that was also cancelled, or whose paid period has run out,
- * clears its revocation and still grants nothing.
+ * Whether restoring this subscription would give access back now. A subscription
+ * that was also cancelled, or whose paid period has run out, clears its
+ * revocation and still grants nothing.
  */
 export function restoreGivesAccess(subscription: SubscriptionRow, now: Date): boolean {
   return (
-    isRestorableRefund(subscription) &&
+    isRestorable(subscription) &&
     isLiveStripeSubscription({ status: subscription.status, revokedAt: null }) &&
     (subscription.currentPeriodEnd === null || subscription.currentPeriodEnd > now)
   );

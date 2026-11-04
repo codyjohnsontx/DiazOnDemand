@@ -47,7 +47,7 @@ enum EntitlementSource {
 enum MemberAccessAction {
   GRANT
   REVOKE
-  RESTORE_REFUND
+  RESTORE
 }
 
 enum StripeWebhookEventStatus {
@@ -273,7 +273,8 @@ model MemberAccessAudit {
   validUntilBefore     DateTime?
   tierAfter            EntitlementTier
   validUntilAfter      DateTime?
-  /// The subscription a RESTORE_REFUND cleared the refund revocation from.
+  /// The subscription a REVOKE withdrew or a RESTORE cleared. Null on a REVOKE
+  /// that only ended a manual grant, and on a GRANT.
   stripeSubscriptionId String?
   createdAt            DateTime           @default(now())
   member               User               @relation("MemberAccessAuditMember", fields: [memberId], references: [id], onDelete: Cascade)

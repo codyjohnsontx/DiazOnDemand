@@ -14,7 +14,8 @@ import { isLiveStripeSubscription } from '../common/entitlement.js';
  * always say "revoked by <reason> on <date>" rather than being left with an
  * unexplained absence of access. `revokedAt` carries the Stripe event's
  * `created` stamp rather than the wall clock, so revocations and subscription
- * events can be ordered against each other.
+ * events can be ordered against each other. An admin revocation has no event
+ * behind it, so it carries the moment of the decision.
  */
 
 /** A refund can be issued by mistake or as goodwill, so it is not final. */
@@ -24,12 +25,23 @@ export const REVOKE_REASON_REFUND = 'refund';
 export const REVOKE_REASON_CHARGEBACK = 'chargeback';
 
 /**
+ * An admin withdrew access from the members screen, usually because Stripe's
+ * alert said a refund or chargeback could not be traced to a member. It is a
+ * person's decision, so no Stripe event undoes it: only an admin clears it.
+ * It leaves the Stripe subscription, and its billing, exactly as they were.
+ */
+export const REVOKE_REASON_ADMIN = 'admin';
+
+/**
  * The only reasons access is ever withdrawn. Callers pass one of these rather
  * than a free string, so a typo cannot invent a reason that no release path
  * knows how to clear - which would strand a member with access nothing can
  * give back.
  */
-export type RevokeReason = typeof REVOKE_REASON_REFUND | typeof REVOKE_REASON_CHARGEBACK;
+export type RevokeReason =
+  | typeof REVOKE_REASON_REFUND
+  | typeof REVOKE_REASON_CHARGEBACK
+  | typeof REVOKE_REASON_ADMIN;
 
 export type RevocationState = {
   revokedAt: Date | null;
@@ -83,7 +95,7 @@ export const NO_REVOCATION: RevocationState = { revokedAt: null, revokedReason: 
  * nothing to give back.
  *
  * This is the second way a revocation is cleared; an admin restoring a
- * mistaken refund (`planManualRefundRelease`) is the third. It is
+ * member (`planManualRelease`) is the third. It is
  * deliberately separate from the renewal rule rather than folded into it: a won
  * dispute is proof the money stayed with Diaz, which the renewal rule cannot
  * observe, and widening that rule to cover it would also hand access back on a
@@ -102,19 +114,24 @@ export function planDisputeWonRelease(current: RevocationState): RevocationState
 }
 
 /**
- * What an admin restoring a refunded member should write to the row, or `null`
- * when there is no refund revocation to clear.
+ * What an admin restoring a member should write to the row, or `null` when
+ * there is no revocation an admin may clear.
  *
  * This is the immediate way back for a refund issued by mistake, which the
- * renewal rule below deliberately cannot see. It is a person's decision rather
- * than evidence from Stripe, so the admin members screen records who made it.
+ * renewal rule below deliberately cannot see, and the only way back from an
+ * admin revocation. It is a person's decision rather than evidence from Stripe,
+ * so the admin members screen records who made it.
  *
- * Only a refund revocation is released. A chargeback took the money back by
- * force and clears only on a won dispute; letting an admin wave it through
- * would hand access back to somebody who is not paying.
+ * A chargeback is not released. It took the money back by force and clears only
+ * on a won dispute; letting an admin wave it through would hand access back to
+ * somebody who is not paying.
  */
-export function planManualRefundRelease(current: RevocationState): RevocationState | null {
-  if (current.revokedAt === null || current.revokedReason !== REVOKE_REASON_REFUND) {
+export function planManualRelease(current: RevocationState): RevocationState | null {
+  if (
+    current.revokedAt === null ||
+    (current.revokedReason !== REVOKE_REASON_REFUND &&
+      current.revokedReason !== REVOKE_REASON_ADMIN)
+  ) {
     return null;
   }
 
@@ -132,7 +149,7 @@ export function planManualRefundRelease(current: RevocationState): RevocationSta
  *
  * The cost of that strictness is deliberate and was accepted: a member refunded
  * by mistake stays locked out until their next renewal unless an admin restores
- * them from the members screen - see `planManualRefundRelease` above.
+ * them from the members screen - see `planManualRelease` above.
  */
 export function releasesRevocation(
   current: RevocationSubject,

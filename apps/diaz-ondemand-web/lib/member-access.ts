@@ -44,7 +44,7 @@ export function describeAccess(access: MemberAccessStatus): string {
 const ACTION_LABELS: Record<MemberAccessAction, string> = {
   [MemberAccessAction.GRANT]: 'Granted access',
   [MemberAccessAction.REVOKE]: 'Revoked access',
-  [MemberAccessAction.RESTORE_REFUND]: 'Restored a refunded subscription',
+  [MemberAccessAction.RESTORE]: 'Restored a revoked subscription',
 };
 
 export function describeAuditAction(entry: AdminMemberAuditEntry) {
