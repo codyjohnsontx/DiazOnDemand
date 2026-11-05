@@ -1,5 +1,6 @@
+import type { AdminMemberSubscription } from '@diaz/shared';
 import { describe, expect, it } from 'vitest';
-import { endOfDayIso } from '../lib/member-access';
+import { endOfDayIso, restoreLiftsCheckoutBar } from '../lib/member-access';
 
 describe('endOfDayIso', () => {
   it('answers the last second of the chosen day in local time', () => {
@@ -16,5 +17,28 @@ describe('endOfDayIso', () => {
 
   it('answers null for an empty field', () => {
     expect(endOfDayIso('')).toBeNull();
+  });
+});
+
+describe('restoreLiftsCheckoutBar', () => {
+  const row = (id: string, adminRevokedAt: string | null) =>
+    ({ id, adminRevokedAt }) as AdminMemberSubscription;
+  const revoked = row('sub-1', '2026-11-01T00:00:00.000Z');
+
+  it('is true for the last admin revocation on the member', () => {
+    expect(restoreLiftsCheckoutBar(revoked, [revoked, row('sub-2', null)])).toBe(true);
+  });
+
+  it('is false while another subscription keeps an admin revocation', () => {
+    const other = row('sub-2', '2026-11-02T00:00:00.000Z');
+
+    expect(restoreLiftsCheckoutBar(revoked, [revoked, other])).toBe(false);
+  });
+
+  it('is false for a row no admin revoked', () => {
+    const refunded = row('sub-2', null);
+
+    expect(restoreLiftsCheckoutBar(refunded, [refunded])).toBe(false);
+    expect(restoreLiftsCheckoutBar(refunded, [revoked, refunded])).toBe(false);
   });
 });
