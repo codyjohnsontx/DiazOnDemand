@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { AdminController } from '../admin/admin.controller.js';
 import {
   describeMemberAccess,
+  hasLiveStripeAccess,
   planManualGrant,
   planManualRevoke,
   restoreGivesAccess,
@@ -23,15 +24,15 @@ import { ROLES_KEY } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import {
   NO_REVOCATION,
-  REVOKE_REASON_ADMIN,
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
+  planAdminRevocation,
   planDisputeWonRelease,
   planManualRelease,
   planRevocation,
   releasesRevocation,
 } from '../billing/subscription-revocation.js';
-import { manualGrantOutlastsStripe } from '../common/entitlement.js';
+import { isLiveStripeSubscription, manualGrantOutlastsStripe } from '../common/entitlement.js';
 
 const NOW = new Date('2026-11-04T12:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -43,6 +44,7 @@ function subscription(overrides: Partial<Parameters<typeof restoreGivesAccess>[0
     currentPeriodEnd: daysFromNow(20),
     revokedAt: null,
     revokedReason: null,
+    adminRevokedAt: null,
     lastEventAt: daysFromNow(-10),
     updatedAt: daysFromNow(-10),
     ...overrides,
@@ -61,58 +63,83 @@ const refunded = (at = daysFromNow(-2)) =>
   subscription({ revokedAt: at, revokedReason: REVOKE_REASON_REFUND });
 
 describe('planManualRelease', () => {
+  const notAdminRevoked = { adminRevokedAt: null };
+
   it('clears a refund revocation', () => {
-    expect(planManualRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_REFUND })).toEqual(
-      NO_REVOCATION,
-    );
+    expect(
+      planManualRelease({
+        ...notAdminRevoked,
+        revokedAt: NOW,
+        revokedReason: REVOKE_REASON_REFUND,
+      }),
+    ).toEqual(NO_REVOCATION);
   });
 
   it('clears an admin revocation, which nothing else can', () => {
-    expect(planManualRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_ADMIN })).toEqual(
-      NO_REVOCATION,
-    );
+    expect(planManualRelease({ ...NO_REVOCATION, adminRevokedAt: NOW })).toEqual({
+      adminRevokedAt: null,
+    });
+  });
+
+  it('clears the admin revocation first and leaves what Stripe reported', () => {
+    expect(
+      planManualRelease({
+        adminRevokedAt: NOW,
+        revokedAt: NOW,
+        revokedReason: REVOKE_REASON_REFUND,
+      }),
+    ).toEqual({ adminRevokedAt: null });
   });
 
   it('never clears a chargeback, which only a won dispute releases', () => {
     expect(
-      planManualRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_CHARGEBACK }),
+      planManualRelease({
+        ...notAdminRevoked,
+        revokedAt: NOW,
+        revokedReason: REVOKE_REASON_CHARGEBACK,
+      }),
     ).toBeNull();
   });
 
   it('has nothing to clear on a row that was never revoked', () => {
-    expect(planManualRelease(NO_REVOCATION)).toBeNull();
+    expect(planManualRelease({ ...NO_REVOCATION, ...notAdminRevoked })).toBeNull();
   });
 });
 
 describe('an admin revocation', () => {
-  const adminRevoked = { revokedAt: NOW, revokedReason: REVOKE_REASON_ADMIN };
-
-  it('is written with its reason on a live row', () => {
-    expect(planRevocation(NO_REVOCATION, REVOKE_REASON_ADMIN, NOW)).toEqual(adminRevoked);
+  it('is written to its own field and leaves what Stripe reported alone', () => {
+    expect(planAdminRevocation(NOW)).toEqual({ adminRevokedAt: NOW });
   });
 
-  it('survives a genuine paid renewal', () => {
-    expect(
-      releasesRevocation(
-        { ...adminRevoked, currentPeriodEnd: daysFromNow(20) },
-        {
-          status: 'active',
-          currentPeriodEnd: daysFromNow(50),
-          stripeCreatedAt: daysFromNow(1),
-        },
-      ),
-    ).toBe(false);
+  it('stops a subscription granting access until an admin clears it', () => {
+    expect(isLiveStripeSubscription(subscription({ adminRevokedAt: NOW }))).toBe(false);
+    expect(hasLiveStripeAccess([subscription({ adminRevokedAt: NOW })], NOW)).toBe(false);
   });
 
-  it('is not released by a won dispute', () => {
-    expect(planDisputeWonRelease(adminRevoked)).toBeNull();
-  });
+  it('lets a refund or chargeback be recorded beside it', () => {
+    const adminRevoked = subscription({ adminRevokedAt: NOW });
 
-  it('gives way to a chargeback, which no admin may clear', () => {
+    expect(planRevocation(adminRevoked, REVOKE_REASON_REFUND, daysFromNow(1))).toEqual({
+      revokedAt: daysFromNow(1),
+      revokedReason: REVOKE_REASON_REFUND,
+    });
     expect(planRevocation(adminRevoked, REVOKE_REASON_CHARGEBACK, daysFromNow(1))).toEqual({
       revokedAt: daysFromNow(1),
       revokedReason: REVOKE_REASON_CHARGEBACK,
     });
+  });
+
+  it('has nothing for a renewal or a won dispute to release on its own', () => {
+    const adminRevoked = subscription({ adminRevokedAt: NOW });
+
+    expect(
+      releasesRevocation(adminRevoked, {
+        status: 'active',
+        currentPeriodEnd: daysFromNow(50),
+        stripeCreatedAt: daysFromNow(1),
+      }),
+    ).toBe(false);
+    expect(planDisputeWonRelease(adminRevoked)).toBeNull();
   });
 });
 
@@ -293,9 +320,21 @@ describe('restoreGivesAccess', () => {
   });
 
   it('is true for an admin revocation on a subscription that is still paid up', () => {
+    expect(restoreGivesAccess(subscription({ adminRevokedAt: NOW }), NOW)).toBe(true);
+  });
+
+  it('is false for an admin revocation over a refund or a chargeback', () => {
+    expect(restoreGivesAccess({ ...refunded(), adminRevokedAt: NOW }, NOW)).toBe(false);
     expect(
-      restoreGivesAccess(subscription({ revokedAt: NOW, revokedReason: REVOKE_REASON_ADMIN }), NOW),
-    ).toBe(true);
+      restoreGivesAccess(
+        subscription({
+          adminRevokedAt: NOW,
+          revokedAt: NOW,
+          revokedReason: REVOKE_REASON_CHARGEBACK,
+        }),
+        NOW,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -371,6 +410,21 @@ describe('describeMemberAccess', () => {
         NOW,
       ),
     ).toEqual({ kind: 'expired', at: at.toISOString() });
+  });
+
+  it('names the admin who withdrew Stripe access, not the status left on the row', () => {
+    const at = daysFromNow(-1);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [subscription({ adminRevokedAt: at })],
+          lastAdminRevoke: { createdAt: at, actorClerkUserId: 'user_admin' },
+        },
+        NOW,
+      ),
+    ).toEqual({ kind: 'admin-revoked', at: at.toISOString(), actorClerkUserId: 'user_admin' });
   });
 
   it('reports a cancelled subscription', () => {

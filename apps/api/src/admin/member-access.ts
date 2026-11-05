@@ -27,6 +27,7 @@ type SubscriptionRow = {
   currentPeriodEnd: Date | null;
   revokedAt: Date | null;
   revokedReason: string | null;
+  adminRevokedAt: Date | null;
   lastEventAt: Date | null;
   updatedAt: Date;
 };
@@ -130,13 +131,15 @@ export function isRestorable(subscription: SubscriptionRow): boolean {
 
 /**
  * Whether restoring this subscription would give access back now. A subscription
- * that was also cancelled, or whose paid period has run out, clears its
- * revocation and still grants nothing.
+ * that was also cancelled, whose paid period has run out, or with a refund or
+ * chargeback still standing after the release, grants nothing.
  */
 export function restoreGivesAccess(subscription: SubscriptionRow, now: Date): boolean {
+  const release = planManualRelease(subscription);
+
   return (
-    isRestorable(subscription) &&
-    isLiveStripeSubscription({ status: subscription.status, revokedAt: null }) &&
+    release !== null &&
+    isLiveStripeSubscription({ ...subscription, ...release }) &&
     (subscription.currentPeriodEnd === null || subscription.currentPeriodEnd > now)
   );
 }
@@ -180,7 +183,7 @@ export function describeMemberAccess(
           at: subscription.revokedAt.toISOString(),
         },
       });
-    } else if (!isLiveStripeSubscription(subscription)) {
+    } else if (subscription.adminRevokedAt === null && !isLiveStripeSubscription(subscription)) {
       const at = subscription.lastEventAt ?? subscription.updatedAt;
       candidates.push({
         at,

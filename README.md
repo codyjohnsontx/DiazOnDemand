@@ -548,7 +548,7 @@ One checkout at a time (`CheckoutReservation`):
 
 Giving access back:
 
-- A revocation is cleared in exactly three ways, and nothing else. A **genuine paid renewal**
+- A Stripe revocation is cleared in exactly three ways, and nothing else. A **genuine paid renewal**
   (`current_period_end` moving strictly forward) clears a _refund_ revocation; a status of `active`
   is not enough on its own, because `cancel_at_period_end`, a card update and a plan change all
   keep it active.
@@ -558,12 +558,11 @@ Giving access back:
   renewals by design, so a member who disputes and loses would keep paying and never get access
   back.
 - An admin clears a *refund* revocation from **`/admin/members`** - the immediate way back for a
-  refund issued by mistake - and an *admin* revocation, which nothing else clears. It never clears a
-  chargeback. The entitlement is then re-derived from
+  refund issued by mistake. It never clears a chargeback. The entitlement is then re-derived from
   the subscription rows exactly as the webhook would (`syncEntitlementFromSubscriptions` in
   `apps/api/src/billing/entitlement-sync.ts`), so a subscription that was also cancelled gets its
   record cleared and no access back.
-- Every revocation stores `revokedAt` **and** `revokedReason` together, so a member without access
+- Every refund or chargeback stores `revokedAt` **and** `revokedReason` together, so a member without access
   can always be shown _why_ ("revoked by refund on <date>") rather than an unexplained gap. The
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
   just its first caller.
@@ -597,11 +596,16 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
   once Stripe has taken over, a refund before the grant's end date ends access, and the `GRANT`
   history entry is what is left to re-grant from.
 - **Revoke** ends what the member can watch now. A live manual grant goes first, leaving what their
-  subscriptions grant. Otherwise it withdraws the Stripe access: every live subscription gets an
-  `admin` revocation through `subscription-revocation.ts` and the entitlement is re-derived, so this
+  subscriptions grant. Otherwise it withdraws the Stripe access: every live subscription gets
+  `adminRevokedAt`, through `subscription-revocation.ts`, and the entitlement is re-derived, so this
   is the in-app answer to a refund or chargeback alert that could not be traced to a member. It
-  needs a reason, and the API refuses it without one. No Stripe event clears it, renewals included;
-  an admin restores it from the same screen. It does not cancel the subscription or stop billing,
+  needs a reason, and the API refuses it without one; the audit row holds that reason. The column
+  is separate from `revokedAt` and `revokedReason` so that a refund or chargeback landing later is
+  recorded beside the admin's decision instead of over it. No Stripe event clears it: a renewal or a
+  won dispute clears only its own refund or chargeback, and access stays withdrawn. Only a restore
+  from the same screen clears it, and a restore clears one revocation at a time, the admin's first,
+  so a refund underneath stays until an admin decides on it separately and the screen says that the
+  first restore gives no access back. It does not cancel the subscription or stop billing,
   and a new checkout gives the member a new, unrevoked subscription, so cancel in Stripe as well
   when the member should not be charged.
 - Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,

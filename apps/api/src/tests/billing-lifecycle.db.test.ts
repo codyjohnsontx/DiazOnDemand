@@ -23,8 +23,10 @@
  */
 import { readFile } from 'node:fs/promises';
 import { PrismaClient } from '@diaz/db';
+import { EntitlementTier, Role } from '@diaz/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Stripe from 'stripe';
+import { AdminMembersService } from '../admin/admin-members.service.js';
 import { BillingService } from '../billing/billing.service.js';
 import { CHECKOUT_RESERVATION_TTL_MS } from '../billing/checkout-reservation.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -1112,6 +1114,144 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
         where: { id: event.id },
       });
       expect(recorded?.status).toBe('PROCESSED');
+    });
+  });
+
+  describe('an admin revocation survives what Stripe does next', () => {
+    /** Subscribe, then have an admin withdraw the access the subscription gives. */
+    async function adminRevoked(name: string) {
+      const user = await createUser(`billing-test-${name}`);
+      const admin = await createUser(`billing-test-${name}-admin`);
+      const customerId = `cus_${name}`;
+      const subscriptionId = `sub_${name}`;
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+      const members = new AdminMembersService(prisma);
+      const actor = {
+        id: admin.id,
+        clerkUserId: admin.clerkUserId,
+        role: Role.ADMIN,
+        entitlementTier: EntitlementTier.FREE,
+      };
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      await members.revokeAccess(actor, user.id, { reason: 'Banned' });
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+
+      const restore = async () => {
+        const [row] = await subscriptionsOf(user.id);
+        return members.restoreAccess(actor, user.id, { subscriptionId: row!.id, reason: null });
+      };
+
+      return { user, customerId, subscriptionId, periodEnd, members, restore };
+    }
+
+    it('keeps access withdrawn through a dispute and the dispute being won', async () => {
+      const { user, customerId, subscriptionId, restore } = await adminRevoked('admin-dispute');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
+      );
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.closed', {
+          customerId,
+          subscriptionId,
+          disputeStatus: 'won',
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBeNull();
+      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
+
+      const detail = await restore();
+
+      expect(detail.hasAccess).toBe(true);
+    });
+
+    it('leaves a chargeback standing when an admin clears their own revocation', async () => {
+      const { user, customerId, subscriptionId, members, restore } =
+        await adminRevoked('admin-chargeback');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
+      );
+
+      const before = await members.getMember(user.id);
+      expect(before.subscriptions[0]).toMatchObject({
+        revokedReason: 'chargeback',
+        restorable: true,
+        restoreGivesAccess: false,
+      });
+
+      const detail = await restore();
+
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.subscriptions[0]).toMatchObject({
+        adminRevokedAt: null,
+        revokedReason: 'chargeback',
+        restorable: false,
+      });
+    });
+
+    it('records a traced refund, and a restore says it gives no access back', async () => {
+      const { user, customerId, subscriptionId, members, restore } =
+        await adminRevoked('admin-refund');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', { customerId, subscriptionId }),
+      );
+
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBe('refund');
+      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
+
+      const before = await members.getMember(user.id);
+      expect(before.subscriptions[0]).toMatchObject({ restorable: true, restoreGivesAccess: false });
+
+      const afterAdmin = await restore();
+
+      expect(afterAdmin.hasAccess).toBe(false);
+      expect(afterAdmin.subscriptions[0]).toMatchObject({
+        adminRevokedAt: null,
+        revokedReason: 'refund',
+        restorable: true,
+        restoreGivesAccess: true,
+      });
+
+      const afterRefund = await restore();
+
+      expect(afterRefund.hasAccess).toBe(true);
+    });
+
+    it('keeps access withdrawn when a renewal clears the refund underneath it', async () => {
+      const { user, customerId, subscriptionId, periodEnd } = await adminRevoked('admin-renewal');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', { customerId, subscriptionId }),
+      );
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.updated', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd + 30 * DAY,
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBeNull();
+      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
     });
   });
 
