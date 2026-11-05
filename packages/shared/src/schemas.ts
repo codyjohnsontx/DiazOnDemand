@@ -409,6 +409,8 @@ export const adminMemberSubscriptionSchema = z.object({
   restorable: z.boolean(),
   /** Whether clearing it would give access back now, rather than only the record. */
   restoreGivesAccess: z.boolean(),
+  /** Whether clearing it would leave checkout willing to take a new subscription. */
+  restoreOpensCheckout: z.boolean(),
 });
 
 export const adminMemberAuditEntrySchema = z.object({

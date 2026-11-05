@@ -611,6 +611,29 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         expect(detail.access.kind).toBe('admin-revoked');
       }
 
+      it('promises a new subscription only once nothing live would refuse it', async () => {
+        const { admin, member, paying, sibling } = await banned({ status: 'unpaid' });
+        const restoreOpensCheckout = async (id: string) =>
+          (await service.getMember(member.id)).subscriptions.find((row) => row.id === id)
+            ?.restoreOpensCheckout;
+
+        expect(await restoreOpensCheckout(paying.id)).toBe(false);
+
+        await service.restoreAccess(admin, member.id, {
+          subscriptionId: paying.id,
+          reason: 'Ban lifted',
+        });
+
+        expect(await restoreOpensCheckout(sibling.id)).toBe(false);
+
+        await prismaClient!.subscription.update({
+          where: { id: paying.id },
+          data: { status: 'canceled' },
+        });
+
+        expect(await restoreOpensCheckout(sibling.id)).toBe(true);
+      });
+
       it('stays withdrawn when a refunded subscription genuinely renews', async () => {
         const { member, sibling } = await banned({
           revokedAt: daysFromNow(-5),

@@ -619,7 +619,8 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
   decision. A member who has access anyway, through a grant or another subscription, gets a link to
   the library instead of that message. Only restoring the last revocation lifts the bar, so
   restoring one row of several can give access back while checkout stays refused; the confirmation
-  and the member page both say so. Revoking does not cancel the subscription or stop billing, so
+  and the member page both say so. The confirmation promises a new subscription only when nothing
+  would be live afterwards, because checkout refuses a second one as a duplicate. Revoking does not cancel the subscription or stop billing, so
   cancel in Stripe as well when the member should not be charged.
 - Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,
   action, reason, the stored access before and after, and when - shown as the member's history. An

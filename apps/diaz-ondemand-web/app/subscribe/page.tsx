@@ -15,7 +15,7 @@ import { PageHeader } from '@/components/page-header';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 import { clerkEnabled } from '@/lib/config';
-import { premiumOffer, type PremiumOffer } from '@/lib/member-access';
+import { offerAfterAccessRevoked, premiumOffer, type PremiumOffer } from '@/lib/member-access';
 
 /**
  * Reads the shared 409 contract rather than trusting whatever `code` the body
@@ -46,10 +46,6 @@ function checkoutErrorMessage(error: unknown) {
 
   if (code === CHECKOUT_CONFLICT_CODES.checkoutInFlight) {
     return 'A checkout is already in progress for this account. Finish it in the Stripe tab, or try again in a moment.';
-  }
-
-  if (code === CHECKOUT_CONFLICT_CODES.accessRevoked) {
-    return CHECKOUT_BLOCKED_MESSAGE;
   }
 
   return 'This account already has an active subscription. Manage it from your account page.';
@@ -94,6 +90,17 @@ export default function SubscribePage() {
         setError('Stripe is not configured yet.');
       }
     } catch (checkoutError) {
+      // The page may have loaded before the revocation, so this is the first it
+      // hears of it, and the member may still have access another way.
+      if (
+        checkoutError instanceof ApiError &&
+        checkoutError.status === 409 &&
+        checkoutConflictCode(checkoutError.detail) === CHECKOUT_CONFLICT_CODES.accessRevoked
+      ) {
+        setOffer(await offerAfterAccessRevoked(() => apiFetch<MeDto>('/me')));
+        return;
+      }
+
       // Showing the raw error would invite a second attempt, and a second
       // attempt against a live subscription is a second charge.
       setError(checkoutErrorMessage(checkoutError));

@@ -18,6 +18,7 @@ import {
   planManualGrant,
   planManualRevoke,
   restoreGivesAccess,
+  restoreOpensCheckout,
 } from '../admin/member-access.js';
 import { AuthGuard } from '../auth/auth.guard.js';
 import { ROLES_KEY } from '../auth/roles.decorator.js';
@@ -280,6 +281,48 @@ describe('planManualRevoke', () => {
     expect(planManualRevoke(entitlement(EntitlementTier.PREMIUM, null), [refunded()], NOW)).toEqual(
       { tier: EntitlementTier.FREE, validUntil: null, source: EntitlementSource.STRIPE },
     );
+  });
+});
+
+describe('restoreOpensCheckout', () => {
+  const banned = (status = 'active') => subscription({ status, adminRevokedAt: NOW });
+
+  it('is true for the last admin revocation when nothing would be live afterwards', () => {
+    const row = banned('canceled');
+
+    expect(restoreOpensCheckout(row, [row])).toBe(true);
+  });
+
+  it('is false while the member holds a live subscription, which checkout refuses as a duplicate', () => {
+    const unpaid = banned('unpaid');
+
+    expect(restoreOpensCheckout(unpaid, [unpaid, subscription()])).toBe(false);
+  });
+
+  it('is false when the restore itself leaves a live row, even with its paid period over', () => {
+    const row = subscription({ currentPeriodEnd: daysFromNow(-1), adminRevokedAt: NOW });
+
+    expect(restoreGivesAccess(row, NOW)).toBe(false);
+    expect(restoreOpensCheckout(row, [row])).toBe(false);
+  });
+
+  it('is true over a refund, which keeps the row from counting as live', () => {
+    const row = { ...refunded(), adminRevokedAt: NOW };
+
+    expect(restoreOpensCheckout(row, [row])).toBe(true);
+  });
+
+  it('is false while another subscription keeps an admin revocation', () => {
+    const row = banned('canceled');
+
+    expect(restoreOpensCheckout(row, [row, banned('unpaid')])).toBe(false);
+  });
+
+  it('is false for a row no admin revoked', () => {
+    const row = refunded();
+
+    expect(restoreOpensCheckout(row, [row])).toBe(false);
+    expect(restoreOpensCheckout(row, [row, banned('canceled')])).toBe(false);
   });
 });
 

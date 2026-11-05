@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   endOfDayIso,
   isCheckoutBarred,
+  offerAfterAccessRevoked,
   premiumOffer,
   restoreKeepsCheckoutBar,
-  restoreLiftsCheckoutBar,
 } from '../lib/member-access';
 
 describe('endOfDayIso', () => {
@@ -26,29 +26,6 @@ describe('endOfDayIso', () => {
   });
 });
 
-describe('restoreLiftsCheckoutBar', () => {
-  const row = (id: string, adminRevokedAt: string | null) =>
-    ({ id, adminRevokedAt }) as AdminMemberSubscription;
-  const revoked = row('sub-1', '2026-11-01T00:00:00.000Z');
-
-  it('is true for the last admin revocation on the member', () => {
-    expect(restoreLiftsCheckoutBar(revoked, [revoked, row('sub-2', null)])).toBe(true);
-  });
-
-  it('is false while another subscription keeps an admin revocation', () => {
-    const other = row('sub-2', '2026-11-02T00:00:00.000Z');
-
-    expect(restoreLiftsCheckoutBar(revoked, [revoked, other])).toBe(false);
-  });
-
-  it('is false for a row no admin revoked', () => {
-    const refunded = row('sub-2', null);
-
-    expect(restoreLiftsCheckoutBar(refunded, [refunded])).toBe(false);
-    expect(restoreLiftsCheckoutBar(refunded, [revoked, refunded])).toBe(false);
-  });
-});
-
 describe('restoreKeepsCheckoutBar', () => {
   const row = (id: string, adminRevokedAt: string | null) =>
     ({ id, adminRevokedAt }) as AdminMemberSubscription;
@@ -57,12 +34,10 @@ describe('restoreKeepsCheckoutBar', () => {
 
   it('is true for the row that gives access back while a sibling stays revoked', () => {
     expect(restoreKeepsCheckoutBar(live, [live, unpaid])).toBe(true);
-    expect(restoreLiftsCheckoutBar(live, [live, unpaid])).toBe(false);
   });
 
   it('is false for the last admin revocation, the restore that lifts the bar', () => {
     expect(restoreKeepsCheckoutBar(live, [live, row('sub-2', null)])).toBe(false);
-    expect(restoreLiftsCheckoutBar(live, [live, row('sub-2', null)])).toBe(true);
   });
 
   it('is true for a refund restored while an admin revocation stands elsewhere', () => {
@@ -100,5 +75,27 @@ describe('premiumOffer', () => {
     expect(premiumOffer({ checkoutBlocked: false, entitlementTier: FREE })).toBe('checkout');
     expect(premiumOffer({ checkoutBlocked: false, entitlementTier: PREMIUM })).toBe('checkout');
     expect(premiumOffer({ entitlementTier: FREE })).toBe('checkout');
+  });
+});
+
+describe('offerAfterAccessRevoked', () => {
+  const { FREE, PREMIUM } = EntitlementTier;
+
+  it('does not tell a member granted access after the page loaded that premium is unavailable', async () => {
+    await expect(offerAfterAccessRevoked(async () => ({ entitlementTier: PREMIUM }))).resolves.toBe(
+      'has-access',
+    );
+  });
+
+  it('takes checkout away from a member with no access', async () => {
+    await expect(offerAfterAccessRevoked(async () => ({ entitlementTier: FREE }))).resolves.toBe(
+      'blocked',
+    );
+  });
+
+  it('lets the refusal stand when access cannot be read', async () => {
+    await expect(
+      offerAfterAccessRevoked(() => Promise.reject(new Error('offline'))),
+    ).resolves.toBe('blocked');
   });
 });

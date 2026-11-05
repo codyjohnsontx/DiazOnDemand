@@ -6,7 +6,7 @@ import {
   manualGrantOutlastsStripe,
   resolveStripeEntitlement,
 } from '../common/entitlement.js';
-import { planManualRelease } from '../billing/subscription-revocation.js';
+import { hasAdminRevocation, planManualRelease } from '../billing/subscription-revocation.js';
 
 /**
  * The access rules behind the admin members screen, kept pure so they can be
@@ -141,6 +141,26 @@ export function restoreGivesAccess(subscription: SubscriptionRow, now: Date): bo
     release !== null &&
     isLiveStripeSubscription({ ...subscription, ...release }) &&
     (subscription.currentPeriodEnd === null || subscription.currentPeriodEnd > now)
+  );
+}
+
+/**
+ * Whether restoring this subscription is what lets the member start a new one:
+ * it clears their last admin revocation and leaves nothing live for checkout's
+ * duplicate guard to refuse them on.
+ */
+export function restoreOpensCheckout(
+  subscription: SubscriptionRow,
+  subscriptions: readonly SubscriptionRow[],
+): boolean {
+  const after = subscriptions.map((row) =>
+    row === subscription ? { ...row, ...planManualRelease(row) } : row,
+  );
+
+  return (
+    subscription.adminRevokedAt !== null &&
+    !hasAdminRevocation(after) &&
+    !after.some(isLiveStripeSubscription)
   );
 }
 

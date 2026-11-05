@@ -54,17 +54,6 @@ export function describeAccess(access: MemberAccessStatus): string {
   }
 }
 
-/** Whether restoring this row clears the member's last admin revocation, which reopens checkout. */
-export function restoreLiftsCheckoutBar(
-  subscription: AdminMemberSubscription,
-  subscriptions: readonly AdminMemberSubscription[],
-) {
-  return (
-    subscription.adminRevokedAt !== null &&
-    subscriptions.filter((row) => row.adminRevokedAt !== null).length === 1
-  );
-}
-
 /** Whether restoring this row leaves an admin revocation on another, which keeps checkout refused. */
 export function restoreKeepsCheckoutBar(
   subscription: AdminMemberSubscription,
@@ -92,6 +81,24 @@ export function premiumOffer(me: Pick<MeDto, 'checkoutBlocked' | 'entitlementTie
   }
 
   return me.entitlementTier === EntitlementTier.PREMIUM ? 'has-access' : 'blocked';
+}
+
+/**
+ * What to offer once checkout has refused with `access_revoked`. That answer is
+ * newer than whatever the page loaded with, and a grant may be newer still, so
+ * the member's access is read again rather than assumed. If it cannot be read,
+ * the refusal stands.
+ */
+export async function offerAfterAccessRevoked(
+  readMe: () => Promise<Pick<MeDto, 'entitlementTier'>>,
+): Promise<PremiumOffer> {
+  try {
+    const { entitlementTier } = await readMe();
+
+    return premiumOffer({ checkoutBlocked: true, entitlementTier });
+  } catch {
+    return 'blocked';
+  }
 }
 
 const ACTION_LABELS: Record<MemberAccessAction, string> = {

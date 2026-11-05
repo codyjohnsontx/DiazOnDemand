@@ -40,6 +40,7 @@ import {
   planManualGrant,
   planManualRevoke,
   restoreGivesAccess,
+  restoreOpensCheckout,
 } from './member-access.js';
 
 /** How many members one search answers with. */
@@ -138,6 +139,7 @@ function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
         adminRevokedAt: iso(subscription.adminRevokedAt),
         restorable: isRestorable(subscription),
         restoreGivesAccess: restoreGivesAccess(subscription, now),
+        restoreOpensCheckout: restoreOpensCheckout(subscription, member.subscriptions),
       })),
     history: [...member.accessAudit]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
