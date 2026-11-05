@@ -28,9 +28,10 @@ export const REVOKE_REASON_REFUND = 'refund';
 export const REVOKE_REASON_CHARGEBACK = 'chargeback';
 
 /**
- * The only reasons access is ever withdrawn. Callers pass one of these rather
- * than a free string, so a typo cannot invent a reason that no release path
- * knows how to clear - which would strand a member with access nothing can
+ * The only values `revokedReason` is ever written with. An admin revocation is
+ * not one of them: it lives in `adminRevokedAt`. Callers pass one of these
+ * rather than a free string, so a typo cannot invent a reason that no release
+ * path knows how to clear - which would strand a member with access nothing can
  * give back.
  */
 export type RevokeReason = typeof REVOKE_REASON_REFUND | typeof REVOKE_REASON_CHARGEBACK;
