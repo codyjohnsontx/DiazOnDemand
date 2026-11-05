@@ -94,8 +94,8 @@ describe('offerAfterAccessRevoked', () => {
   });
 
   it('lets the refusal stand when access cannot be read', async () => {
-    await expect(
-      offerAfterAccessRevoked(() => Promise.reject(new Error('offline'))),
-    ).resolves.toBe('blocked');
+    await expect(offerAfterAccessRevoked(() => Promise.reject(new Error('offline')))).resolves.toBe(
+      'blocked',
+    );
   });
 });
