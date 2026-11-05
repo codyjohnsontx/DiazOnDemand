@@ -1,7 +1,9 @@
 import {
+  EntitlementTier,
   MemberAccessAction,
   type AdminMemberAuditEntry,
   type AdminMemberSubscription,
+  type MeDto,
   type MemberAccessStatus,
 } from '@diaz/shared';
 
@@ -61,6 +63,35 @@ export function restoreLiftsCheckoutBar(
     subscription.adminRevokedAt !== null &&
     subscriptions.filter((row) => row.adminRevokedAt !== null).length === 1
   );
+}
+
+/** Whether restoring this row leaves an admin revocation on another, which keeps checkout refused. */
+export function restoreKeepsCheckoutBar(
+  subscription: AdminMemberSubscription,
+  subscriptions: readonly AdminMemberSubscription[],
+) {
+  return subscriptions.some((row) => row.id !== subscription.id && row.adminRevokedAt !== null);
+}
+
+/** Whether checkout refuses this member, which any one admin revocation is enough for. */
+export function isCheckoutBarred(subscriptions: readonly AdminMemberSubscription[]) {
+  return subscriptions.some((row) => row.adminRevokedAt !== null);
+}
+
+export type PremiumOffer = 'checkout' | 'blocked' | 'has-access';
+
+/**
+ * What a member sees where premium is offered. Checkout refuses a standing admin
+ * revocation even while a grant or another subscription gives access, and telling
+ * that member premium is unavailable would be false, so they get neither message
+ * nor checkout.
+ */
+export function premiumOffer(me: Pick<MeDto, 'checkoutBlocked' | 'entitlementTier'>): PremiumOffer {
+  if (!me.checkoutBlocked) {
+    return 'checkout';
+  }
+
+  return me.entitlementTier === EntitlementTier.PREMIUM ? 'has-access' : 'blocked';
 }
 
 const ACTION_LABELS: Record<MemberAccessAction, string> = {

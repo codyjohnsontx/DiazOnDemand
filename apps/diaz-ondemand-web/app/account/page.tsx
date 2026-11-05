@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/page-header';
 import { SignOutControl } from '@/components/sign-out-control';
 import { apiFetchServer } from '@/lib/api-server';
 import { clerkEnabled } from '@/lib/config';
+import { premiumOffer } from '@/lib/member-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,7 +59,7 @@ export default async function AccountPage() {
             </div>
           ) : null}
 
-          {me.checkoutBlocked && me.entitlementTier !== 'PREMIUM' ? (
+          {premiumOffer(me) === 'blocked' ? (
             <div className={ROW_CLASSES}>
               <p className="text-sm leading-7 text-[var(--text-muted)]">
                 {CHECKOUT_BLOCKED_MESSAGE}

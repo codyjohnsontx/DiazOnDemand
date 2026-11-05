@@ -15,6 +15,8 @@ import {
   describeAuditChange,
   endOfDayIso,
   formatDate,
+  isCheckoutBarred,
+  restoreKeepsCheckoutBar,
   restoreLiftsCheckoutBar,
 } from '@/lib/member-access';
 
@@ -139,10 +141,12 @@ function ConfirmedAction({
 function SubscriptionRow({
   subscription,
   liftsCheckoutBar,
+  keepsCheckoutBar,
   onRestore,
 }: {
   subscription: AdminMemberSubscription;
   liftsCheckoutBar: boolean;
+  keepsCheckoutBar: boolean;
   onRestore: (subscription: AdminMemberSubscription, reason: string) => Promise<void>;
 }) {
   const periodEnd = subscription.currentPeriodEnd
@@ -166,6 +170,9 @@ function SubscriptionRow({
       : periodOver
         ? `Its paid period ended ${periodEnd}`
         : `The subscription is ${status}`;
+  const barStays = keepsCheckoutBar
+    ? ' Another subscription keeps an admin revocation, so they still cannot start a new subscription.'
+    : '';
 
   return (
     <div className="surface-panel-muted space-y-4 p-4">
@@ -188,8 +195,8 @@ function SubscriptionRow({
         <ConfirmedAction
           confirmation={
             subscription.restoreGivesAccess
-              ? `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.`
-              : `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.${liftsCheckoutBar ? ' They will be able to start a new subscription.' : ''}`
+              ? `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.${barStays}`
+              : `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.${liftsCheckoutBar ? ' They will be able to start a new subscription.' : barStays}`
           }
           label="Restore access"
           onConfirm={(reason) => onRestore(subscription, reason)}
@@ -300,6 +307,11 @@ export default function AdminMemberPage() {
               </h2>
             </div>
             <p className="text-sm text-[var(--text-muted)]">{describeAccess(member.access)}</p>
+            {isCheckoutBarred(member.subscriptions) ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                They cannot start a new subscription until every admin revocation is restored.
+              </p>
+            ) : null}
           </div>
 
           {actionError ? (
@@ -397,6 +409,7 @@ export default function AdminMemberPage() {
                 {member.subscriptions.map((subscription) => (
                   <SubscriptionRow
                     key={subscription.id}
+                    keepsCheckoutBar={restoreKeepsCheckoutBar(subscription, member.subscriptions)}
                     liftsCheckoutBar={restoreLiftsCheckoutBar(subscription, member.subscriptions)}
                     onRestore={(row, reason) =>
                       act(

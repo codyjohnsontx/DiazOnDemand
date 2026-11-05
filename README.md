@@ -616,7 +616,10 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
   first restore gives no access back. While `adminRevokedAt` is set on any of the member's
   subscriptions, ended ones included, checkout refuses them with `access_revoked`, and the account
   page and `/subscribe` show a short message in place of checkout, so paying again cannot undo the
-  decision; a restore lifts that too. Revoking does not cancel the subscription or stop billing, so
+  decision. A member who has access anyway, through a grant or another subscription, gets a link to
+  the library instead of that message. Only restoring the last revocation lifts the bar, so
+  restoring one row of several can give access back while checkout stays refused; the confirmation
+  and the member page both say so. Revoking does not cancel the subscription or stop billing, so
   cancel in Stripe as well when the member should not be charged.
 - Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,
   action, reason, the stored access before and after, and when - shown as the member's history. An
