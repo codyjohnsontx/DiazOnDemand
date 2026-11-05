@@ -15,6 +15,7 @@ import {
   describeAuditChange,
   endOfDayIso,
   formatDate,
+  restoreLiftsCheckoutBar,
 } from '@/lib/member-access';
 
 const PRIMARY_BUTTON =
@@ -137,9 +138,11 @@ function ConfirmedAction({
 
 function SubscriptionRow({
   subscription,
+  liftsCheckoutBar,
   onRestore,
 }: {
   subscription: AdminMemberSubscription;
+  liftsCheckoutBar: boolean;
   onRestore: (subscription: AdminMemberSubscription, reason: string) => Promise<void>;
 }) {
   const periodEnd = subscription.currentPeriodEnd
@@ -186,7 +189,7 @@ function SubscriptionRow({
           confirmation={
             subscription.restoreGivesAccess
               ? `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.`
-              : `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.`
+              : `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.${liftsCheckoutBar ? ' They will be able to start a new subscription.' : ''}`
           }
           label="Restore access"
           onConfirm={(reason) => onRestore(subscription, reason)}
@@ -394,6 +397,7 @@ export default function AdminMemberPage() {
                 {member.subscriptions.map((subscription) => (
                   <SubscriptionRow
                     key={subscription.id}
+                    liftsCheckoutBar={restoreLiftsCheckoutBar(subscription, member.subscriptions)}
                     onRestore={(row, reason) =>
                       act(
                         'restore',

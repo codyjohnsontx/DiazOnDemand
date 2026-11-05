@@ -1,6 +1,7 @@
 import {
   MemberAccessAction,
   type AdminMemberAuditEntry,
+  type AdminMemberSubscription,
   type MemberAccessStatus,
 } from '@diaz/shared';
 
@@ -49,6 +50,17 @@ export function describeAccess(access: MemberAccessStatus): string {
     case 'never':
       return 'Has never had premium access';
   }
+}
+
+/** Whether restoring this row clears the member's last admin revocation, which reopens checkout. */
+export function restoreLiftsCheckoutBar(
+  subscription: AdminMemberSubscription,
+  subscriptions: readonly AdminMemberSubscription[],
+) {
+  return (
+    subscription.adminRevokedAt !== null &&
+    subscriptions.filter((row) => row.adminRevokedAt !== null).length === 1
+  );
 }
 
 const ACTION_LABELS: Record<MemberAccessAction, string> = {
