@@ -14,8 +14,11 @@ import { isLiveStripeSubscription } from '../common/entitlement.js';
  * always say "revoked by <reason> on <date>" rather than being left with an
  * unexplained absence of access. `revokedAt` carries the Stripe event's
  * `created` stamp rather than the wall clock, so revocations and subscription
- * events can be ordered against each other. An admin revocation has no event
- * behind it, so it carries the moment of the decision.
+ * events can be ordered against each other.
+ *
+ * An admin revocation is stored apart, in `adminRevokedAt`, because it is a
+ * person's decision rather than a fact from Stripe. A refund or chargeback is
+ * recorded beside it without overwriting it, and nothing Stripe does clears it.
  */
 
 /** A refund can be issued by mistake or as goodwill, so it is not final. */
@@ -25,23 +28,12 @@ export const REVOKE_REASON_REFUND = 'refund';
 export const REVOKE_REASON_CHARGEBACK = 'chargeback';
 
 /**
- * An admin withdrew access from the members screen, usually because Stripe's
- * alert said a refund or chargeback could not be traced to a member. It is a
- * person's decision, so no Stripe event undoes it: only an admin clears it.
- * It leaves the Stripe subscription, and its billing, exactly as they were.
- */
-export const REVOKE_REASON_ADMIN = 'admin';
-
-/**
  * The only reasons access is ever withdrawn. Callers pass one of these rather
  * than a free string, so a typo cannot invent a reason that no release path
  * knows how to clear - which would strand a member with access nothing can
  * give back.
  */
-export type RevokeReason =
-  | typeof REVOKE_REASON_REFUND
-  | typeof REVOKE_REASON_CHARGEBACK
-  | typeof REVOKE_REASON_ADMIN;
+export type RevokeReason = typeof REVOKE_REASON_REFUND | typeof REVOKE_REASON_CHARGEBACK;
 
 export type RevocationState = {
   revokedAt: Date | null;
@@ -50,6 +42,10 @@ export type RevocationState = {
    * an older build may carry a reason this build no longer defines.
    */
   revokedReason: string | null;
+};
+
+export type AdminRevocationState = {
+  adminRevokedAt: Date | null;
 };
 
 type RevocationSubject = RevocationState & {
@@ -114,24 +110,38 @@ export function planDisputeWonRelease(current: RevocationState): RevocationState
 }
 
 /**
+ * What an admin withdrawing a subscription's access writes to the row, usually
+ * because an alert said a refund or chargeback could not be traced to a member.
+ * The subscription, and its billing, stay exactly as they were.
+ */
+export function planAdminRevocation(now: Date): AdminRevocationState {
+  return { adminRevokedAt: now };
+}
+
+/**
  * What an admin restoring a member should write to the row, or `null` when
  * there is no revocation an admin may clear.
  *
- * This is the immediate way back for a refund issued by mistake, which the
- * renewal rule below deliberately cannot see, and the only way back from an
- * admin revocation. It is a person's decision rather than evidence from Stripe,
- * so the admin members screen records who made it.
+ * This is the only way back from an admin revocation, and the immediate way back
+ * for a refund issued by mistake, which the renewal rule below deliberately
+ * cannot see. It is a person's decision rather than evidence from Stripe, so the
+ * admin members screen records who made it.
+ *
+ * It clears one revocation at a time, the admin's own first, so a refund that
+ * landed afterwards is decided on separately rather than waved through with it.
  *
  * A chargeback is not released. It took the money back by force and clears only
  * on a won dispute; letting an admin wave it through would hand access back to
  * somebody who is not paying.
  */
-export function planManualRelease(current: RevocationState): RevocationState | null {
-  if (
-    current.revokedAt === null ||
-    (current.revokedReason !== REVOKE_REASON_REFUND &&
-      current.revokedReason !== REVOKE_REASON_ADMIN)
-  ) {
+export function planManualRelease(
+  current: RevocationState & AdminRevocationState,
+): RevocationState | AdminRevocationState | null {
+  if (current.adminRevokedAt !== null) {
+    return { adminRevokedAt: null };
+  }
+
+  if (current.revokedAt === null || current.revokedReason !== REVOKE_REASON_REFUND) {
     return null;
   }
 

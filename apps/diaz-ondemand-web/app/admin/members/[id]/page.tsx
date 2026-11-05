@@ -148,6 +148,21 @@ function SubscriptionRow({
   const periodOver =
     subscription.currentPeriodEnd !== null && new Date(subscription.currentPeriodEnd) <= new Date();
   const status = subscription.status.replace(/_/g, ' ');
+  const revocations = [
+    subscription.adminRevokedAt
+      ? `Revoked by an admin on ${formatDate(subscription.adminRevokedAt)}`
+      : null,
+    subscription.revokedAt
+      ? `Revoked by ${subscription.revokedReason ?? 'unknown reason'} on ${formatDate(subscription.revokedAt)}`
+      : null,
+  ].filter(Boolean);
+  const clearing = subscription.adminRevokedAt ? 'admin' : subscription.revokedReason;
+  const whyNoAccess =
+    subscription.adminRevokedAt && subscription.revokedAt
+      ? `It stays revoked by ${subscription.revokedReason}`
+      : periodOver
+        ? `Its paid period ended ${periodEnd}`
+        : `The subscription is ${status}`;
 
   return (
     <div className="surface-panel-muted space-y-4 p-4">
@@ -159,8 +174,8 @@ function SubscriptionRow({
           <PremiumBadge label={status} />
         </div>
         <p className="text-sm text-[var(--text-muted)]">
-          {subscription.revokedAt
-            ? `Revoked by ${subscription.revokedReason ?? 'unknown reason'} on ${formatDate(subscription.revokedAt)}`
+          {revocations.length > 0
+            ? revocations.join('. ')
             : periodEnd
               ? `Paid period ends ${periodEnd}`
               : 'No paid period recorded'}
@@ -170,8 +185,8 @@ function SubscriptionRow({
         <ConfirmedAction
           confirmation={
             subscription.restoreGivesAccess
-              ? `Clear the ${subscription.revokedReason} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.`
-              : `Clear the ${subscription.revokedReason} revocation on ${subscription.stripeSubscriptionId}? ${periodOver ? `Its paid period ended ${periodEnd}` : `The subscription is ${status}`}, so this clears the record but gives no access back.`
+              ? `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.`
+              : `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.`
           }
           label="Restore access"
           onConfirm={(reason) => onRestore(subscription, reason)}

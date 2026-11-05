@@ -24,11 +24,11 @@ import type Stripe from 'stripe';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AdminMembersService } from '../admin/admin-members.service.js';
 import {
-  REVOKE_REASON_ADMIN,
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
 } from '../billing/subscription-revocation.js';
 import type { AuthUser } from '../common/request-with-user.js';
+import { MeService } from '../me/me.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 
@@ -439,7 +439,9 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
       expect(detail.canRevoke).toBe(false);
       expect(detail.subscriptions[0]).toMatchObject({
-        revokedReason: REVOKE_REASON_ADMIN,
+        adminRevokedAt: expect.any(String),
+        revokedAt: null,
+        revokedReason: null,
         restorable: true,
         restoreGivesAccess: true,
       });
@@ -462,6 +464,18 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
+    it('tells the member they have no subscription rather than a live one', async () => {
+      const admin = await createAdmin();
+      const { member } = await payingMember();
+
+      await service.revokeAccess(admin, member.id, { reason: 'Banned' });
+
+      expect(await new MeService(prisma).getMeByClerkId(member.clerkUserId)).toMatchObject({
+        subscriptionStatus: null,
+        currentPeriodEnd: null,
+      });
+    });
+
     it('is refused without a reason, and changes and records nothing', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await payingMember();
@@ -473,7 +487,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       expect(await auditOf(member.id)).toEqual([]);
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
       const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
-      expect(row).toMatchObject({ revokedAt: null, revokedReason: null });
+      expect(row).toMatchObject({ adminRevokedAt: null });
     });
 
     it('takes a member with a grant and a subscription down one step at a time', async () => {
@@ -520,7 +534,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
 
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
       const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
-      expect(row).toMatchObject({ revokedAt: null, revokedReason: null });
+      expect(row).toMatchObject({ adminRevokedAt: null });
     });
 
     it('stays withdrawn through a genuine paid renewal', async () => {
@@ -532,7 +546,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
 
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
       const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
-      expect(row?.revokedReason).toBe(REVOKE_REASON_ADMIN);
+      expect(row?.adminRevokedAt).toBeInstanceOf(Date);
     });
 
     it('can be undone from the same screen, and records that too', async () => {

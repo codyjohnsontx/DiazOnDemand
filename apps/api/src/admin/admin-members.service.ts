@@ -31,11 +31,7 @@ import {
   resolveStripeEntitlement,
 } from '../common/entitlement.js';
 import { syncEntitlementFromSubscriptions } from '../billing/entitlement-sync.js';
-import {
-  REVOKE_REASON_ADMIN,
-  planManualRelease,
-  planRevocation,
-} from '../billing/subscription-revocation.js';
+import { planAdminRevocation, planManualRelease } from '../billing/subscription-revocation.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   describeMemberAccess,
@@ -139,6 +135,7 @@ function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
         currentPeriodEnd: iso(subscription.currentPeriodEnd),
         revokedAt: iso(subscription.revokedAt),
         revokedReason: subscription.revokedReason,
+        adminRevokedAt: iso(subscription.adminRevokedAt),
         restorable: isRestorable(subscription),
         restoreGivesAccess: restoreGivesAccess(subscription, now),
       })),
@@ -294,13 +291,10 @@ export class AdminMembersService {
   ) {
     const live = member.subscriptions.filter(isLiveStripeSubscription);
 
-    for (const subscription of live) {
-      const revocation = planRevocation(subscription, REVOKE_REASON_ADMIN, now);
-
-      if (revocation) {
-        await tx.subscription.update({ where: { id: subscription.id }, data: revocation });
-      }
-    }
+    await tx.subscription.updateMany({
+      where: { id: { in: live.map((subscription) => subscription.id) } },
+      data: planAdminRevocation(now),
+    });
 
     await syncEntitlementFromSubscriptions(tx, member.id);
 

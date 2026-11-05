@@ -395,6 +395,8 @@ export const adminMemberSubscriptionSchema = z.object({
   currentPeriodEnd: z.string().datetime().nullable(),
   revokedAt: z.string().datetime().nullable(),
   revokedReason: z.string().nullable(),
+  /** When an admin withdrew access, apart from anything Stripe reported on the row. */
+  adminRevokedAt: z.string().datetime().nullable(),
   /** A refund or admin revocation an admin can clear. */
   restorable: z.boolean(),
   /** Whether clearing it would give access back now, rather than only the record. */
