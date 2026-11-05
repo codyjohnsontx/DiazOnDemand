@@ -1,4 +1,4 @@
-import { isLiveStripeSubscription } from '../common/entitlement.js';
+import { STRIPE_TERMINAL_STATUSES, isLiveStripeSubscription } from '../common/entitlement.js';
 
 /**
  * When and why a subscription's access is withdrawn, and what it takes to earn
@@ -117,6 +117,20 @@ export function planDisputeWonRelease(current: RevocationState): RevocationState
  */
 export function planAdminRevocation(now: Date): AdminRevocationState {
   return { adminRevokedAt: now };
+}
+
+/**
+ * Whether a withdrawal has to stamp this row. The decision is about the member,
+ * but access is derived row by row, so every row that could ever grant access
+ * has to carry it: not just the live ones, or a refunded, charged-back or unpaid
+ * sibling recovering in Stripe would hand access straight back. A row Stripe can
+ * never revive is left alone, so a restore never has to clear a dead one, and a
+ * row already stamped keeps the date of the decision that covers it.
+ */
+export function needsAdminRevocation(
+  subscription: AdminRevocationState & { status: string },
+): boolean {
+  return subscription.adminRevokedAt === null && !STRIPE_TERMINAL_STATUSES.has(subscription.status);
 }
 
 /**

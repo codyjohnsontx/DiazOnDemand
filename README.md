@@ -601,9 +601,12 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
   once Stripe has taken over, a refund before the grant's end date ends access, and the `GRANT`
   history entry is what is left to re-grant from.
 - **Revoke** ends what the member can watch now. A live manual grant goes first, leaving what their
-  subscriptions grant. Otherwise it withdraws the Stripe access: every live subscription gets
-  `adminRevokedAt`, through `subscription-revocation.ts`, and the entitlement is re-derived, so this
-  is the in-app answer to a refund or chargeback alert that could not be traced to a member. It
+  subscriptions grant. Otherwise it withdraws the Stripe access: every subscription that could
+  still grant access gets `adminRevokedAt`, through `subscription-revocation.ts`, so a refunded,
+  charged-back or unpaid sibling recovering in Stripe cannot hand it back, and only `canceled` and
+  `incomplete_expired` rows are left alone. A subscription Stripe opens afterwards, from a checkout
+  already open at the time, takes the same stamp. The entitlement is re-derived, so this is the
+  in-app answer to a refund or chargeback alert that could not be traced to a member. It
   needs a reason, and the API refuses it without one; the audit row holds that reason. The column
   is separate from `revokedAt` and `revokedReason` so that a refund or chargeback landing later is
   recorded beside the admin's decision instead of over it. No Stripe event clears it: a renewal or a

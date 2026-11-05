@@ -62,6 +62,12 @@ export const STRIPE_ACTIVE_STATUSES: ReadonlySet<string> = new Set([
   'past_due',
 ]);
 
+/** Stripe subscription statuses a subscription never leaves. */
+export const STRIPE_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+  'canceled',
+  'incomplete_expired',
+]);
+
 type SubscriptionLike = {
   status: string;
   currentPeriodEnd: Date | null;

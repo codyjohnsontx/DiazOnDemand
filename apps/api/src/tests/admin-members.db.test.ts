@@ -130,16 +130,17 @@ async function payingMember() {
   return { member, subscription };
 }
 
-/** The `customer.subscription.updated` Stripe sends for a stored subscription. */
+/** The subscription event Stripe sends, `customer.subscription.updated` unless told otherwise. */
 async function deliverSubscriptionEvent(
   member: { id: string },
   subscription: { stripeSubscriptionId: string; stripeCustomerId: string },
   currentPeriodEnd: Date,
+  type: Stripe.Event.Type = 'customer.subscription.updated',
 ) {
   sequence += 1;
   await new WebhooksService(prisma).handleStripeEvent({
     id: `evt_${PREFIX}${sequence}`,
-    type: 'customer.subscription.updated',
+    type,
     created: Math.floor(Date.now() / 1000) + sequence,
     data: {
       object: {
@@ -150,6 +151,33 @@ async function deliverSubscriptionEvent(
         cancel_at_period_end: false,
         metadata: { userId: member.id },
         items: { data: [] },
+      },
+    },
+  } as unknown as Stripe.Event);
+}
+
+/** The `charge.dispute.closed` Stripe sends when a dispute on this subscription is won. */
+async function deliverDisputeWon(subscription: {
+  stripeSubscriptionId: string;
+  stripeCustomerId: string;
+}) {
+  sequence += 1;
+  await new WebhooksService(prisma).handleStripeEvent({
+    id: `evt_${PREFIX}${sequence}`,
+    type: 'charge.dispute.closed',
+    created: Math.floor(Date.now() / 1000) + sequence,
+    data: {
+      object: {
+        id: `dp_${PREFIX}${sequence}`,
+        status: 'won',
+        charge: {
+          id: `ch_${PREFIX}${sequence}`,
+          customer: subscription.stripeCustomerId,
+          invoice: {
+            id: `in_${PREFIX}${sequence}`,
+            subscription: subscription.stripeSubscriptionId,
+          },
+        },
       },
     },
   } as unknown as Stripe.Event);
@@ -564,6 +592,140 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
       const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
       expect(row?.adminRevokedAt).toBeInstanceOf(Date);
+    });
+
+    describe('on a member with an older subscription that is not live', () => {
+      /** A paying member banned while `older` was holding no access of its own. */
+      async function banned(older: Parameters<typeof createSubscription>[1]) {
+        const admin = await createAdmin();
+        const { member, subscription: paying } = await payingMember();
+        const sibling = await createSubscription(member.id, older);
+        await service.revokeAccess(admin, member.id, { reason: 'Banned for conduct' });
+        return { admin, member, paying, sibling };
+      }
+
+      async function expectStillBanned(memberId: string) {
+        expect((await entitlementOf(memberId))?.tier).toBe(EntitlementTier.FREE);
+        const detail = await service.getMember(memberId);
+        expect(detail.hasAccess).toBe(false);
+        expect(detail.access.kind).toBe('admin-revoked');
+      }
+
+      it('stays withdrawn when a refunded subscription genuinely renews', async () => {
+        const { member, sibling } = await banned({
+          revokedAt: daysFromNow(-5),
+          revokedReason: REVOKE_REASON_REFUND,
+        });
+
+        await deliverSubscriptionEvent(member, sibling, stripeDate(50));
+
+        await expectStillBanned(member.id);
+        const row = await prismaClient!.subscription.findUnique({ where: { id: sibling.id } });
+        expect(row?.revokedAt).toBeNull();
+      });
+
+      it('stays withdrawn when a charged-back subscription wins its dispute', async () => {
+        const { member, sibling } = await banned({
+          revokedAt: daysFromNow(-5),
+          revokedReason: REVOKE_REASON_CHARGEBACK,
+        });
+
+        await deliverDisputeWon(sibling);
+
+        await expectStillBanned(member.id);
+        const row = await prismaClient!.subscription.findUnique({ where: { id: sibling.id } });
+        expect(row?.revokedAt).toBeNull();
+      });
+
+      it('stays withdrawn when Stripe recovers an unpaid subscription', async () => {
+        const { member, sibling } = await banned({ status: 'unpaid' });
+
+        await deliverSubscriptionEvent(member, sibling, stripeDate(30));
+
+        await expectStillBanned(member.id);
+      });
+
+      it('records one revocation per row, each restored on its own', async () => {
+        const { admin, member, paying, sibling } = await banned({ status: 'unpaid' });
+
+        const revoked = (await auditOf(member.id)).map((entry) => entry.stripeSubscriptionId);
+        expect(revoked.sort()).toEqual(
+          [paying.stripeSubscriptionId, sibling.stripeSubscriptionId].sort(),
+        );
+
+        const afterSibling = await service.restoreAccess(admin, member.id, {
+          subscriptionId: sibling.id,
+          reason: 'Not this one',
+        });
+        expect(afterSibling.hasAccess).toBe(false);
+
+        const afterPaying = await service.restoreAccess(admin, member.id, {
+          subscriptionId: paying.id,
+          reason: 'Revoked the wrong member',
+        });
+        expect(afterPaying.hasAccess).toBe(true);
+      });
+
+      it('leaves a row Stripe can never bring back alone', async () => {
+        const { admin, member, paying, sibling } = await banned({ status: 'canceled' });
+
+        const row = await prismaClient!.subscription.findUnique({ where: { id: sibling.id } });
+        expect(row?.adminRevokedAt).toBeNull();
+        expect((await auditOf(member.id)).map((entry) => entry.stripeSubscriptionId)).toEqual([
+          paying.stripeSubscriptionId,
+        ]);
+
+        const restored = await service.restoreAccess(admin, member.id, {
+          subscriptionId: paying.id,
+          reason: 'Revoked the wrong member',
+        });
+        expect(restored.subscriptions.some((entry) => entry.adminRevokedAt)).toBe(false);
+      });
+
+      it('does not re-record a row the revocation already covers', async () => {
+        const { admin, member, paying, sibling } = await banned({ status: 'unpaid' });
+        const stamped = await prismaClient!.subscription.findUnique({ where: { id: sibling.id } });
+        await service.restoreAccess(admin, member.id, {
+          subscriptionId: paying.id,
+          reason: 'Revoked the wrong member',
+        });
+
+        await service.revokeAccess(admin, member.id, { reason: 'Banned after all' });
+
+        const reasons = (await auditOf(member.id))
+          .filter((entry) => entry.action === MemberAccessAction.REVOKE)
+          .map((entry) => entry.reason);
+        expect(reasons.filter((reason) => reason === 'Banned after all')).toHaveLength(1);
+        const row = await prismaClient!.subscription.findUnique({ where: { id: sibling.id } });
+        expect(row?.adminRevokedAt).toEqual(stamped?.adminRevokedAt);
+      });
+    });
+
+    it('covers a subscription Stripe opens after the revocation', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      const revoked = await service.revokeAccess(admin, member.id, {
+        reason: 'Banned for conduct',
+      });
+      sequence += 1;
+      const late = {
+        stripeSubscriptionId: `sub_${PREFIX}${sequence}`,
+        stripeCustomerId: subscription.stripeCustomerId,
+      };
+
+      await deliverSubscriptionEvent(member, late, stripeDate(30), 'customer.subscription.created');
+
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+      const row = await prismaClient!.subscription.findUnique({
+        where: { stripeSubscriptionId: late.stripeSubscriptionId },
+      });
+      expect(row?.adminRevokedAt?.toISOString()).toBe(revoked.subscriptions[0]?.adminRevokedAt);
+
+      const restored = await service.restoreAccess(admin, member.id, {
+        subscriptionId: row!.id,
+        reason: 'Revoked the wrong member',
+      });
+      expect(restored.hasAccess).toBe(true);
     });
 
     it('can be undone from the same screen, and records that too', async () => {

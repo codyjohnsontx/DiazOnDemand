@@ -25,13 +25,13 @@ import {
   type AdminRevokeMemberAccessDto,
 } from '@diaz/shared';
 import type { AuthUser } from '../common/request-with-user.js';
-import {
-  isEntitlementActive,
-  isLiveStripeSubscription,
-  resolveStripeEntitlement,
-} from '../common/entitlement.js';
+import { isEntitlementActive, resolveStripeEntitlement } from '../common/entitlement.js';
 import { syncEntitlementFromSubscriptions } from '../billing/entitlement-sync.js';
-import { planAdminRevocation, planManualRelease } from '../billing/subscription-revocation.js';
+import {
+  needsAdminRevocation,
+  planAdminRevocation,
+  planManualRelease,
+} from '../billing/subscription-revocation.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   describeMemberAccess,
@@ -277,10 +277,10 @@ export class AdminMembersService {
   }
 
   /**
-   * Revokes every live subscription through the billing seam and re-derives the
-   * entitlement, so the outcome is one the stored rows support and the next
-   * Stripe event cannot undo it. One audit row per subscription, because each
-   * row is a separate revocation an admin can restore.
+   * Revokes every subscription that could still grant access through the billing
+   * seam and re-derives the entitlement, so the outcome is one the stored rows
+   * support and no Stripe event, on any of them, can undo it. One audit row per
+   * subscription, because each row is a separate revocation an admin can restore.
    */
   private async withdrawStripeAccess(
     tx: Prisma.TransactionClient,
@@ -289,10 +289,10 @@ export class AdminMembersService {
     reason: string,
     now: Date,
   ) {
-    const live = member.subscriptions.filter(isLiveStripeSubscription);
+    const revoked = member.subscriptions.filter(needsAdminRevocation);
 
     await tx.subscription.updateMany({
-      where: { id: { in: live.map((subscription) => subscription.id) } },
+      where: { id: { in: revoked.map((subscription) => subscription.id) } },
       data: planAdminRevocation(now),
     });
 
@@ -301,7 +301,7 @@ export class AdminMembersService {
     const after = await tx.entitlement.findUnique({ where: { userId: member.id } });
 
     await tx.memberAccessAudit.createMany({
-      data: live.map((subscription) => ({
+      data: revoked.map((subscription) => ({
         ...this.auditRow(
           actor,
           member,

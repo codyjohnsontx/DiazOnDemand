@@ -273,12 +273,23 @@ export class WebhooksService {
         stripeCreatedAt,
       });
 
+    // Checkout refuses a member an admin revoked, but one left open before that
+    // can still complete. The new row joins the revocation, or paying would undo it.
+    const siblings = existing
+      ? []
+      : await this.prisma.client.subscription.findMany({ where: { userId } });
+    const adminRevokedAt = siblings.find((row) => row.adminRevokedAt)?.adminRevokedAt;
+
     // Upsert by the Stripe subscription id: a member can hold several rows over
     // time (cancel then resubscribe) and, briefly, at the same time.
     await this.prisma.client.subscription.upsert({
       where: { stripeSubscriptionId: sub.id },
       update: released ? { ...fields, revokedAt: null, revokedReason: null } : fields,
-      create: { ...fields, stripeSubscriptionId: sub.id },
+      create: {
+        ...fields,
+        stripeSubscriptionId: sub.id,
+        ...(adminRevokedAt ? { adminRevokedAt } : {}),
+      },
     });
 
     await this.syncEntitlementFromSubscriptions(userId);
