@@ -347,7 +347,7 @@ the webhooks have finished - every 4 seconds for the first two minutes, every 30
 that, and not at all after 30 minutes, when the editor says so and asks for a reload. The API chooses the asset's playback policy from the lesson's tier
 before the file exists - `signed` for `PAID`, `public` for `FREE` - and sets the lesson id as the
 asset's `passthrough`. No Mux credential reaches the browser; the route sits behind the same
-`ADMIN`/`COACH` guards as every other admin route, and `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` are
+`ADMIN`/`COACH` guards as the other content admin routes, and `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` are
 read only on the server, per request, so a process without them still boots and answers this one
 route 503.
 
@@ -567,7 +567,8 @@ Giving access back:
   can always be shown _why_ ("revoked by refund on <date>") rather than an unexplained gap. The
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
   just its first caller.
-- A revoke is not a one-way door, but only a **genuine renewal** opens it:
+- A refund or chargeback is not a one-way door, and among subscription events only a **genuine
+  renewal** opens it:
   - Resubscribing works after a refund or chargeback. A new Stripe subscription id is a new row,
     which was never revoked. An admin revocation is the exception: it bars checkout until restored.
   - For the same subscription, a **refund** revocation clears only when a later Stripe event moves
@@ -577,8 +578,9 @@ Giving access back:
     and keep the period they were refunded for.
   - The cost of that strictness is accepted knowingly: a member refunded **by mistake** stays locked
     out until their next renewal unless an admin restores them from `/admin/members`.
-  - A **chargeback** revocation is sticky and never clears. The customer forcibly took the money
-    back, so they have to subscribe again. A chargeback landing on a subscription already revoked by
+  - A **chargeback** revocation is sticky: no renewal clears it and neither can an admin. The
+    customer forcibly took the money back, so unless the dispute is won they have to subscribe
+    again. A chargeback landing on a subscription already revoked by
     a refund **upgrades** the stored reason, so the sticky outcome cannot inherit the clearable one.
   - Only an event Stripe generated _after_ the revocation can clear it. The subscription ordering
     guard alone does not cover this, because a revoke does not advance `lastEventAt`.

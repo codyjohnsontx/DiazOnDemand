@@ -60,7 +60,9 @@ export default async function AccountPage() {
 
           {me.checkoutBlocked && me.entitlementTier !== 'PREMIUM' ? (
             <div className={ROW_CLASSES}>
-              <p className="text-sm leading-7 text-[var(--text-muted)]">{CHECKOUT_BLOCKED_MESSAGE}</p>
+              <p className="text-sm leading-7 text-[var(--text-muted)]">
+                {CHECKOUT_BLOCKED_MESSAGE}
+              </p>
             </div>
           ) : (
             <div className={ROW_CLASSES}>
