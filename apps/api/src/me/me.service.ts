@@ -10,6 +10,7 @@ import {
   isLiveStripeSubscription,
   resolveEntitlementTier,
 } from '../common/entitlement.js';
+import { hasAdminRevocation } from '../billing/subscription-revocation.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -57,6 +58,7 @@ export class MeService {
       // A revoked member still has a Stripe customer, so the billing portal
       // remains reachable for them.
       canManageBilling: Boolean(subscription),
+      checkoutBlocked: hasAdminRevocation(user.subscriptions),
     };
   }
 

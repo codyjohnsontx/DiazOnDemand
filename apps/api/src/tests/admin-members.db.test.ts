@@ -473,6 +473,22 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       expect(await new MeService(prisma).getMeByClerkId(member.clerkUserId)).toMatchObject({
         subscriptionStatus: null,
         currentPeriodEnd: null,
+        checkoutBlocked: true,
+      });
+    });
+
+    it('stops telling the member checkout is blocked once restored', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+
+      await service.revokeAccess(admin, member.id, { reason: 'Wrong member' });
+      await service.restoreAccess(admin, member.id, {
+        subscriptionId: subscription.id,
+        reason: null,
+      });
+
+      expect(await new MeService(prisma).getMeByClerkId(member.clerkUserId)).toMatchObject({
+        checkoutBlocked: false,
       });
     });
 

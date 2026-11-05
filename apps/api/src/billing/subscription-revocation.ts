@@ -119,6 +119,15 @@ export function planAdminRevocation(now: Date): AdminRevocationState {
 }
 
 /**
+ * Whether an admin revocation stands on any of a member's subscriptions, ended
+ * ones included. That bars a new subscription until an admin restores them,
+ * because paying again would undo the decision with no admin involved.
+ */
+export function hasAdminRevocation(subscriptions: readonly AdminRevocationState[]): boolean {
+  return subscriptions.some((subscription) => subscription.adminRevokedAt);
+}
+
+/**
  * What an admin restoring a member should write to the row, or `null` when
  * there is no revocation an admin may clear.
  *

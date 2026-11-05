@@ -1548,6 +1548,95 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
     });
   });
 
+  describe('an admin revocation blocks a new subscription', () => {
+    const webhooks = new WebhooksService(prisma);
+    const members = new AdminMembersService(prisma);
+
+    afterEach(async () => {
+      await prismaClient!.stripeWebhookEvent.deleteMany({});
+    });
+
+    async function adminRevokedMember(name: string) {
+      const clerkUserId = `billing-test-${name}`;
+      const user = await createUser(clerkUserId);
+      const admin = await createUser(`${clerkUserId}-admin`);
+      const subscriptionId = `sub_${name}`;
+      const customerId = `cus_${name}`;
+      const actor = {
+        id: admin.id,
+        clerkUserId: admin.clerkUserId,
+        role: Role.ADMIN,
+        entitlementTier: EntitlementTier.FREE,
+      };
+
+      await webhooks.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+      await members.revokeAccess(actor, user.id, { reason: 'Banned' });
+
+      const restore = async () => {
+        const [row] = await subscriptionsOf(user.id);
+        return members.restoreAccess(actor, user.id, { subscriptionId: row!.id, reason: null });
+      };
+
+      return { clerkUserId, user, subscriptionId, customerId, restore };
+    }
+
+    it('refuses while the revoked subscription is still billing', async () => {
+      const { clerkUserId, restore } = await adminRevokedMember('admin-blocked-billing');
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'access_revoked' },
+      });
+      expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
+
+      await restore();
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'subscription_exists' },
+      });
+    });
+
+    it('still refuses once that subscription has ended, until an admin restores', async () => {
+      const { clerkUserId, user, subscriptionId, customerId, restore } =
+        await adminRevokedMember('admin-blocked-ended');
+
+      await webhooks.handleStripeEvent(
+        subscriptionEvent('customer.subscription.deleted', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'canceled',
+        }),
+      );
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'access_revoked' },
+      });
+      expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
+
+      await restore();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_admin_restored',
+        url: 'https://checkout.stripe.test/admin-restored',
+      });
+
+      await expect(createService().createCheckoutSession(clerkUserId)).resolves.toMatchObject({
+        url: 'https://checkout.stripe.test/admin-restored',
+      });
+      expect(stripeStub.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    });
+  });
+
   /**
    * The three cases measured before the reservation existed. (c) is the one the
    * reservation is for: two sessions, so a double charge. (a) already worked and
