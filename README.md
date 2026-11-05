@@ -558,7 +558,7 @@ Giving access back:
   revocation standing. Without this a chargeback is a one-way door: the revocation is sticky against
   renewals by design, so a member who disputes and loses would keep paying and never get access
   back.
-- An admin clears a *refund* revocation from **`/admin/members`** - the immediate way back for a
+- An admin clears a _refund_ revocation from **`/admin/members`** - the immediate way back for a
   refund issued by mistake. It never clears a chargeback. The entitlement is then re-derived from
   the subscription rows exactly as the webhook would (`syncEntitlementFromSubscriptions` in
   `apps/api/src/billing/entitlement-sync.ts`), so a subscription that was also cancelled gets its
@@ -587,6 +587,7 @@ Giving access back:
 
 The admin members screen (`/admin/members`). Its routes are `ADMIN` only, unlike the other admin
 routes, because they move paid access and expose billing identifiers; `COACH` keeps content editing:
+
 - Search matches a Clerk user id, a member id, or a Stripe customer or subscription id. `User`
   stores no email or name, so these are the identifiers to copy from the Clerk and Stripe
   dashboards.

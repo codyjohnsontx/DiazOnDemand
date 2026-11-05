@@ -50,7 +50,8 @@ const PREFIX = 'members-test-';
 const DAY = 24 * 60 * 60 * 1000;
 const daysFromNow = (days: number) => new Date(Date.now() + days * DAY);
 /** Stripe stamps whole seconds, so a date that goes through an event has to be one. */
-const stripeDate = (days: number) => new Date(Math.floor(daysFromNow(days).getTime() / 1000) * 1000);
+const stripeDate = (days: number) =>
+  new Date(Math.floor(daysFromNow(days).getTime() / 1000) * 1000);
 
 let sequence = 0;
 

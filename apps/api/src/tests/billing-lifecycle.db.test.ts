@@ -1215,7 +1215,10 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
 
       const before = await members.getMember(user.id);
-      expect(before.subscriptions[0]).toMatchObject({ restorable: true, restoreGivesAccess: false });
+      expect(before.subscriptions[0]).toMatchObject({
+        restorable: true,
+        restoreGivesAccess: false,
+      });
 
       const afterAdmin = await restore();
 
