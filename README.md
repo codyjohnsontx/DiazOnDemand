@@ -412,10 +412,11 @@ state with Mux's message. Webhook *transport* was simulated for that run - see "
 
 ### Stripe + Webhooks
 Billing endpoints (both Clerk-authenticated):
-- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for two
+- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for three
   different reasons, told apart by a `code` on the body so the client can say the right thing:
-  `subscription_exists` (the member already has an active subscription) and `checkout_in_flight`
-  (a checkout for them is already open). The codes live in `packages/shared/src/schemas.ts`.
+  `subscription_exists` (the member already has an active subscription), `checkout_in_flight`
+  (a checkout for them is already open) and `access_revoked` (an admin revocation stands on one of
+  their subscriptions). The codes live in `packages/shared/src/schemas.ts`.
   Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
 - `POST /billing/cancel-checkout` - expires the abandoned Stripe session and releases the calling
   member's checkout lock, called by the cancel return page. Holds the lock instead when Stripe
@@ -537,7 +538,8 @@ Giving access back:
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
   just its first caller.
 - A revoke is not a one-way door, but only a **genuine renewal** opens it:
-  - Resubscribing always works. A new Stripe subscription id is a new row, which was never revoked.
+  - Resubscribing works after a refund or chargeback. A new Stripe subscription id is a new row,
+    which was never revoked. An admin revocation is the exception: it bars checkout until restored.
   - For the same subscription, a **refund** revocation clears only when a later Stripe event moves
     `current_period_end` **strictly forward** - i.e. the member was actually charged again. A live
     status is deliberately *not* enough: `cancel_at_period_end`, a card update and a plan change all
@@ -575,9 +577,11 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
   won dispute clears only its own refund or chargeback, and access stays withdrawn. Only a restore
   from the same screen clears it, and a restore clears one revocation at a time, the admin's first,
   so a refund underneath stays until an admin decides on it separately and the screen says that the
-  first restore gives no access back. It does not cancel the subscription or stop billing,
-  and a new checkout gives the member a new, unrevoked subscription, so cancel in Stripe as well
-  when the member should not be charged.
+  first restore gives no access back. While `adminRevokedAt` is set on any of the member's
+  subscriptions, ended ones included, checkout refuses them with `access_revoked`, and the account
+  page and `/subscribe` show a short message in place of checkout, so paying again cannot undo the
+  decision; a restore lifts that too. Revoking does not cancel the subscription or stop billing, so
+  cancel in Stripe as well when the member should not be charged.
 - Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,
   action, reason, the stored access before and after, and when - shown as the member's history. An
   acting admin's rows outlive their own account.

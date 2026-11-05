@@ -323,7 +323,7 @@ export default function AdminMemberPage() {
               <ConfirmedAction
                 confirmation={
                   member.revokeRequiresReason
-                    ? 'Withdraw their Stripe access? It ends at once and stays off through renewals until restored here. This does not cancel the subscription or stop billing; do that in Stripe.'
+                    ? 'Withdraw their Stripe access? It ends at once and stays off through renewals, and they cannot start a new subscription, until restored here. This does not cancel the subscription or stop billing; do that in Stripe.'
                     : member.accessAfterRevoke?.hasAccess
                       ? `End this manual grant? Their Stripe subscription still gives them access${member.accessAfterRevoke.validUntil ? ` until ${formatDate(member.accessAfterRevoke.validUntil)}` : ''}.`
                       : 'End this manual grant? They will have no premium access.'

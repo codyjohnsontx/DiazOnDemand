@@ -289,6 +289,8 @@ export const meSchema = z.object({
   currentPeriodEnd: z.string().datetime().nullable().optional(),
   /** True when the member has a Stripe customer, so the billing portal can open. */
   canManageBilling: z.boolean().optional(),
+  /** True when an admin revocation stands, so checkout refuses the member. */
+  checkoutBlocked: z.boolean().optional(),
 });
 
 export const billingPortalSessionSchema = z.object({
@@ -307,7 +309,7 @@ export const checkoutSessionSchema = z.object({
 });
 
 /**
- * Why checkout answered 409. Both refusals share the status, so the client
+ * Why checkout answered 409. Every refusal shares the status, so the client
  * needs this to tell them apart: sending a member who merely double-clicked to
  * an account page that shows no subscription produces a support message rather
  * than a payment.
@@ -315,7 +317,12 @@ export const checkoutSessionSchema = z.object({
 export const CHECKOUT_CONFLICT_CODES = {
   subscriptionExists: 'subscription_exists',
   checkoutInFlight: 'checkout_in_flight',
+  accessRevoked: 'access_revoked',
 } as const;
+
+/** What a member with a standing admin revocation sees in place of checkout. */
+export const CHECKOUT_BLOCKED_MESSAGE =
+  'Premium is not available on this account. Please contact us.';
 
 export type CheckoutConflictCode =
   (typeof CHECKOUT_CONFLICT_CODES)[keyof typeof CHECKOUT_CONFLICT_CODES];
@@ -324,6 +331,7 @@ export const checkoutConflictSchema = z.object({
   code: z.enum([
     CHECKOUT_CONFLICT_CODES.subscriptionExists,
     CHECKOUT_CONFLICT_CODES.checkoutInFlight,
+    CHECKOUT_CONFLICT_CODES.accessRevoked,
   ]),
   message: z.string(),
 });

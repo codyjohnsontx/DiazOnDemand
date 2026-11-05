@@ -1,9 +1,13 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import type { CheckoutSessionDto } from '@diaz/shared';
-import { CHECKOUT_CONFLICT_CODES, checkoutConflictSchema } from '@diaz/shared';
+import { useEffect, useState } from 'react';
+import type { CheckoutSessionDto, MeDto } from '@diaz/shared';
+import {
+  CHECKOUT_BLOCKED_MESSAGE,
+  CHECKOUT_CONFLICT_CODES,
+  checkoutConflictSchema,
+} from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { useAuthToken } from '@/components/auth-provider';
 import { PageHeader } from '@/components/page-header';
@@ -27,7 +31,7 @@ function checkoutConflictCode(detail: string) {
 }
 
 /**
- * Checkout refuses with 409 for two different reasons, and they need different
+ * Checkout refuses with 409 for different reasons, and they need different
  * words: telling a member who double-clicked that they already subscribe sends
  * them to an account page with nothing on it.
  */
@@ -42,6 +46,10 @@ function checkoutErrorMessage(error: unknown) {
     return 'A checkout is already in progress for this account. Finish it in the Stripe tab, or try again in a moment.';
   }
 
+  if (code === CHECKOUT_CONFLICT_CODES.accessRevoked) {
+    return CHECKOUT_BLOCKED_MESSAGE;
+  }
+
   return 'This account already has an active subscription. Manage it from your account page.';
 }
 
@@ -51,6 +59,13 @@ export default function SubscribePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState(false);
+
+  useEffect(() => {
+    apiFetch<MeDto>('/me')
+      .then((me) => setBlocked(Boolean(me.checkoutBlocked)))
+      .catch(() => setBlocked(false));
+  }, [apiFetch]);
 
   const checkout = async () => {
     setLoading(true);
@@ -107,13 +122,17 @@ export default function SubscribePage() {
         <aside className="surface-panel space-y-6 p-8">
           <h2 className="font-display text-4xl leading-none text-[var(--text)]">Monthly premium access</h2>
 
-          <button
-            className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={loading}
-            onClick={checkout}
-          >
-            {loading ? 'Starting checkout...' : 'Start subscription'}
-          </button>
+          {blocked ? (
+            <p className="text-sm leading-7 text-[var(--text-muted)]">{CHECKOUT_BLOCKED_MESSAGE}</p>
+          ) : (
+            <button
+              className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={loading}
+              onClick={checkout}
+            >
+              {loading ? 'Starting checkout...' : 'Start subscription'}
+            </button>
+          )}
 
           {error ? <p className="text-sm leading-7 text-[var(--danger)]">{error}</p> : null}
         </aside>
