@@ -134,6 +134,17 @@ export function needsAdminRevocation(
 }
 
 /**
+ * Whether a subscription joined an admin revocation rather than being withdrawn
+ * by it: it was created after the decision it carries, so the admin never saw it
+ * when they confirmed, and it is billing a member who cannot watch.
+ */
+export function joinedAdminRevocation(
+  subscription: AdminRevocationState & { createdAt: Date },
+): boolean {
+  return !!subscription.adminRevokedAt && subscription.adminRevokedAt < subscription.createdAt;
+}
+
+/**
  * Whether an admin revocation stands on any of a member's subscriptions, ended
  * ones included. That bars a new subscription until an admin restores them,
  * because paying again would undo the decision with no admin involved.

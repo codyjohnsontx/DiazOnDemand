@@ -648,8 +648,12 @@ Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
   charge genuinely carries no invoice link, and a **live** subscription carrying no `userId`
   metadata (one created in the Stripe dashboard or through a Payment Link). Those are processed,
   not rejected - they may be deliberate - but never silently.
-- The unmatched-subscription alert fires **exactly once per subscription**, on the first delivery
-  that shows it actually live. It waits for live rather than firing on creation because a card
+- A subscription that joins an admin revocation alerts too: a checkout left open before the admin
+  revoked the member can still complete, and the new subscription inherits the revocation, so
+  Stripe bills a member who stays locked out. Staff refund or cancel it in Stripe. Nothing does that
+  automatically, and a subscription the admin revoked directly does not alert.
+- Both of those subscription alerts fire **exactly once per subscription**, on the first delivery
+  that shows it actually live. They wait for live rather than firing on creation because a card
   needing 3D Secure starts `incomplete` and only turns `active` on a later update - money taken,
   nobody granted access. `StripeWebhookEvent.stripeSubscriptionId` is stamped on the delivery that
   raised the alert, which is what keeps renewals and the eventual cancellation quiet.

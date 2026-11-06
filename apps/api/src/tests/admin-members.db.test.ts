@@ -23,6 +23,7 @@ import { EntitlementTier as SharedEntitlementTier, Role } from '@diaz/shared';
 import type Stripe from 'stripe';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AdminMembersService } from '../admin/admin-members.service.js';
+import type { BillingAlerter } from '../billing/billing-alerter.js';
 import {
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
@@ -136,17 +137,18 @@ async function deliverSubscriptionEvent(
   subscription: { stripeSubscriptionId: string; stripeCustomerId: string },
   currentPeriodEnd: Date,
   type: Stripe.Event.Type = 'customer.subscription.updated',
+  delivery: { alerter?: BillingAlerter; eventId?: string; status?: string } = {},
 ) {
   sequence += 1;
-  await new WebhooksService(prisma).handleStripeEvent({
-    id: `evt_${PREFIX}${sequence}`,
+  await new WebhooksService(prisma, delivery.alerter).handleStripeEvent({
+    id: delivery.eventId ?? `evt_${PREFIX}${sequence}`,
     type,
     created: Math.floor(Date.now() / 1000) + sequence,
     data: {
       object: {
         id: subscription.stripeSubscriptionId,
         customer: subscription.stripeCustomerId,
-        status: 'active',
+        status: delivery.status ?? 'active',
         current_period_end: Math.floor(currentPeriodEnd.getTime() / 1000),
         cancel_at_period_end: false,
         metadata: { userId: member.id },
@@ -749,6 +751,108 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         reason: 'Revoked the wrong member',
       });
       expect(restored.hasAccess).toBe(true);
+    });
+
+    describe('a subscription that joins the revocation', () => {
+      const collectingAlerter = () => {
+        const alerts: string[] = [];
+        const alerter: BillingAlerter = {
+          async send(message) {
+            alerts.push(message);
+          },
+        };
+        return { alerts, alerter };
+      };
+
+      async function revokedWithLateSubscription() {
+        const admin = await createAdmin();
+        const { member, subscription } = await payingMember();
+        const revoked = await service.revokeAccess(admin, member.id, {
+          reason: 'Banned for conduct',
+        });
+        sequence += 1;
+        const late = {
+          stripeSubscriptionId: `sub_${PREFIX}${sequence}`,
+          stripeCustomerId: subscription.stripeCustomerId,
+        };
+        return { admin, member, subscription, revoked, late };
+      }
+
+      it('tells staff once and leaves the revocation as it was', async () => {
+        const { member, revoked, late } = await revokedWithLateSubscription();
+        const { alerts, alerter } = collectingAlerter();
+        const eventId = `evt_${PREFIX}joined-${sequence}`;
+        const created = 'customer.subscription.created';
+
+        await deliverSubscriptionEvent(member, late, stripeDate(30), created, { alerter, eventId });
+        await deliverSubscriptionEvent(member, late, stripeDate(30), created, { alerter, eventId });
+        await deliverSubscriptionEvent(member, late, stripeDate(60), undefined, { alerter });
+
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0]).toContain(late.stripeSubscriptionId);
+        expect(alerts[0]).toContain('live paid subscription');
+        expect(alerts[0]).toContain('Refund or cancel');
+        expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+        const row = await prismaClient!.subscription.findUnique({
+          where: { stripeSubscriptionId: late.stripeSubscriptionId },
+        });
+        expect(row?.status).toBe('active');
+        expect(row?.adminRevokedAt?.toISOString()).toBe(revoked.subscriptions[0]?.adminRevokedAt);
+      });
+
+      it('waits for a card that needs 3D Secure to actually go live', async () => {
+        const { member, late } = await revokedWithLateSubscription();
+        const { alerts, alerter } = collectingAlerter();
+
+        await deliverSubscriptionEvent(
+          member,
+          late,
+          stripeDate(30),
+          'customer.subscription.created',
+          { alerter, status: 'incomplete' },
+        );
+        expect(alerts).toHaveLength(0);
+
+        await deliverSubscriptionEvent(member, late, stripeDate(30), undefined, { alerter });
+        expect(alerts).toHaveLength(1);
+      });
+
+      it('still tells staff when the delivery that created the row is retried', async () => {
+        const { member, late } = await revokedWithLateSubscription();
+        const { alerts, alerter } = collectingAlerter();
+        let channelDown = true;
+        const flaky: BillingAlerter = {
+          async send(message) {
+            if (channelDown) {
+              throw new Error('alert channel down');
+            }
+            await alerter.send(message);
+          },
+        };
+        const delivery = { alerter: flaky, eventId: `evt_${PREFIX}retried-${sequence}` };
+        const created = 'customer.subscription.created';
+
+        await expect(
+          deliverSubscriptionEvent(member, late, stripeDate(30), created, delivery),
+        ).rejects.toThrow('alert channel down');
+
+        channelDown = false;
+        await deliverSubscriptionEvent(member, late, stripeDate(30), created, delivery);
+
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0]).toContain('live paid subscription');
+      });
+
+      it('stays quiet on a subscription the admin withdrew themselves', async () => {
+        const { member, subscription } = await revokedWithLateSubscription();
+        const { alerts, alerter } = collectingAlerter();
+
+        await deliverSubscriptionEvent(member, subscription, stripeDate(50), undefined, {
+          alerter,
+        });
+
+        expect(alerts).toHaveLength(0);
+      });
     });
 
     it('can be undone from the same screen, and records that too', async () => {

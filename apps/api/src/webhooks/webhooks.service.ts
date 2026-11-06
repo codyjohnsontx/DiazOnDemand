@@ -13,6 +13,7 @@ import {
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
   type RevokeReason,
+  joinedAdminRevocation,
   planDisputeWonRelease,
   planRevocation,
   releasesRevocation,
@@ -174,9 +175,9 @@ export class WebhooksService {
   }
 
   /**
-   * Returns the Stripe subscription id this delivery raised the unmatched
-   * -subscription alert for, so the event record can carry it and the next
-   * delivery for the same subscription stays quiet.
+   * Returns the Stripe subscription id this delivery raised an alert for, so the
+   * event record can carry it and the next delivery for the same subscription
+   * stays quiet.
    */
   private async applyStripeEvent(
     event: Stripe.Event,
@@ -232,7 +233,12 @@ export class WebhooksService {
       // receiving nothing.
       this.logger.warn(`Subscription ${sub.id} missing userId metadata`);
 
-      return this.alertUnmatchedSubscription(sub);
+      return this.alertOnceLive(
+        sub,
+        `Stripe subscription ${sub.id} is live (${sub.status}) but carries no userId metadata, so ` +
+          `it could not be matched to a member - somebody is paying and NOBODY has been granted ` +
+          `access. Grant it by hand today and check how the subscription was created.`,
+      );
     }
 
     const existing = await this.prisma.client.subscription.findUnique({
@@ -282,7 +288,7 @@ export class WebhooksService {
 
     // Upsert by the Stripe subscription id: a member can hold several rows over
     // time (cancel then resubscribe) and, briefly, at the same time.
-    await this.prisma.client.subscription.upsert({
+    const row = await this.prisma.client.subscription.upsert({
       where: { stripeSubscriptionId: sub.id },
       update: released ? { ...fields, revokedAt: null, revokedReason: null } : fields,
       create: {
@@ -295,6 +301,15 @@ export class WebhooksService {
     await this.syncEntitlementFromSubscriptions(userId);
 
     this.logger.log(`Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}`);
+
+    if (joinedAdminRevocation(row)) {
+      return this.alertOnceLive(
+        sub,
+        `Stripe subscription ${sub.id} is live (${sub.status}) but an admin revoked this member, ` +
+          `so a revoked member has a live paid subscription and it grants them nothing. Refund or ` +
+          `cancel it in Stripe. The member is on the admin members screen (/admin/members).`,
+      );
+    }
 
     return null;
   }
@@ -311,7 +326,7 @@ export class WebhooksService {
    * the subscription id, so renewals and the eventual cancellation stay quiet -
    * a channel that cries wolf monthly is one nobody reads.
    */
-  private async alertUnmatchedSubscription(sub: Stripe.Subscription): Promise<string | null> {
+  private async alertOnceLive(sub: Stripe.Subscription, message: string): Promise<string | null> {
     if (!isLiveStripeSubscription({ status: sub.status, revokedAt: null })) {
       return null;
     }
@@ -325,11 +340,7 @@ export class WebhooksService {
       return null;
     }
 
-    await this.alerter.send(
-      `Stripe subscription ${sub.id} is live (${sub.status}) but carries no userId metadata, so ` +
-        `it could not be matched to a member - somebody is paying and NOBODY has been granted ` +
-        `access. Grant it by hand today and check how the subscription was created.`,
-    );
+    await this.alerter.send(message);
 
     return sub.id;
   }
