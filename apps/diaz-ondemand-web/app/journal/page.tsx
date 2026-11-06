@@ -59,9 +59,10 @@ export default function JournalPage() {
       await load();
       return true;
     } catch (requestError) {
-      // Access can end while the form is open. Reloading swaps it for the subscribe path.
+      // Access can end while a form is open. This swaps it for the subscribe path.
       if (requestError instanceof ApiError && requestError.status === 402) {
-        await load();
+        setOverview((current) => current && { ...current, canWrite: false });
+        return false;
       }
 
       setError('Your entry could not be saved. Try again.');
@@ -158,7 +159,7 @@ export default function JournalPage() {
               <h2 className="type-title-lg text-[var(--text)]">Your entries</h2>
               {showForm ? null : errorMessage}
               {overview.entries.map((entry) =>
-                editingId === entry.id ? (
+                showForm && editingId === entry.id ? (
                   <div className="surface-panel-muted space-y-5 p-5" key={entry.id}>
                     <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
                       Edit entry
