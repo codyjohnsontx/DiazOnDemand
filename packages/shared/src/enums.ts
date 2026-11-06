@@ -25,3 +25,8 @@ export enum EntitlementTier {
   FREE = 'FREE',
   PREMIUM = 'PREMIUM',
 }
+
+export enum JournalOutcome {
+  WORKED = 'WORKED',
+  DID_NOT_WORK = 'DID_NOT_WORK',
+}

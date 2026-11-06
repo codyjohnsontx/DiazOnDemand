@@ -396,6 +396,29 @@ lesson, and the entitled payload carried a signed url for the paid one whose uns
 answers 403. A deliberately invalid file produced `video.asset.errored` and the Upload failed
 state with Mux's message. Webhook _transport_ was simulated for that run - see "Video Notes".
 
+### Member Journal
+
+Premium members log a session at `/journal`: a date, a discipline, the curriculum tracks they
+worked on, each marked worked or didn't work, and an optional note. It is web only. Tags are track
+ids from `packages/shared/src/curriculum.ts`, validated against that catalog on every write.
+
+- **Writing** (`POST /journal`, `PATCH /journal/:id`) needs the signed-in user's resolved premium
+  tier, the same value that gates a paid lesson, plus the one-time 18+ confirmation
+  (`POST /journal/adult-confirmation`). Without premium the API answers 402, without the
+  confirmation 403. A member who loses premium keeps their entries.
+- **Reading and deleting** (`GET /journal`, `DELETE /journal/:id`) need neither. A delete is
+  permanent, for staff too. Entries cascade from `User`, but nothing in the app deletes a `User`
+  row yet, so that cascade is what happens when one is removed by hand.
+- **Staff** use `/admin/journal`, linked only from `/admin/programs` for coaches and admins. It reads
+  `GET /admin/journal/trends`, `/admin/journal/members` and `/admin/journal/members/:id`, behind
+  the same guards and roles as the admin controller, and left out of the Swagger document. Trends
+  shows an item once `JOURNAL_TRENDS_MIN_MEMBERS` distinct members tagged it in the selected
+  range; the member view has no threshold. Member names come from Clerk when `CLERK_SECRET_KEY` is
+  set, and fall back to the Clerk id when the lookup fails.
+
+The journal screens must not call it private or suggest that it is. `/privacy` is where staff
+access is disclosed.
+
 ### Clerk Setup Notes (Web + Expo)
 
 - `DEV_BYPASS_AUTH=true` authenticates a request carrying **no credentials at all** as the
@@ -1409,7 +1432,7 @@ is still signed in, and the guard that refuses a second revoke while one is in f
 them needs a simulator, an emulator or a device. Run the suite alone with
 `pnpm --filter mobile test`.
 
-Most of the API suite mocks Prisma. Two suites deliberately do not, because what they cover is
+Most of the API suite mocks Prisma. Three suites deliberately do not, because what they cover is
 invisible to a mocked client:
 
 - `apps/api/src/tests/billing-lifecycle.db.test.ts` - the resubscribe and double-subscription
@@ -1425,8 +1448,11 @@ invisible to a mocked client:
   overtakes the binding, and a replacement over a playing lesson - because the binding sets MUX on
   a row that may have been NONE and the replacement clears a playback id in the same write that
   sets the asset id. `mux-direct-upload.test.ts` is the mocked half: what the API asks Mux for.
+- `apps/api/src/tests/journal.db.test.ts` - the Trends threshold is a distinct-member count in raw
+  SQL, and a member's delete reaching the staff views or an account removal reaching the journal
+  are cascades.
 
-Both run the real services against a real Postgres, and both have the same contract: they
+All three run the real services against a real Postgres, and all three have the same contract: they
 **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
 around - except on CI, where a missing `TEST_DATABASE_URL` fails the run rather than silently
 dropping the coverage. CI provides a Postgres service container.
