@@ -1455,10 +1455,10 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 
 `pnpm test` runs everything: vitest in `apps/api`, `packages/shared` and `apps/diaz-ondemand-web`,
 and Jest with the `jest-expo` preset in `apps/mobile`, because vitest does not carry React Native's
-transform. The remaining workspaces still have no runner at all. The web suite covers only
-`middleware.ts`: with the coming-soon wall on, every path but `/` must redirect there rather than
-answer 500, which it did while the redirect was a `Response.redirect` whose headers Clerk could
-not append to. The mobile suite is deliberately small, six
+transform. The remaining workspaces still have no runner at all. The web suite covers
+`lib/member-access.ts` and `middleware.ts`, and no pages. For `middleware.ts`: with the coming-soon
+wall on, every path but `/` must redirect there rather than answer 500, which it did while the
+redirect was a `Response.redirect` whose headers Clerk could not append to. The mobile suite is deliberately small, six
 tests, every one of them from the sign-in entry in "Security Invariants": an unknown address
 reaching the same screen a member reaches, the one deliberate asymmetry for a failure the
 provider never answered, the regression path the enumeration defect came back through, the code
