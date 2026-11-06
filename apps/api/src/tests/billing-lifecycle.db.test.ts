@@ -55,6 +55,7 @@ function nextEventTime() {
 }
 
 const DAY = 24 * 60 * 60;
+const EVENT_PREFIX = 'evt_billing-test-';
 
 function subscriptionEvent(
   type:
@@ -73,7 +74,7 @@ function subscriptionEvent(
   },
 ): Stripe.Event {
   return {
-    id: `evt_${type}_${options.subscriptionId}_${options.created ?? eventClock}`,
+    id: `${EVENT_PREFIX}${type}_${options.subscriptionId}_${options.created ?? eventClock}`,
     type,
     created: options.created ?? nextEventTime(),
     data: {
@@ -127,7 +128,7 @@ function chargeEvent(
       : { id: 'dp_test', charge, status: options.disputeStatus ?? 'lost' };
 
   return {
-    id: `evt_${type}_${options.created ?? eventClock}`,
+    id: `${EVENT_PREFIX}${type}_${options.created ?? eventClock}`,
     type,
     created: options.created ?? nextEventTime(),
     data: { object },
@@ -255,7 +256,9 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
   });
 
   afterEach(async () => {
-    await prismaClient!.stripeWebhookEvent.deleteMany({});
+    await prismaClient!.stripeWebhookEvent.deleteMany({
+      where: { id: { startsWith: EVENT_PREFIX } },
+    });
     await prismaClient!.user.deleteMany({
       where: { clerkUserId: { startsWith: 'billing-test-' } },
     });
@@ -1556,7 +1559,9 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
     const members = new AdminMembersService(prisma);
 
     afterEach(async () => {
-      await prismaClient!.stripeWebhookEvent.deleteMany({});
+      await prismaClient!.stripeWebhookEvent.deleteMany({
+        where: { id: { startsWith: EVENT_PREFIX } },
+      });
     });
 
     async function adminRevokedMember(name: string) {
@@ -1969,7 +1974,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       ).not.toBeNull();
 
       await new WebhooksService(prisma).handleStripeEvent({
-        id: 'evt_checkout_completed',
+        id: `${EVENT_PREFIX}checkout_completed`,
         type: 'checkout.session.completed',
         created: nextEventTime(),
         data: { object: { id: 'cs_release', object: 'checkout.session' } },
@@ -1991,7 +1996,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       await service.createCheckoutSession('billing-test-reservation-expiry-event');
 
       await new WebhooksService(prisma).handleStripeEvent({
-        id: 'evt_checkout_expired',
+        id: `${EVENT_PREFIX}checkout_expired`,
         type: 'checkout.session.expired',
         created: nextEventTime(),
         data: { object: { id: 'cs_expired', object: 'checkout.session' } },
