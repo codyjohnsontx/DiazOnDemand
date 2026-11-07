@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EntitlementTier, Role } from '@diaz/db';
-import { CHECKOUT_CONFLICT_CODES } from '@diaz/shared';
+import { CHECKOUT_BLOCKED_MESSAGE, CHECKOUT_CONFLICT_CODES } from '@diaz/shared';
 import Stripe from 'stripe';
 import { isLiveStripeSubscription } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -18,6 +18,7 @@ import {
   releaseCheckout,
   reserveCheckout,
 } from './checkout-reservation.js';
+import { hasAdminRevocation } from './subscription-revocation.js';
 
 @Injectable()
 export class BillingService {
@@ -48,6 +49,14 @@ export class BillingService {
       where: { userId: user.id },
       orderBy: { updatedAt: 'desc' },
     });
+
+    if (hasAdminRevocation(subscriptions)) {
+      this.logger.warn('Refused checkout for a member whose access an admin revoked');
+      throw new ConflictException({
+        code: CHECKOUT_CONFLICT_CODES.accessRevoked,
+        message: CHECKOUT_BLOCKED_MESSAGE,
+      });
+    }
 
     // Nothing in Stripe stops the same person subscribing twice, so the refusal
     // has to happen here. Two live subscriptions means two charges a month.

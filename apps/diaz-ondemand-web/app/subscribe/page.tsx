@@ -1,15 +1,21 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import type { CheckoutSessionDto } from '@diaz/shared';
-import { CHECKOUT_CONFLICT_CODES, checkoutConflictSchema } from '@diaz/shared';
+import { useEffect, useState } from 'react';
+import type { CheckoutSessionDto, MeDto } from '@diaz/shared';
+import {
+  CHECKOUT_BLOCKED_MESSAGE,
+  CHECKOUT_CONFLICT_CODES,
+  checkoutConflictSchema,
+} from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { useAuthToken } from '@/components/auth-provider';
 import { PageHeader } from '@/components/page-header';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 import { clerkEnabled } from '@/lib/config';
+import { offerAfterAccessRevoked, premiumOffer, type PremiumOffer } from '@/lib/member-access';
 
 /**
  * Reads the shared 409 contract rather than trusting whatever `code` the body
@@ -27,7 +33,7 @@ function checkoutConflictCode(detail: string) {
 }
 
 /**
- * Checkout refuses with 409 for two different reasons, and they need different
+ * Checkout refuses with 409 for different reasons, and they need different
  * words: telling a member who double-clicked that they already subscribe sends
  * them to an account page with nothing on it.
  */
@@ -51,6 +57,13 @@ export default function SubscribePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [offer, setOffer] = useState<PremiumOffer>('checkout');
+
+  useEffect(() => {
+    apiFetch<MeDto>('/me')
+      .then((me) => setOffer(premiumOffer(me)))
+      .catch(() => setOffer('checkout'));
+  }, [apiFetch]);
 
   const checkout = async () => {
     setLoading(true);
@@ -77,6 +90,17 @@ export default function SubscribePage() {
         setError('Stripe is not configured yet.');
       }
     } catch (checkoutError) {
+      // The page may have loaded before the revocation, so this is the first it
+      // hears of it, and the member may still have access another way.
+      if (
+        checkoutError instanceof ApiError &&
+        checkoutError.status === 409 &&
+        checkoutConflictCode(checkoutError.detail) === CHECKOUT_CONFLICT_CODES.accessRevoked
+      ) {
+        setOffer(await offerAfterAccessRevoked(() => apiFetch<MeDto>('/me')));
+        return;
+      }
+
       // Showing the raw error would invite a second attempt, and a second
       // attempt against a live subscription is a second charge.
       setError(checkoutErrorMessage(checkoutError));
@@ -109,13 +133,29 @@ export default function SubscribePage() {
             Monthly premium access
           </h2>
 
-          <button
-            className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={loading}
-            onClick={checkout}
-          >
-            {loading ? 'Starting checkout...' : 'Start subscription'}
-          </button>
+          {offer === 'blocked' ? (
+            <p className="text-sm leading-7 text-[var(--text-muted)]">{CHECKOUT_BLOCKED_MESSAGE}</p>
+          ) : offer === 'has-access' ? (
+            <>
+              <p className="text-sm leading-7 text-[var(--text-muted)]">
+                You already have premium access.
+              </p>
+              <Link
+                className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+                href="/library"
+              >
+                Open library
+              </Link>
+            </>
+          ) : (
+            <button
+              className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={loading}
+              onClick={checkout}
+            >
+              {loading ? 'Starting checkout...' : 'Start subscription'}
+            </button>
+          )}
 
           {error ? <p className="text-sm leading-7 text-[var(--danger)]">{error}</p> : null}
         </aside>

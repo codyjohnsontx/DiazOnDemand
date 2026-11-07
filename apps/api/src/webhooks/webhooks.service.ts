@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { EntitlementSource, StripeWebhookEventStatus, VideoProvider } from '@diaz/db';
+import { StripeWebhookEventStatus, VideoProvider } from '@diaz/db';
 import { isStoredIdentifierAbsent } from '@diaz/shared';
 import Stripe from 'stripe';
 import {
@@ -13,15 +13,13 @@ import {
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
   type RevokeReason,
+  joinedAdminRevocation,
   planDisputeWonRelease,
   planRevocation,
   releasesRevocation,
 } from '../billing/subscription-revocation.js';
-import {
-  isEntitlementActive,
-  isLiveStripeSubscription,
-  resolveStripeEntitlement,
-} from '../common/entitlement.js';
+import { syncEntitlementFromSubscriptions } from '../billing/entitlement-sync.js';
+import { isLiveStripeSubscription } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const MUX_SIGNATURE_TOLERANCE_SECONDS = 300;
@@ -177,9 +175,9 @@ export class WebhooksService {
   }
 
   /**
-   * Returns the Stripe subscription id this delivery raised the unmatched
-   * -subscription alert for, so the event record can carry it and the next
-   * delivery for the same subscription stays quiet.
+   * Returns the Stripe subscription id this delivery raised an alert for, so the
+   * event record can carry it and the next delivery for the same subscription
+   * stays quiet.
    */
   private async applyStripeEvent(
     event: Stripe.Event,
@@ -235,7 +233,12 @@ export class WebhooksService {
       // receiving nothing.
       this.logger.warn(`Subscription ${sub.id} missing userId metadata`);
 
-      return this.alertUnmatchedSubscription(sub);
+      return this.alertOnceLive(
+        sub,
+        `Stripe subscription ${sub.id} is live (${sub.status}) but carries no userId metadata, so ` +
+          `it could not be matched to a member - somebody is paying and NOBODY has been granted ` +
+          `access. Grant it by hand today and check how the subscription was created.`,
+      );
     }
 
     const existing = await this.prisma.client.subscription.findUnique({
@@ -276,17 +279,37 @@ export class WebhooksService {
         stripeCreatedAt,
       });
 
+    // Checkout refuses a member an admin revoked, but one left open before that
+    // can still complete. The new row joins the revocation, or paying would undo it.
+    const siblings = existing
+      ? []
+      : await this.prisma.client.subscription.findMany({ where: { userId } });
+    const adminRevokedAt = siblings.find((row) => row.adminRevokedAt)?.adminRevokedAt;
+
     // Upsert by the Stripe subscription id: a member can hold several rows over
     // time (cancel then resubscribe) and, briefly, at the same time.
-    await this.prisma.client.subscription.upsert({
+    const row = await this.prisma.client.subscription.upsert({
       where: { stripeSubscriptionId: sub.id },
       update: released ? { ...fields, revokedAt: null, revokedReason: null } : fields,
-      create: { ...fields, stripeSubscriptionId: sub.id },
+      create: {
+        ...fields,
+        stripeSubscriptionId: sub.id,
+        ...(adminRevokedAt ? { adminRevokedAt } : {}),
+      },
     });
 
     await this.syncEntitlementFromSubscriptions(userId);
 
     this.logger.log(`Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}`);
+
+    if (joinedAdminRevocation(row)) {
+      return this.alertOnceLive(
+        sub,
+        `Stripe subscription ${sub.id} is live (${sub.status}) but an admin revoked this member, ` +
+          `so a revoked member has a live paid subscription and it grants them nothing. Refund or ` +
+          `cancel it in Stripe. The member is on the admin members screen (/admin/members).`,
+      );
+    }
 
     return null;
   }
@@ -303,7 +326,7 @@ export class WebhooksService {
    * the subscription id, so renewals and the eventual cancellation stay quiet -
    * a channel that cries wolf monthly is one nobody reads.
    */
-  private async alertUnmatchedSubscription(sub: Stripe.Subscription): Promise<string | null> {
+  private async alertOnceLive(sub: Stripe.Subscription, message: string): Promise<string | null> {
     if (!isLiveStripeSubscription({ status: sub.status, revokedAt: null })) {
       return null;
     }
@@ -317,11 +340,7 @@ export class WebhooksService {
       return null;
     }
 
-    await this.alerter.send(
-      `Stripe subscription ${sub.id} is live (${sub.status}) but carries no userId metadata, so ` +
-        `it could not be matched to a member - somebody is paying and NOBODY has been granted ` +
-        `access. Grant it by hand today and check how the subscription was created.`,
-    );
+    await this.alerter.send(message);
 
     return sub.id;
   }
@@ -351,7 +370,7 @@ export class WebhooksService {
       this.logger.warn(`Dispute ${dispute.id} could not be traced to a charge; access unchanged`);
       await this.alerter.send(
         `Chargeback ${dispute.id} could not be traced to a charge - the money went back but access ` +
-          `was NOT withdrawn. Revoke it by hand and check Stripe.`,
+          `was NOT withdrawn. Revoke it on the admin members screen (/admin/members) and check Stripe.`,
       );
       return;
     }
@@ -496,7 +515,7 @@ export class WebhooksService {
     const subscription = await this.findSubscriptionForCharge(
       charge,
       description,
-      'the money went back but access was NOT withdrawn. Revoke it by hand.',
+      'the money went back but access was NOT withdrawn. Revoke it on the admin members screen (/admin/members).',
     );
 
     if (!subscription) {
@@ -507,8 +526,8 @@ export class WebhooksService {
 
     if (!revocation) {
       this.logger.log(
-        `Subscription ${subscription.stripeSubscriptionId} is already revoked as a ` +
-          `${subscription.revokedReason}; nothing to do`,
+        `Subscription ${subscription.stripeSubscriptionId} is already revoked ` +
+          `(${subscription.revokedReason}); nothing to do`,
       );
       return;
     }
@@ -595,36 +614,18 @@ export class WebhooksService {
   }
 
   /**
-   * Rewrites the entitlement from the member's stored subscriptions. Always
-   * derived, never inferred from the event in hand.
+   * Rewrites the entitlement from the member's stored subscriptions - see
+   * `syncEntitlementFromSubscriptions` for the rule, including why a live
+   * manual grant is left alone.
    */
   private async syncEntitlementFromSubscriptions(userId: string) {
-    const existing = await this.prisma.client.entitlement.findUnique({ where: { userId } });
+    const outcome = await syncEntitlementFromSubscriptions(this.prisma.client, userId);
 
-    // A live manual grant is access Diaz collected for in person. Stripe is not
-    // the only way access is granted, and it must not silently overwrite the
-    // way that is not Stripe: a gym member paying cash would lose the month
-    // they already paid for the moment any subscription event touched them.
-    //
-    // Only a *live* manual grant is protected. A MANUAL row that is FREE, or a
-    // PREMIUM one that has expired, is not a grant anybody is relying on, so
-    // Stripe still writes those - including the FREE row created at checkout.
-    if (existing && existing.source === EntitlementSource.MANUAL && isEntitlementActive(existing)) {
+    if (outcome === 'kept-manual-grant') {
       this.logger.log(
         'Left a live manually granted entitlement in place rather than overwriting it from Stripe',
       );
-      return;
     }
-
-    const subscriptions = await this.prisma.client.subscription.findMany({ where: { userId } });
-    const { tier, validUntil } = resolveStripeEntitlement(subscriptions);
-    const fields = { tier, validUntil, source: EntitlementSource.STRIPE };
-
-    await this.prisma.client.entitlement.upsert({
-      where: { userId },
-      update: fields,
-      create: { userId, ...fields },
-    });
   }
 
   verifyMuxSignature(payload: Buffer, signature: string) {

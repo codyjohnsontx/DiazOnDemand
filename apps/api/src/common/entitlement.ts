@@ -23,6 +23,29 @@ export function isEntitlementActive(
   return entitlement.validUntil === null || entitlement.validUntil > now;
 }
 
+/**
+ * Whether a manual grant ending at `grantValidUntil` keeps a member covered for
+ * longer than `stripe`, the entitlement their subscriptions derive to.
+ *
+ * The one comparison behind both the webhook's sync and the admin grant, so
+ * neither can store a grant that lapses while Stripe is still paid for. A grant
+ * with no end date is forever. Stripe access with no end date is unknown rather
+ * than forever, but it lasts until a subscription event ends it, and that event
+ * re-derives the entitlement, so a dated grant does not outlast it. On a tie the
+ * paid access wins.
+ */
+export function manualGrantOutlastsStripe(
+  grantValidUntil: Date | null,
+  stripe: EntitlementLike,
+  now: Date = new Date(),
+): boolean {
+  if (grantValidUntil === null || !isEntitlementActive(stripe, now)) {
+    return true;
+  }
+
+  return stripe.validUntil !== null && grantValidUntil > stripe.validUntil;
+}
+
 export function resolveEntitlementTier(
   entitlement: EntitlementLike | null | undefined,
   now: Date = new Date(),
@@ -39,10 +62,17 @@ export const STRIPE_ACTIVE_STATUSES: ReadonlySet<string> = new Set([
   'past_due',
 ]);
 
+/** Stripe subscription statuses a subscription never leaves. */
+export const STRIPE_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+  'canceled',
+  'incomplete_expired',
+]);
+
 type SubscriptionLike = {
   status: string;
   currentPeriodEnd: Date | null;
   revokedAt: Date | null;
+  adminRevokedAt?: Date | null;
 };
 
 /**
@@ -55,8 +85,13 @@ type SubscriptionLike = {
 export function isLiveStripeSubscription(subscription: {
   status: string;
   revokedAt: Date | null;
+  adminRevokedAt?: Date | null;
 }): boolean {
-  return subscription.revokedAt === null && STRIPE_ACTIVE_STATUSES.has(subscription.status);
+  return (
+    subscription.revokedAt === null &&
+    !subscription.adminRevokedAt &&
+    STRIPE_ACTIVE_STATUSES.has(subscription.status)
+  );
 }
 
 /**

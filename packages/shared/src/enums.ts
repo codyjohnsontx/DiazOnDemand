@@ -25,3 +25,10 @@ export enum EntitlementTier {
   FREE = 'FREE',
   PREMIUM = 'PREMIUM',
 }
+
+/** What an admin did to a member's access from the admin members screen. */
+export enum MemberAccessAction {
+  GRANT = 'GRANT',
+  REVOKE = 'REVOKE',
+  RESTORE = 'RESTORE',
+}

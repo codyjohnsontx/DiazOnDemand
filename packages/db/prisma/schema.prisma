@@ -43,6 +43,13 @@ enum EntitlementSource {
   STRIPE
 }
 
+/// What an admin did to a member's access from the admin members screen.
+enum MemberAccessAction {
+  GRANT
+  REVOKE
+  RESTORE
+}
+
 enum StripeWebhookEventStatus {
   PROCESSED
   FAILED
@@ -58,6 +65,8 @@ model User {
   subscriptions       Subscription[]
   entitlement         Entitlement?
   checkoutReservation CheckoutReservation?
+  accessAudit         MemberAccessAudit[]  @relation("MemberAccessAuditMember")
+  accessAuditActions  MemberAccessAudit[]  @relation("MemberAccessAuditActor")
 }
 
 model Program {
@@ -175,6 +184,10 @@ model Subscription {
   /// `status`, which mirrors Stripe, so a later Stripe event cannot undo it.
   revokedAt            DateTime?
   revokedReason        String?
+  /// Set when an admin withdraws access. Kept apart from `revokedAt`, so a refund
+  /// or chargeback cannot overwrite it and a won dispute cannot clear it. Only an
+  /// admin restore does. `MemberAccessAudit` holds who did it and why.
+  adminRevokedAt       DateTime?
   /// `created` of the newest Stripe event applied to this row. Stripe does not
   /// guarantee delivery order, so an older event must not overwrite a newer one.
   lastEventAt          DateTime?
@@ -233,14 +246,45 @@ model StripeWebhookEvent {
   stripeCreatedAt      DateTime
   error                String?
   attempts             Int                      @default(1)
-  /// Set only on the delivery that raised the "subscription matches no member"
-  /// alert, and only for that subscription. That is what makes the alert fire
-  /// exactly once per subscription instead of on every renewal, while still
-  /// firing when a subscription starts `incomplete` and goes live later.
+  /// Set only on the delivery that raised the alert for a paying subscription
+  /// nobody got access from: one matching no member, or one that joined an admin
+  /// revocation. That is what makes the alert fire exactly once per subscription
+  /// instead of on every renewal, while still firing when a subscription starts
+  /// `incomplete` and goes live later.
   stripeSubscriptionId String?
   receivedAt           DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
 
   @@index([status, receivedAt])
   @@index([stripeSubscriptionId])
+}
+
+/// Who changed a member's access from the admin members screen, what they did,
+/// why, and when. Append-only: nothing in the API updates or deletes a row.
+///
+/// The before and after values are the stored entitlement around the change, so
+/// a row says what the member could watch on either side of it without having
+/// to replay the history.
+model MemberAccessAudit {
+  id                   String             @id @default(uuid())
+  memberId             String
+  /// Null once the acting admin's own account is deleted, so their history does
+  /// not vanish with them; `actorClerkUserId` still says who it was.
+  actorId              String?
+  actorClerkUserId     String
+  action               MemberAccessAction
+  reason               String?
+  tierBefore           EntitlementTier
+  validUntilBefore     DateTime?
+  tierAfter            EntitlementTier
+  validUntilAfter      DateTime?
+  /// The subscription a REVOKE withdrew or a RESTORE cleared. Null on a REVOKE
+  /// that only ended a manual grant, and on a GRANT.
+  stripeSubscriptionId String?
+  createdAt            DateTime           @default(now())
+  member               User               @relation("MemberAccessAuditMember", fields: [memberId], references: [id], onDelete: Cascade)
+  actor                User?              @relation("MemberAccessAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([memberId, createdAt])
+  @@index([actorId])
 }

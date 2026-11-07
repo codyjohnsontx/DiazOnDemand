@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { MeDto } from '@diaz/shared';
+import { CHECKOUT_BLOCKED_MESSAGE, type MeDto } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { ManageBillingButton } from '@/components/manage-billing-button';
@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/page-header';
 import { SignOutControl } from '@/components/sign-out-control';
 import { apiFetchServer } from '@/lib/api-server';
 import { clerkEnabled } from '@/lib/config';
+import { premiumOffer } from '@/lib/member-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,21 +59,29 @@ export default async function AccountPage() {
             </div>
           ) : null}
 
-          <div className={ROW_CLASSES}>
-            <div className="min-w-0 flex-1 space-y-1">
-              <h2 className="font-display text-2xl leading-none text-[var(--text)]">
-                {me.entitlementTier === 'PREMIUM' ? 'Keep training' : 'Go premium'}
-              </h2>
+          {premiumOffer(me) === 'blocked' ? (
+            <div className={ROW_CLASSES}>
+              <p className="text-sm leading-7 text-[var(--text-muted)]">
+                {CHECKOUT_BLOCKED_MESSAGE}
+              </p>
             </div>
-            <div className="flex shrink-0 items-center gap-4">
-              <Link
-                className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-                href={me.entitlementTier === 'PREMIUM' ? '/library' : '/subscribe'}
-              >
-                {me.entitlementTier === 'PREMIUM' ? 'Open library' : 'View premium'}
-              </Link>
+          ) : (
+            <div className={ROW_CLASSES}>
+              <div className="min-w-0 flex-1 space-y-1">
+                <h2 className="font-display text-2xl leading-none text-[var(--text)]">
+                  {me.entitlementTier === 'PREMIUM' ? 'Keep training' : 'Go premium'}
+                </h2>
+              </div>
+              <div className="flex shrink-0 items-center gap-4">
+                <Link
+                  className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+                  href={me.entitlementTier === 'PREMIUM' ? '/library' : '/subscribe'}
+                >
+                  {me.entitlementTier === 'PREMIUM' ? 'Open library' : 'View premium'}
+                </Link>
+              </div>
             </div>
-          </div>
+          )}
 
           {clerkEnabled ? (
             <div className={ROW_CLASSES}>

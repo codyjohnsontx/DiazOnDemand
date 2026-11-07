@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { curriculumMetadataSchema } from './curriculum.js';
-import { AccessLevel, Discipline, EntitlementTier, Role, VideoProvider } from './enums.js';
+import {
+  AccessLevel,
+  Discipline,
+  EntitlementTier,
+  MemberAccessAction,
+  Role,
+  VideoProvider,
+} from './enums.js';
 import { isStoredIdentifierAbsent } from './video-source.js';
 
 export const curriculumSchema = curriculumMetadataSchema;
@@ -282,6 +289,8 @@ export const meSchema = z.object({
   currentPeriodEnd: z.string().datetime().nullable().optional(),
   /** True when the member has a Stripe customer, so the billing portal can open. */
   canManageBilling: z.boolean().optional(),
+  /** True when an admin revocation stands, so checkout refuses the member. */
+  checkoutBlocked: z.boolean().optional(),
 });
 
 export const billingPortalSessionSchema = z.object({
@@ -300,7 +309,7 @@ export const checkoutSessionSchema = z.object({
 });
 
 /**
- * Why checkout answered 409. Both refusals share the status, so the client
+ * Why checkout answered 409. Every refusal shares the status, so the client
  * needs this to tell them apart: sending a member who merely double-clicked to
  * an account page that shows no subscription produces a support message rather
  * than a payment.
@@ -308,7 +317,12 @@ export const checkoutSessionSchema = z.object({
 export const CHECKOUT_CONFLICT_CODES = {
   subscriptionExists: 'subscription_exists',
   checkoutInFlight: 'checkout_in_flight',
+  accessRevoked: 'access_revoked',
 } as const;
+
+/** What a member with a standing admin revocation sees in place of checkout. */
+export const CHECKOUT_BLOCKED_MESSAGE =
+  'Premium is not available on this account. Please contact us.';
 
 export type CheckoutConflictCode =
   (typeof CHECKOUT_CONFLICT_CODES)[keyof typeof CHECKOUT_CONFLICT_CODES];
@@ -317,8 +331,114 @@ export const checkoutConflictSchema = z.object({
   code: z.enum([
     CHECKOUT_CONFLICT_CODES.subscriptionExists,
     CHECKOUT_CONFLICT_CODES.checkoutInFlight,
+    CHECKOUT_CONFLICT_CODES.accessRevoked,
   ]),
   message: z.string(),
+});
+
+/**
+ * The optional reason an admin gives for changing a member's access. Blank is
+ * stored as null, so the audit trail never shows an empty reason as if one had
+ * been given.
+ */
+const adminAccessReason = z
+  .string()
+  .trim()
+  .max(500)
+  .nullish()
+  .transform((reason) => (reason ? reason : null));
+
+/** `validUntil` null is a grant with no end date. */
+export const adminGrantMemberAccessSchema = z.object({
+  validUntil: z.string().datetime().nullable(),
+  reason: adminAccessReason,
+});
+
+export const adminRevokeMemberAccessSchema = z.object({
+  reason: adminAccessReason,
+});
+
+/** `subscriptionId` is the stored subscription row's id, not Stripe's. */
+export const adminRestoreMemberAccessSchema = z.object({
+  subscriptionId: z.string().min(1),
+  reason: adminAccessReason,
+});
+
+/**
+ * What a member can watch right now and, when it is nothing, why. Every
+ * no-access kind carries the date of the thing that took access away.
+ */
+export const memberAccessStatusSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('manual-grant'), validUntil: z.string().datetime().nullable() }),
+  z.object({ kind: z.literal('stripe'), validUntil: z.string().datetime().nullable() }),
+  z.object({ kind: z.literal('revoked'), reason: z.string(), at: z.string().datetime() }),
+  z.object({
+    kind: z.literal('admin-revoked'),
+    at: z.string().datetime(),
+    actorClerkUserId: z.string(),
+  }),
+  z.object({ kind: z.literal('expired'), at: z.string().datetime() }),
+  z.object({
+    kind: z.literal('subscription-inactive'),
+    status: z.string(),
+    at: z.string().datetime(),
+  }),
+  z.object({ kind: z.literal('never') }),
+]);
+
+export const adminMemberSummarySchema = z.object({
+  id: z.string(),
+  clerkUserId: z.string(),
+  role: z.nativeEnum(Role),
+  createdAt: z.string().datetime(),
+  hasAccess: z.boolean(),
+  access: memberAccessStatusSchema,
+});
+
+export const adminMemberSubscriptionSchema = z.object({
+  id: z.string(),
+  stripeSubscriptionId: z.string(),
+  stripeCustomerId: z.string(),
+  status: z.string(),
+  currentPeriodEnd: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+  revokedReason: z.string().nullable(),
+  /** When an admin withdrew access, apart from anything Stripe reported on the row. */
+  adminRevokedAt: z.string().datetime().nullable(),
+  /** A refund or admin revocation an admin can clear. */
+  restorable: z.boolean(),
+  /** Whether clearing it would give access back now, rather than only the record. */
+  restoreGivesAccess: z.boolean(),
+  /** Whether clearing it would leave checkout willing to take a new subscription. */
+  restoreOpensCheckout: z.boolean(),
+});
+
+export const adminMemberAuditEntrySchema = z.object({
+  id: z.string(),
+  action: z.nativeEnum(MemberAccessAction),
+  actorClerkUserId: z.string(),
+  reason: z.string().nullable(),
+  tierBefore: z.nativeEnum(EntitlementTier),
+  validUntilBefore: z.string().datetime().nullable(),
+  tierAfter: z.nativeEnum(EntitlementTier),
+  validUntilAfter: z.string().datetime().nullable(),
+  stripeSubscriptionId: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const adminMemberDetailSchema = adminMemberSummarySchema.extend({
+  /** A live manual grant or live Stripe access. */
+  canRevoke: z.boolean(),
+  /** What revoking would leave: access from Stripe, or none. Null when there is nothing to revoke. */
+  accessAfterRevoke: z
+    .object({ hasAccess: z.boolean(), validUntil: z.string().datetime().nullable() })
+    .nullable(),
+  /** Revoking would withdraw Stripe access, which the API refuses without a reason. */
+  revokeRequiresReason: z.boolean(),
+  /** What the subscriptions grant now, which a manual grant has to outlast. Null when nothing. */
+  stripeAccess: z.object({ validUntil: z.string().datetime().nullable() }).nullable(),
+  subscriptions: z.array(adminMemberSubscriptionSchema),
+  history: z.array(adminMemberAuditEntrySchema),
 });
 
 export type LessonSummary = z.infer<typeof lessonSummarySchema>;
@@ -344,3 +464,11 @@ export type EntitlementsResponse = z.infer<typeof entitlementsResponseSchema>;
 export type CheckoutSessionDto = z.infer<typeof checkoutSessionSchema>;
 export type CheckoutConflictDto = z.infer<typeof checkoutConflictSchema>;
 export type BillingPortalSessionDto = z.infer<typeof billingPortalSessionSchema>;
+export type AdminGrantMemberAccessDto = z.infer<typeof adminGrantMemberAccessSchema>;
+export type AdminRevokeMemberAccessDto = z.infer<typeof adminRevokeMemberAccessSchema>;
+export type AdminRestoreMemberAccessDto = z.infer<typeof adminRestoreMemberAccessSchema>;
+export type MemberAccessStatus = z.infer<typeof memberAccessStatusSchema>;
+export type AdminMemberSummary = z.infer<typeof adminMemberSummarySchema>;
+export type AdminMemberSubscription = z.infer<typeof adminMemberSubscriptionSchema>;
+export type AdminMemberAuditEntry = z.infer<typeof adminMemberAuditEntrySchema>;
+export type AdminMemberDetail = z.infer<typeof adminMemberDetailSchema>;
