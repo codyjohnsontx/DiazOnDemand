@@ -97,8 +97,8 @@ Auth (Clerk):
 - `CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 - `CLERK_JWT_ISSUER`
-- `CLERK_WEBHOOK_SIGNING_SECRET` (signing secret of the Clerk `user.deleted` webhook; not checked at
-  startup, and without it every delivery is rejected - see "Member Journal")
+- `CLERK_WEBHOOK_SIGNING_SECRET` (signing secret of the Clerk `user.deleted` webhook; optional
+  locally, **required on any deployment** - see "Member Journal")
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`
 
@@ -414,8 +414,9 @@ ids from `packages/shared/src/curriculum.ts`, validated against that catalog on 
   `POST /webhooks/clerk`, which verifies the Svix signature with `CLERK_WEBHOOK_SIGNING_SECRET`
   and deletes every entry and note for that Clerk id - and nothing else: the `User` row, billing,
   progress and the 18+ confirmation date stay. An id the API never saw, or a redelivery, deletes
-  nothing and answers 201, so Clerk stops retrying. The secret is not checked at startup; without
-  it every delivery answers 400 and shows as failing in the Clerk dashboard, and the journal stays.
+  nothing and answers 201, so Clerk stops retrying. The secret is required on any deployment, like
+  `MUX_WEBHOOK_SECRET`: without it every delivery would answer 400 and the journal would stay, so
+  the API exits at startup instead.
 - **Staff** use `/admin/journal`, linked only from `/admin/programs` for coaches and admins. It reads
   `GET /admin/journal/trends`, `/admin/journal/members` and `/admin/journal/members/:id`, behind
   the same guards and roles as the admin controller, and left out of the Swagger document. Trends
@@ -426,7 +427,9 @@ ids from `packages/shared/src/curriculum.ts`, validated against that catalog on 
 The journal screens must not call it private or suggest that it is. `/privacy` is where staff
 access is disclosed, and where the account-deletion promise above is made.
 
-One-time Clerk dashboard setup, per Clerk instance (development and production are separate):
+One-time Clerk dashboard setup, per Clerk instance (development and production are separate).
+Do it before the first API deploy that carries this endpoint, because that deploy exits at startup
+until `CLERK_WEBHOOK_SIGNING_SECRET` is set:
 
 1. Configure > Webhooks > Add Endpoint, URL `https://YOUR-API/webhooks/clerk`.
 2. Subscribe to `user.deleted` only.
@@ -962,8 +965,9 @@ Clerk unconfigured), that `/account`, `/favorites`, `/subscribe/success`, `/subs
   - The signing key pair `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE` - always,
     unconditionally, with no "is Mux enabled" condition attached.
   - `STRIPE_WEBHOOK_SECRET` - when Stripe is enabled (`STRIPE_SECRET_KEY` set).
+  - `CLERK_WEBHOOK_SIGNING_SECRET` - always. Without it a deleted account keeps its journal.
 
-  "Deployment" means the same thing for all four: `NODE_ENV=production` **or** a
+  "Deployment" means the same thing for all five: `NODE_ENV=production` **or** a
   `DATABASE_URL` that is not loopback. They ask one predicate, `isDeployment` in
   `apps/api/src/config/env.ts`, so they cannot disagree. `NODE_ENV` alone was never enough -
   `pnpm start` is the only thing in this repository that sets it, so a run started as
@@ -984,7 +988,7 @@ Clerk unconfigured), that `/account`, `/favorites`, `/subscribe/success`, `/subs
   construct the Stripe client from.
 
   This refusal is deliberate. The webhook and internal-API paths already fail closed at
-  request time - `verifyStripeSignature`/`verifyMuxSignature` throw when the secret is
+  request time - `verifyStripeSignature`/`verifyMuxSignature`/`verifyClerkSignature` throw when the secret is
   absent, and `GET /users/:clerkUserId/entitlements` rejects every caller when
   `DIAZ_INTERNAL_API_KEY` is unset. For those, booting without the value is not an
   exposure; it is a service that cannot do its job, silently, until someone notices.
@@ -1258,21 +1262,21 @@ Set these on the API project (Production, and Preview if you use it). The API **
 start** without the first group, and names the one it is missing in the build log - see the
 pre-deploy checklist above for why each exists.
 
-| Variable                                        | Notes                                                                                                   |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                  | The pooled URL from step 2.                                                                             |
-| `DIAZ_INTERNAL_API_KEY`                         | Required on any deployment.                                                                             |
-| `MUX_WEBHOOK_SECRET`                            | Required on any deployment. From the Mux webhook you create in step 6.                                  |
-| `MUX_SIGNING_KEY_ID`, `MUX_SIGNING_KEY_PRIVATE` | Required on any deployment, as a pair.                                                                  |
-| `STRIPE_WEBHOOK_SECRET`                         | Required whenever `STRIPE_SECRET_KEY` is set, which it is.                                              |
-| `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER`          | Required whenever `DEV_BYPASS_AUTH` is false.                                                           |
-| `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_MONTHLY`  | Billing is live, so both.                                                                               |
-| `CORS_ORIGIN`                                   | See step 4.                                                                                             |
-| `WEB_APP_URL`                                   | Where Stripe checkout returns the member to.                                                            |
-| `VOD_COMING_SOON`                               | `true` on production until launch.                                                                      |
-| `DEV_BYPASS_AUTH`                               | `false`. It cannot be anything else against a non-loopback database.                                    |
-| `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`              | Only as a pair, or not at all.                                                                          |
-| `CLERK_WEBHOOK_SIGNING_SECRET`                  | Not checked at startup. From the Clerk webhook in step 6; without it a deleted account's journal stays. |
+| Variable                                        | Notes                                                                    |
+| ----------------------------------------------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL`                                  | The pooled URL from step 2.                                              |
+| `DIAZ_INTERNAL_API_KEY`                         | Required on any deployment.                                              |
+| `MUX_WEBHOOK_SECRET`                            | Required on any deployment. From the Mux webhook you create in step 6.   |
+| `MUX_SIGNING_KEY_ID`, `MUX_SIGNING_KEY_PRIVATE` | Required on any deployment, as a pair.                                   |
+| `STRIPE_WEBHOOK_SECRET`                         | Required whenever `STRIPE_SECRET_KEY` is set, which it is.               |
+| `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER`          | Required whenever `DEV_BYPASS_AUTH` is false.                            |
+| `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_MONTHLY`  | Billing is live, so both.                                                |
+| `CORS_ORIGIN`                                   | See step 4.                                                              |
+| `WEB_APP_URL`                                   | Where Stripe checkout returns the member to.                             |
+| `VOD_COMING_SOON`                               | `true` on production until launch.                                       |
+| `DEV_BYPASS_AUTH`                               | `false`. It cannot be anything else against a non-loopback database.     |
+| `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`              | Only as a pair, or not at all.                                           |
+| `CLERK_WEBHOOK_SIGNING_SECRET`                  | Required on any deployment. From the Clerk webhook you create in step 6. |
 
 Do not set `NODE_ENV`. Every deployment check keys on `isDeployment`, which is already true
 because `DATABASE_URL` is not loopback.
@@ -1310,9 +1314,9 @@ if you test against previews. The Expo app is not a browser and is unaffected.
   `user.deleted`. Copy the signing secret into `CLERK_WEBHOOK_SIGNING_SECRET` and redeploy. The
   steps and the test delivery are under "Member Journal" above.
 
-The Mux and Stripe secrets are read at request time, but the API refuses to boot without them, so
-set them before the first deploy or expect the first one to fail loudly. The Clerk one is not
-checked at startup, so confirm it with the test delivery.
+All three secrets are read at request time, but the API refuses to boot without them, so set them
+before the first deploy or expect the first one to fail loudly. Booting proves only that a Clerk
+secret is set, not that it belongs to the endpoint, so still confirm it with the test delivery.
 
 #### 7. After deploying, confirm it actually works
 
@@ -1396,7 +1400,7 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
   it reads it first.
 - Pooled connections behave as the table in step 2 says.
 - Startup validation survives the conversion: a missing `MUX_WEBHOOK_SECRET`,
-  `DIAZ_INTERNAL_API_KEY` or Mux signing key, or `DEV_BYPASS_AUTH=true` against a non-loopback
+  `CLERK_WEBHOOK_SIGNING_SECRET`, `DIAZ_INTERNAL_API_KEY` or Mux signing key, or `DEV_BYPASS_AUTH=true` against a non-loopback
   database, makes the module fail to load with the same named error, and no request is served.
 - `pnpm dev` and `pnpm start` are unchanged and still serve.
 - Swagger at `/docs` renders and `/docs-json` returns the spec.

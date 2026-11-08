@@ -230,6 +230,20 @@ const apiEnvSchema = z
       });
     }
 
+    // Unconditional on a deployment, like MUX_WEBHOOK_SECRET above: Clerk is the
+    // only way to sign in there, and verifyClerkSignature reads this variable
+    // directly. Without it every `user.deleted` delivery is rejected, so a deleted
+    // account's journal entries and notes stay readable to staff, against what
+    // /privacy promises.
+    if (isDeployment(value.NODE_ENV, value.DATABASE_URL) && !value.CLERK_WEBHOOK_SIGNING_SECRET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CLERK_WEBHOOK_SIGNING_SECRET'],
+        message:
+          'required on a deployment - a deployment being NODE_ENV=production, or a DATABASE_URL that is not loopback - because without it every Clerk user.deleted delivery is rejected and a deleted account keeps its journal entries and notes',
+      });
+    }
+
     if (
       (value.MUX_SIGNING_KEY_ID && !value.MUX_SIGNING_KEY_PRIVATE) ||
       (!value.MUX_SIGNING_KEY_ID && value.MUX_SIGNING_KEY_PRIVATE)
