@@ -25,6 +25,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const MUX_SIGNATURE_TOLERANCE_SECONDS = 300;
+const SVIX_SIGNATURE_TOLERANCE_SECONDS = 300;
 
 /** A checkout that is over, however it ended - the member's lock is released. */
 const CHECKOUT_RESOLVED_EVENT_TYPES = new Set([
@@ -63,6 +64,19 @@ type MuxWebhookEvent = {
     asset_id?: string;
     error?: { type?: string; message?: string };
   };
+};
+
+/** The Svix headers Clerk signs every delivery with. */
+export type SvixHeaders = {
+  id: string;
+  timestamp: string;
+  signature: string;
+};
+
+/** The fields this API reads off a Clerk event: `data` is the User for `user.*` events. */
+type ClerkWebhookEvent = {
+  type?: string;
+  data?: { id?: unknown };
 };
 
 @Injectable()
@@ -675,6 +689,76 @@ export class WebhooksService {
     ) {
       throw new Error('Mux webhook signature mismatch');
     }
+  }
+
+  /**
+   * Clerk delivers through Svix. The signed content is `<svix-id>.<svix-timestamp>.<body>`,
+   * keyed by the base64 secret after its `whsec_` prefix, and `svix-signature` is a
+   * space-separated list of `v1,<base64>` values, any one of which may match while
+   * a secret is being rotated.
+   */
+  verifyClerkSignature(payload: Buffer, { id, timestamp, signature }: SvixHeaders) {
+    const secret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;
+
+    if (!secret) {
+      this.logger.error('Clerk webhook called without CLERK_WEBHOOK_SIGNING_SECRET configured');
+      throw new Error('Clerk webhook not configured');
+    }
+
+    const timestampSeconds = Number(timestamp);
+
+    if (!Number.isFinite(timestampSeconds)) {
+      throw new Error('Malformed svix-timestamp header');
+    }
+
+    // Reject replays of a previously captured request.
+    if (Math.abs(Date.now() / 1000 - timestampSeconds) > SVIX_SIGNATURE_TOLERANCE_SECONDS) {
+      throw new Error('Clerk webhook timestamp outside of tolerance');
+    }
+
+    const expected = createHmac('sha256', Buffer.from(secret.replace(/^whsec_/, ''), 'base64'))
+      .update(`${id}.${timestamp}.`)
+      .update(payload)
+      .digest();
+    const matches = signature.split(' ').some((entry) => {
+      const separator = entry.indexOf(',');
+
+      if (separator < 0 || entry.slice(0, separator) !== 'v1') {
+        return false;
+      }
+
+      const received = Buffer.from(entry.slice(separator + 1), 'base64');
+      return received.length === expected.length && timingSafeEqual(received, expected);
+    });
+
+    if (!matches) {
+      throw new Error('Clerk webhook signature mismatch');
+    }
+  }
+
+  /**
+   * A deleted Clerk account takes its journal with it: every entry and note, and
+   * the items with them by cascade. Nothing else - the User row, billing and
+   * progress stay. An id this API never saw, or a redelivery, deletes nothing and
+   * still succeeds, so Clerk stops retrying. Every other event type is ignored.
+   */
+  async handleClerkWebhook(event: ClerkWebhookEvent) {
+    if (event?.type !== 'user.deleted') {
+      return;
+    }
+
+    const clerkUserId = event.data?.id;
+
+    if (typeof clerkUserId !== 'string' || !clerkUserId) {
+      this.logger.warn('Clerk user.deleted event carried no user id');
+      return;
+    }
+
+    const { count } = await this.prisma.client.journalEntry.deleteMany({
+      where: { user: { clerkUserId } },
+    });
+
+    this.logger.log(`Deleted ${count} journal entries for deleted Clerk user ${clerkUserId}`);
   }
 
   /**

@@ -3,7 +3,8 @@
  * because the things that matter here are invisible to a mocked client: the
  * Trends threshold is a distinct-member count in raw SQL, and a member's delete
  * reaching the staff views, or an account removal reaching the journal, are
- * cascades. See the header of billing-lifecycle.db.test.ts for the commands.
+ * cascades, and a Clerk account deletion must take that member's journal and
+ * nothing else. See the header of billing-lifecycle.db.test.ts for the commands.
  */
 import { randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
@@ -23,6 +24,7 @@ import type { AuthUser, RequestWithUser } from '../common/request-with-user.js';
 import { AdminJournalService } from '../journal/admin-journal.service.js';
 import { JournalService } from '../journal/journal.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import { WebhooksService } from '../webhooks/webhooks.service.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -265,5 +267,51 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
 
     expect(await prismaClient!.journalEntry.count({ where: { id: entry.id } })).toBe(0);
     expect(await prismaClient!.journalEntryItem.count({ where: { entryId: entry.id } })).toBe(0);
+  });
+
+  it("deletes only the deleted member's journal when Clerk deletes the account", async () => {
+    const webhooks = new WebhooksService(prisma);
+    const member = await createMember();
+    const other = await createMember();
+    const entries = [
+      await journal.create(member, entryFor(JournalOutcome.WORKED)),
+      await journal.create(member, entryFor(JournalOutcome.DID_NOT_WORK)),
+    ];
+    const kept = await journal.create(other, entryFor(JournalOutcome.DID_NOT_WORK));
+    const deleted = { type: 'user.deleted', data: { id: member.clerkUserId } };
+
+    await webhooks.handleClerkWebhook(deleted);
+
+    const entryIds = entries.map((entry) => entry.id);
+    expect(await prismaClient!.journalEntry.count({ where: { userId: member.id } })).toBe(0);
+    expect(
+      await prismaClient!.journalEntryItem.count({ where: { entryId: { in: entryIds } } }),
+    ).toBe(0);
+    expect(
+      await prismaClient!.user.findUnique({
+        where: { id: member.id },
+        select: { adultConfirmedAt: true, entitlement: { select: { tier: true } } },
+      }),
+    ).toMatchObject({
+      adultConfirmedAt: expect.any(Date),
+      entitlement: { tier: DbEntitlementTier.PREMIUM },
+    });
+    expect((await journal.overview(other)).entries.map((entry) => entry.id)).toEqual([kept.id]);
+
+    await expect(webhooks.handleClerkWebhook(deleted)).resolves.toBeUndefined();
+  });
+
+  it('deletes nothing for a deleted Clerk account this API never saw', async () => {
+    const member = await createMember();
+    const entry = await journal.create(member, entryFor(JournalOutcome.WORKED));
+
+    await expect(
+      new WebhooksService(prisma).handleClerkWebhook({
+        type: 'user.deleted',
+        data: { id: `user_unknown_${randomUUID()}` },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect((await journal.overview(member)).entries.map((row) => row.id)).toEqual([entry.id]);
   });
 });

@@ -25,7 +25,7 @@ const SECTIONS = [
     body: [
       'If you use the journal we store each entry: the date, the discipline, the curriculum items you marked, how each one went, and any note you wrote. We also store the date you confirmed you are 18 or older.',
       'Coaches and admins can read journal entries for coaching and curriculum.',
-      'You can edit or delete your own entries. A deleted entry is gone permanently, for staff too, and removing an account removes its journal.',
+      'You can edit or delete your own entries. A deleted entry is gone permanently, for staff too. Deleting your account permanently deletes your journal entries and notes.',
     ],
   },
 ];

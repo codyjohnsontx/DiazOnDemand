@@ -104,6 +104,7 @@ const apiEnvSchema = z
     DEFAULT_DEV_CLERK_USER_ID: z.string().default('dev_clerk_user'),
     CLERK_SECRET_KEY: z.string().optional(),
     CLERK_JWT_ISSUER: z.string().url().optional(),
+    CLERK_WEBHOOK_SIGNING_SECRET: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     STRIPE_PRICE_ID_MONTHLY: z.string().optional(),
