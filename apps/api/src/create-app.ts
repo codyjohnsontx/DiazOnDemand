@@ -48,6 +48,7 @@ export function useComingSoonWall(req: Request, res: Response, next: NextFunctio
     path === '/health' ||
     path === '/webhooks/stripe' ||
     path === '/webhooks/mux' ||
+    path === '/webhooks/clerk' ||
     isInternalEntitlements;
 
   if (isAllowed) {

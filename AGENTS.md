@@ -256,10 +256,11 @@ Communicate clearly.
 
 ## Billing and tests
 
-Most of the API suite mocks Prisma. Two suites in `apps/api/src/tests` deliberately do not,
+Most of the API suite mocks Prisma. Three suites in `apps/api/src/tests` deliberately do not,
 because what they cover is invisible to a mocked client: `billing-lifecycle.db.test.ts`, for the
-unique-constraint violations below, and `mux-ingestion.db.test.ts`, for the `Lesson` CHECK
-constraint. Both need `TEST_DATABASE_URL` pointing at a migrated Postgres, and skip without it
+unique-constraint violations below, `mux-ingestion.db.test.ts`, for the `Lesson` CHECK
+constraint, and `journal.db.test.ts`, for the Trends SQL and the cascades. All need
+`TEST_DATABASE_URL` pointing at a migrated Postgres, and skip without it
 (but fail the run on CI). See the Tests section of README.md for the exact commands.
 
 Two billing invariants that are easy to break by accident:
@@ -288,8 +289,10 @@ the reason it exists is stated with it.
 - Every startup requirement that is meant to hold on a server asks `isDeployment` in
   `apps/api/src/config/env.ts` - `NODE_ENV=production` *or* a non-loopback `DATABASE_URL` -
   never `NODE_ENV === 'production'` on its own. A deploy needs these set or the API exits
-  instead of starting: `DIAZ_INTERNAL_API_KEY`, `MUX_WEBHOOK_SECRET`, and the signing key
-  pair `MUX_SIGNING_KEY_ID` + `MUX_SIGNING_KEY_PRIVATE`, all unconditionally, plus
+  instead of starting: `DIAZ_INTERNAL_API_KEY`, `MUX_WEBHOOK_SECRET`,
+  `CLERK_WEBHOOK_SIGNING_SECRET` (without it a deleted account keeps its journal, against what
+  `/privacy` promises), and the signing key pair `MUX_SIGNING_KEY_ID` +
+  `MUX_SIGNING_KEY_PRIVATE`, all unconditionally, plus
   `STRIPE_WEBHOOK_SECRET` when `STRIPE_SECRET_KEY` is set. The refusal is deliberate - do
   not relax a check to get a deploy green, and do not reintroduce a `NODE_ENV` spelling.
   `pnpm start` setting `NODE_ENV=production` is no longer the only condition that makes any

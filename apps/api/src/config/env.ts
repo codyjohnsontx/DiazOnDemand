@@ -104,6 +104,7 @@ const apiEnvSchema = z
     DEFAULT_DEV_CLERK_USER_ID: z.string().default('dev_clerk_user'),
     CLERK_SECRET_KEY: z.string().optional(),
     CLERK_JWT_ISSUER: z.string().url().optional(),
+    CLERK_WEBHOOK_SIGNING_SECRET: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     STRIPE_PRICE_ID_MONTHLY: z.string().optional(),
@@ -226,6 +227,20 @@ const apiEnvSchema = z
         path: ['MUX_WEBHOOK_SECRET'],
         message:
           'required on a deployment - a deployment being NODE_ENV=production, or a DATABASE_URL that is not loopback - because without it every Mux webhook delivery is rejected, so no asset is ever ingested and the signed-only playback policy check never runs',
+      });
+    }
+
+    // Unconditional on a deployment, like MUX_WEBHOOK_SECRET above: Clerk is the
+    // only way to sign in there, and verifyClerkSignature reads this variable
+    // directly. Without it every `user.deleted` delivery is rejected, so a deleted
+    // account's journal entries and notes stay readable to staff, against what
+    // /privacy promises.
+    if (isDeployment(value.NODE_ENV, value.DATABASE_URL) && !value.CLERK_WEBHOOK_SIGNING_SECRET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CLERK_WEBHOOK_SIGNING_SECRET'],
+        message:
+          'required on a deployment - a deployment being NODE_ENV=production, or a DATABASE_URL that is not loopback - because without it every Clerk user.deleted delivery is rejected and a deleted account keeps its journal entries and notes',
       });
     }
 

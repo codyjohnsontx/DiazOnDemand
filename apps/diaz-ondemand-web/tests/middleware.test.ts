@@ -70,17 +70,21 @@ describe('coming-soon wall', () => {
 describe('signed-out visitors', () => {
   // Without a signInUrl, protect() sent page loads to Clerk's hosted Account
   // Portal on another domain instead of the app's own /sign-in page.
-  it.each(['/account', '/favorites', '/admin', '/subscribe/success', '/subscribe/cancel'])(
-    'sends a page load of %s to the in-app sign-in page with a return path',
-    async (path) => {
-      const res = await run('false', `${path}?tab=1`, PAGE_REQUEST);
+  it.each([
+    '/account',
+    '/favorites',
+    '/journal',
+    '/admin',
+    '/subscribe/success',
+    '/subscribe/cancel',
+  ])('sends a page load of %s to the in-app sign-in page with a return path', async (path) => {
+    const res = await run('false', `${path}?tab=1`, PAGE_REQUEST);
 
-      expect(res?.status).toBe(307);
-      const location = new URL(res?.headers.get('location') ?? '');
-      expect(location.origin + location.pathname).toBe('http://localhost:3000/sign-in');
-      expect(location.searchParams.get('redirect_url')).toBe(`http://localhost:3000${path}?tab=1`);
-    },
-  );
+    expect(res?.status).toBe(307);
+    const location = new URL(res?.headers.get('location') ?? '');
+    expect(location.origin + location.pathname).toBe('http://localhost:3000/sign-in');
+    expect(location.searchParams.get('redirect_url')).toBe(`http://localhost:3000${path}?tab=1`);
+  });
 
   it('answers 404 rather than an HTML redirect to a non-page request', async () => {
     const res = await run('false', '/account', {
@@ -96,7 +100,7 @@ describe('signed-out visitors', () => {
 
   // The sales page is where a prospective member arrives before they have an
   // account; checkout itself still needs one, and the page asks for it then.
-  it.each(['/subscribe', '/library', '/sign-in'])('lets %s through', async (path) => {
+  it.each(['/subscribe', '/library', '/sign-in', '/privacy'])('lets %s through', async (path) => {
     const res = await run('false', path, PAGE_REQUEST);
 
     expect(res?.status).toBe(200);

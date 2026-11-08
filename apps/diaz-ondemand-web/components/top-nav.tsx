@@ -10,6 +10,7 @@ import { ApiError } from '@/lib/api-shared';
 
 const links = [
   { href: '/library', label: 'Library' },
+  { href: '/journal', label: 'Journal' },
   { href: '/favorites', label: 'Favorites' },
   { href: '/subscribe', label: 'Premium' },
   { href: '/account', label: 'Account' },
@@ -99,7 +100,7 @@ export function TopNav() {
       </header>
       {/* Kept outside <header>: its backdrop-blur makes it the containing block for
           fixed descendants, which pinned this bar to the header instead of the viewport. */}
-      <nav className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-4 gap-2 rounded-[28px] border border-white/10 bg-[rgba(12,14,18,0.92)] p-2 shadow-[0_18px_48px_rgba(0,0,0,0.38)] md:hidden">
+      <nav className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-5 gap-1 rounded-[28px] border border-white/10 bg-[rgba(12,14,18,0.92)] p-2 shadow-[0_18px_48px_rgba(0,0,0,0.38)] md:hidden">
         {links.map((link) => {
           const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
 
@@ -107,7 +108,7 @@ export function TopNav() {
             <Link
               key={link.href}
               className={[
-                'rounded-[22px] px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
+                'rounded-[22px] py-3 text-center text-[9px] font-semibold uppercase tracking-[0.06em] transition-colors duration-200',
                 active
                   ? 'bg-[var(--accent)] text-[var(--text)]'
                   : 'bg-transparent text-[var(--text-muted)]',

@@ -48,16 +48,26 @@ enum StripeWebhookEventStatus {
   FAILED
 }
 
+/// How a curriculum item went in a journalled session.
+enum JournalOutcome {
+  WORKED
+  DID_NOT_WORK
+}
+
 model User {
   id                  String               @id @default(uuid())
   clerkUserId         String               @unique
   role                Role                 @default(STUDENT)
+  /// When the member confirmed they are 18 or older, which the journal requires
+  /// once. Null until then.
+  adultConfirmedAt    DateTime?
   createdAt           DateTime             @default(now())
   progress            Progress[]
   favorites           Favorite[]
   subscriptions       Subscription[]
   entitlement         Entitlement?
   checkoutReservation CheckoutReservation?
+  journalEntries      JournalEntry[]
 }
 
 model Program {
@@ -243,4 +253,35 @@ model StripeWebhookEvent {
 
   @@index([status, receivedAt])
   @@index([stripeSubscriptionId])
+}
+
+/// One training session a member journalled. A member has many, and a delete is
+/// a hard delete for everyone: there is no soft-delete column on purpose.
+model JournalEntry {
+  id          String             @id @default(uuid())
+  userId      String
+  /// The calendar day the member trained, not a moment in time.
+  sessionDate DateTime           @db.Date
+  discipline  Discipline
+  note        String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       JournalEntryItem[]
+
+  @@index([userId, sessionDate])
+  @@index([discipline, sessionDate])
+}
+
+/// One curriculum item tagged on a session, marked worked or didn't work.
+/// `track` is a track id from the catalog in packages/shared/src/curriculum.ts,
+/// validated against the entry's discipline on every write. Never free text.
+model JournalEntryItem {
+  entryId String
+  track   String
+  outcome JournalOutcome
+  entry   JournalEntry   @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@id([entryId, track])
+  @@index([track])
 }
