@@ -945,8 +945,8 @@ confirm the `@clerk/nextjs` peer range still admits the candidate (`pnpm install
 
 After changing the pin, re-verify what the bump could silently break: the route set and its
 static/dynamic classification, the middleware response matrix (coming-soon on, Clerk configured,
-Clerk unconfigured), that `/account`, `/favorites`, `/subscribe/success`, `/subscribe/cancel` and
-`/admin` still gate while everything else, `/subscribe` included, stays permitted, and that the Clerk catch-all check in
+Clerk unconfigured), that `/account`, `/favorites`, `/journal`, `/subscribe/success`,
+`/subscribe/cancel` and `/admin` still gate while everything else, `/subscribe` included, stays permitted, and that the Clerk catch-all check in
 [Clerk Setup Notes](#clerk-setup-notes-web--expo) still answers 200.
 
 ### Vercel Deployment Notes
