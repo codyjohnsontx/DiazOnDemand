@@ -1496,7 +1496,9 @@ invisible to a mocked client:
   sets the asset id. `mux-direct-upload.test.ts` is the mocked half: what the API asks Mux for.
 - `apps/api/src/tests/admin-members.db.test.ts` - an access change and its audit row have to commit
   together or not at all, and a refund restore has to land on what the webhook derives from the
-  stored rows. `member-access.test.ts` is the pure half.
+  stored rows. It also drives each admin-versus-webhook race on separate connections, because the
+  member access lock is a Postgres advisory lock that a mocked client cannot take.
+  `member-access.test.ts` is the pure half.
 
 All three run the real services against a real Postgres, and all three have the same contract: they
 **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
