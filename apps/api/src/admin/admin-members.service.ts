@@ -27,6 +27,7 @@ import {
 import type { AuthUser } from '../common/request-with-user.js';
 import { isEntitlementActive, resolveStripeEntitlement } from '../common/entitlement.js';
 import { syncEntitlementFromSubscriptions } from '../billing/entitlement-sync.js';
+import { withMemberAccessLock } from '../billing/member-access-lock.js';
 import {
   needsAdminRevocation,
   planAdminRevocation,
@@ -37,6 +38,7 @@ import {
   describeMemberAccess,
   hasLiveStripeAccess,
   isRestorable,
+  memberAccessVersion,
   planManualGrant,
   planManualRevoke,
   restoreGivesAccess,
@@ -45,6 +47,10 @@ import {
 
 /** How many members one search answers with. */
 const MEMBER_SEARCH_LIMIT = 50;
+
+export const STALE_CONFIRMATION_MESSAGE =
+  "This member's access changed after this page loaded, so nothing was changed. " +
+  'The page now shows their current access; check it and confirm again.';
 
 type MemberRow = User & {
   entitlement: Entitlement | null;
@@ -113,6 +119,7 @@ function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
 
   return {
     ...mapSummary(member, now),
+    accessVersion: memberAccessVersion(member, now),
     canRevoke: afterGrantRevoke !== null || stripeLive,
     accessAfterRevoke: afterGrantRevoke
       ? {
@@ -164,7 +171,9 @@ function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
  *
  * Every change is one transaction with its audit row, so access never changes
  * without a record of who changed it, and a record never describes a change
- * that did not happen.
+ * that did not happen. That transaction holds the member's access lock, which
+ * the Stripe webhook takes too, and refuses a change confirmed against a member
+ * whose access has moved since the admin loaded them.
  */
 @Injectable()
 export class AdminMembersService {
@@ -222,8 +231,8 @@ export class AdminMembersService {
     const now = new Date();
     const validUntil = payload.validUntil ? new Date(payload.validUntil) : null;
 
-    await this.prisma.client.$transaction(async (tx) => {
-      const member = await this.loadMember(tx, memberId);
+    await withMemberAccessLock(this.prisma.client, memberId, async (tx) => {
+      const member = await this.loadConfirmedMember(tx, memberId, payload.accessVersion, now);
       const plan = planManualGrant({ validUntil, subscriptions: member.subscriptions }, now);
 
       if (!plan.ok) {
@@ -251,8 +260,8 @@ export class AdminMembersService {
   async revokeAccess(actor: AuthUser, memberId: string, payload: AdminRevokeMemberAccessDto) {
     const now = new Date();
 
-    await this.prisma.client.$transaction(async (tx) => {
-      const member = await this.loadMember(tx, memberId);
+    await withMemberAccessLock(this.prisma.client, memberId, async (tx) => {
+      const member = await this.loadConfirmedMember(tx, memberId, payload.accessVersion, now);
       const fields = planManualRevoke(member.entitlement, member.subscriptions, now);
 
       if (fields) {
@@ -324,8 +333,10 @@ export class AdminMembersService {
    * all if it was also cancelled.
    */
   async restoreAccess(actor: AuthUser, memberId: string, payload: AdminRestoreMemberAccessDto) {
-    await this.prisma.client.$transaction(async (tx) => {
-      const member = await this.loadMember(tx, memberId);
+    const now = new Date();
+
+    await withMemberAccessLock(this.prisma.client, memberId, async (tx) => {
+      const member = await this.loadConfirmedMember(tx, memberId, payload.accessVersion, now);
       const subscription = member.subscriptions.find((row) => row.id === payload.subscriptionId);
 
       if (!subscription) {
@@ -361,6 +372,26 @@ export class AdminMembersService {
     });
 
     return this.getMember(memberId);
+  }
+
+  /**
+   * The member as they stand now, under the access lock, or a 409 when that is
+   * no longer what the admin confirmed against. Nothing is written on a refusal:
+   * the confirmation described an outcome the API can no longer promise.
+   */
+  private async loadConfirmedMember(
+    tx: Prisma.TransactionClient,
+    memberId: string,
+    accessVersion: string,
+    now: Date,
+  ): Promise<MemberRow> {
+    const member = await this.loadMember(tx, memberId);
+
+    if (memberAccessVersion(member, now) !== accessVersion) {
+      throw new ConflictException(STALE_CONFIRMATION_MESSAGE);
+    }
+
+    return member;
   }
 
   private async loadMember(

@@ -348,20 +348,29 @@ const adminAccessReason = z
   .nullish()
   .transform((reason) => (reason ? reason : null));
 
+/**
+ * The `accessVersion` of the member detail the admin confirmed against. The API
+ * refuses the change with a 409 when the member's access has changed since.
+ */
+const adminAccessVersion = z.string().min(1);
+
 /** `validUntil` null is a grant with no end date. */
 export const adminGrantMemberAccessSchema = z.object({
   validUntil: z.string().datetime().nullable(),
   reason: adminAccessReason,
+  accessVersion: adminAccessVersion,
 });
 
 export const adminRevokeMemberAccessSchema = z.object({
   reason: adminAccessReason,
+  accessVersion: adminAccessVersion,
 });
 
 /** `subscriptionId` is the stored subscription row's id, not Stripe's. */
 export const adminRestoreMemberAccessSchema = z.object({
   subscriptionId: z.string().min(1),
   reason: adminAccessReason,
+  accessVersion: adminAccessVersion,
 });
 
 /**
@@ -427,6 +436,8 @@ export const adminMemberAuditEntrySchema = z.object({
 });
 
 export const adminMemberDetailSchema = adminMemberSummarySchema.extend({
+  /** What every access change on this member sends back, so a stale confirmation is refused. */
+  accessVersion: z.string(),
   /** A live manual grant or live Stripe access. */
   canRevoke: z.boolean(),
   /** What revoking would leave: access from Stripe, or none. Null when there is nothing to revoke. */

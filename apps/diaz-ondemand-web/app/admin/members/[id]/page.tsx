@@ -78,8 +78,15 @@ function ConfirmedAction({
       await onConfirm(reason);
       setReason('');
       setConfirming(false);
-    } catch {
-      // The page reports the failure; keep the reason so a retry need not retype it.
+    } catch (error) {
+      // The page reports the failure. A 409 means the member changed and the page
+      // has reloaded them, so this confirmation may now do something else: close it,
+      // reason and all, so the admin reopens it against the new wording. Otherwise
+      // keep the reason so a retry need not retype it.
+      if (error instanceof ApiError && error.status === 409) {
+        setReason('');
+        setConfirming(false);
+      }
     } finally {
       inFlight.current = false;
       setSubmitting(false);
@@ -233,7 +240,13 @@ export default function AdminMemberPage() {
     void load();
   }, [load]);
 
-  /** Every action answers with the member as they now stand; adopt it. */
+  /**
+   * Every action answers with the member as they now stand; adopt it. Each one
+   * carries the `accessVersion` of the member this page showed, and the API
+   * refuses with a 409 when their access has changed since - another admin, or
+   * a Stripe event. Reload then, so the open confirmation describes the member
+   * as they are before the admin confirms again.
+   */
   const act = async (path: string, body: object, done: string, failed: string) => {
     setActionError(null);
     setStatus(null);
@@ -242,12 +255,17 @@ export default function AdminMemberPage() {
       setMember(
         await apiFetch<AdminMemberDetail>(`/admin/members/${memberId}/${path}`, {
           method: 'POST',
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...body, accessVersion: member?.accessVersion }),
         }),
       );
       setStatus(done);
     } catch (requestError) {
       setActionError(messageFrom(requestError, failed));
+
+      if (requestError instanceof ApiError && requestError.status === 409) {
+        await load();
+      }
+
       throw requestError;
     }
   };

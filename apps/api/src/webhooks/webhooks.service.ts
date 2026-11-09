@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { StripeWebhookEventStatus, VideoProvider } from '@diaz/db';
+import { StripeWebhookEventStatus, VideoProvider, type Prisma } from '@diaz/db';
 import { isStoredIdentifierAbsent } from '@diaz/shared';
 import Stripe from 'stripe';
 import {
@@ -19,6 +19,7 @@ import {
   releasesRevocation,
 } from '../billing/subscription-revocation.js';
 import { syncEntitlementFromSubscriptions } from '../billing/entitlement-sync.js';
+import { withMemberAccessLock } from '../billing/member-access-lock.js';
 import { isLiveStripeSubscription } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -241,7 +242,42 @@ export class WebhooksService {
       );
     }
 
-    const existing = await this.prisma.client.subscription.findUnique({
+    // Read, decide and write under the member's access lock, which the admin
+    // members screen takes too, so an admin change cannot land between this
+    // event's reads and its writes. The alert below stays outside it.
+    const row = await withMemberAccessLock(this.prisma.client, userId, (tx) =>
+      this.recordSubscription(tx, userId, sub, stripeCreatedAt),
+    );
+
+    if (!row) {
+      return null;
+    }
+
+    this.logger.log(`Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}`);
+
+    if (joinedAdminRevocation(row)) {
+      return this.alertOnceLive(
+        sub,
+        `Stripe subscription ${sub.id} is live (${sub.status}) but an admin revoked this member, ` +
+          `so a revoked member has a live paid subscription and it grants them nothing. Refund or ` +
+          `cancel it in Stripe. The member is on the admin members screen (/admin/members).`,
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * The subscription row and entitlement this event leaves, or `null` for an
+   * event older than what is already stored. Runs inside the member's access lock.
+   */
+  private async recordSubscription(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    sub: Stripe.Subscription,
+    stripeCreatedAt: Date,
+  ) {
+    const existing = await tx.subscription.findUnique({
       where: { stripeSubscriptionId: sub.id },
     });
 
@@ -281,14 +317,12 @@ export class WebhooksService {
 
     // Checkout refuses a member an admin revoked, but one left open before that
     // can still complete. The new row joins the revocation, or paying would undo it.
-    const siblings = existing
-      ? []
-      : await this.prisma.client.subscription.findMany({ where: { userId } });
+    const siblings = existing ? [] : await tx.subscription.findMany({ where: { userId } });
     const adminRevokedAt = siblings.find((row) => row.adminRevokedAt)?.adminRevokedAt;
 
     // Upsert by the Stripe subscription id: a member can hold several rows over
     // time (cancel then resubscribe) and, briefly, at the same time.
-    const row = await this.prisma.client.subscription.upsert({
+    const row = await tx.subscription.upsert({
       where: { stripeSubscriptionId: sub.id },
       update: released ? { ...fields, revokedAt: null, revokedReason: null } : fields,
       create: {
@@ -298,20 +332,9 @@ export class WebhooksService {
       },
     });
 
-    await this.syncEntitlementFromSubscriptions(userId);
+    await this.syncEntitlementFromSubscriptions(tx, userId);
 
-    this.logger.log(`Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}`);
-
-    if (joinedAdminRevocation(row)) {
-      return this.alertOnceLive(
-        sub,
-        `Stripe subscription ${sub.id} is live (${sub.status}) but an admin revoked this member, ` +
-          `so a revoked member has a live paid subscription and it grants them nothing. Refund or ` +
-          `cancel it in Stripe. The member is on the admin members screen (/admin/members).`,
-      );
-    }
-
-    return null;
+    return row;
   }
 
   /**
@@ -512,36 +535,42 @@ export class WebhooksService {
     description: string,
     stripeCreatedAt: Date,
   ) {
-    const subscription = await this.findSubscriptionForCharge(
+    const traced = await this.findSubscriptionForCharge(
       charge,
       description,
       'the money went back but access was NOT withdrawn. Revoke it on the admin members screen (/admin/members).',
     );
 
-    if (!subscription) {
+    if (!traced) {
       return;
     }
 
-    const revocation = planRevocation(subscription, reason, stripeCreatedAt);
+    await withMemberAccessLock(this.prisma.client, traced.userId, async (tx) => {
+      // Read again under the lock: the row traced above may have changed since.
+      const subscription = await tx.subscription.findUniqueOrThrow({
+        where: { stripeSubscriptionId: traced.stripeSubscriptionId },
+      });
+      const revocation = planRevocation(subscription, reason, stripeCreatedAt);
 
-    if (!revocation) {
+      if (!revocation) {
+        this.logger.log(
+          `Subscription ${subscription.stripeSubscriptionId} is already revoked ` +
+            `(${subscription.revokedReason}); nothing to do`,
+        );
+        return;
+      }
+
+      await tx.subscription.update({
+        where: { stripeSubscriptionId: subscription.stripeSubscriptionId },
+        data: revocation,
+      });
+
+      await this.syncEntitlementFromSubscriptions(tx, subscription.userId);
+
       this.logger.log(
-        `Subscription ${subscription.stripeSubscriptionId} is already revoked ` +
-          `(${subscription.revokedReason}); nothing to do`,
+        `Revoked access for subscription ${subscription.stripeSubscriptionId} after a ${reason}`,
       );
-      return;
-    }
-
-    await this.prisma.client.subscription.update({
-      where: { stripeSubscriptionId: subscription.stripeSubscriptionId },
-      data: revocation,
     });
-
-    await this.syncEntitlementFromSubscriptions(subscription.userId);
-
-    this.logger.log(
-      `Revoked access for subscription ${subscription.stripeSubscriptionId} after a ${reason}`,
-    );
   }
 
   /**
@@ -553,36 +582,42 @@ export class WebhooksService {
    * paying and never get access back.
    */
   private async releaseChargebackForCharge(charge: Stripe.Charge, description: string) {
-    const subscription = await this.findSubscriptionForCharge(
+    const traced = await this.findSubscriptionForCharge(
       charge,
       description,
       'the money stayed with us but access was NOT restored. Restore it by hand.',
     );
 
-    if (!subscription) {
+    if (!traced) {
       return;
     }
 
-    const release = planDisputeWonRelease(subscription);
+    await withMemberAccessLock(this.prisma.client, traced.userId, async (tx) => {
+      // Read again under the lock: the row traced above may have changed since.
+      const subscription = await tx.subscription.findUniqueOrThrow({
+        where: { stripeSubscriptionId: traced.stripeSubscriptionId },
+      });
+      const release = planDisputeWonRelease(subscription);
 
-    if (!release) {
+      if (!release) {
+        this.logger.log(
+          `Subscription ${subscription.stripeSubscriptionId} carries no chargeback revocation ` +
+            `to release; nothing to do`,
+        );
+        return;
+      }
+
+      await tx.subscription.update({
+        where: { stripeSubscriptionId: subscription.stripeSubscriptionId },
+        data: release,
+      });
+
+      await this.syncEntitlementFromSubscriptions(tx, subscription.userId);
+
       this.logger.log(
-        `Subscription ${subscription.stripeSubscriptionId} carries no chargeback revocation ` +
-          `to release; nothing to do`,
+        `Restored access for subscription ${subscription.stripeSubscriptionId} after a won dispute`,
       );
-      return;
-    }
-
-    await this.prisma.client.subscription.update({
-      where: { stripeSubscriptionId: subscription.stripeSubscriptionId },
-      data: release,
     });
-
-    await this.syncEntitlementFromSubscriptions(subscription.userId);
-
-    this.logger.log(
-      `Restored access for subscription ${subscription.stripeSubscriptionId} after a won dispute`,
-    );
   }
 
   /**
@@ -616,10 +651,10 @@ export class WebhooksService {
   /**
    * Rewrites the entitlement from the member's stored subscriptions - see
    * `syncEntitlementFromSubscriptions` for the rule, including why a live
-   * manual grant is left alone.
+   * manual grant is left alone. Always called inside the member's access lock.
    */
-  private async syncEntitlementFromSubscriptions(userId: string) {
-    const outcome = await syncEntitlementFromSubscriptions(this.prisma.client, userId);
+  private async syncEntitlementFromSubscriptions(tx: Prisma.TransactionClient, userId: string) {
+    const outcome = await syncEntitlementFromSubscriptions(tx, userId);
 
     if (outcome === 'kept-manual-grant') {
       this.logger.log(
