@@ -1,4 +1,4 @@
-/** Green means progress and nothing else. */
+/** Green means progress or success, and nothing else. */
 export function Progress({
   value,
   label,

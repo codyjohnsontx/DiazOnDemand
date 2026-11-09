@@ -2,7 +2,7 @@ export type BadgeVariant = 'neutral' | 'premium' | 'success' | 'critical';
 
 /**
  * Colour means something here and nowhere else on a badge: gold is premium, green is
- * success or progress, red is critical. Everything else is neutral.
+ * progress or success, red is critical. Everything else is neutral.
  */
 const VARIANTS: Record<BadgeVariant, string> = {
   neutral: 'border-border-strong bg-surface-raised text-foreground-faint',

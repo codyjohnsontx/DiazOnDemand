@@ -129,34 +129,36 @@ export function CourseDetailView({
             </div>
           </div>
 
-          <Card className="flex flex-col gap-600" variant="emphasis">
-            <div className="flex flex-col gap-200">
-              <p className="type-kicker">Up next</p>
-              <h2 className="type-display-400">
-                {nextLesson?.title ?? recommendation.title ?? 'Ready to begin'}
-              </h2>
-              <p className="text-body-200 text-foreground-faint">
-                {`${courseProgress.completedLessons} completed · ${remaining} remaining`}
-              </p>
-              <Progress className="mt-300" label="Progress" value={courseProgress.percent} />
-            </div>
-            <CardActions>
-              {primaryLessonId ? (
-                <ButtonLink href={`/lesson/${primaryLessonId}`} size="lg" variant="primary">
-                  {primaryCtaLabel}
-                </ButtonLink>
-              ) : null}
-              {recommendation.lessonId ? (
-                <ButtonLink
-                  href={`/lesson/${recommendation.lessonId}`}
-                  size="lg"
-                  variant="secondary"
-                >
-                  Open recommendation
-                </ButtonLink>
-              ) : null}
-            </CardActions>
-          </Card>
+          <section className="flex flex-col gap-400">
+            <SectionHeader title="Up next" />
+            <Card className="flex flex-col gap-600" variant="emphasis">
+              <div className="flex flex-col gap-200">
+                <h3 className="type-display-400">
+                  {nextLesson?.title ?? recommendation.title ?? 'Ready to begin'}
+                </h3>
+                <p className="text-body-200 text-foreground-faint">
+                  {`${courseProgress.completedLessons} completed · ${remaining} remaining`}
+                </p>
+                <Progress className="mt-300" label="Progress" value={courseProgress.percent} />
+              </div>
+              <CardActions>
+                {primaryLessonId ? (
+                  <ButtonLink href={`/lesson/${primaryLessonId}`} size="lg" variant="primary">
+                    {primaryCtaLabel}
+                  </ButtonLink>
+                ) : null}
+                {recommendation.lessonId ? (
+                  <ButtonLink
+                    href={`/lesson/${recommendation.lessonId}`}
+                    size="lg"
+                    variant="secondary"
+                  >
+                    Open recommendation
+                  </ButtonLink>
+                ) : null}
+              </CardActions>
+            </Card>
+          </section>
 
           {curriculumLabels.length > 0 ? (
             <div className="flex flex-wrap gap-200">

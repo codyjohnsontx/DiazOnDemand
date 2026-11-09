@@ -38,6 +38,9 @@ function messageFrom(error: unknown, fallback: string) {
   return fallback;
 }
 
+/** Which access change is open for confirmation; the page opens one at a time. */
+type Confirming = { open: boolean; onOpen: () => void; onClose: () => void };
+
 /**
  * An access change: a reason, then a second, explicit confirmation that says
  * what will happen before anything is sent.
@@ -46,18 +49,19 @@ function ConfirmedAction({
   label,
   confirmation,
   onConfirm,
+  confirming: { open: confirming, onOpen, onClose },
   confirmDisabled = false,
   reasonRequired = false,
 }: {
   label: string;
   confirmation: string;
   onConfirm: (reason: string) => Promise<void>;
+  confirming: Confirming;
   confirmDisabled?: boolean;
   reasonRequired?: boolean;
 }) {
   const reasonId = useId();
   const [reason, setReason] = useState('');
-  const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Refuses a second submit while one is in flight, before React re-renders.
   const inFlight = useRef(false);
@@ -73,7 +77,7 @@ function ConfirmedAction({
     try {
       await onConfirm(reason);
       setReason('');
-      setConfirming(false);
+      onClose();
     } catch (error) {
       // The page reports the failure. A 409 means the member changed and the page
       // has reloaded them, so this confirmation may now do something else: close it,
@@ -81,7 +85,7 @@ function ConfirmedAction({
       // keep the reason so a retry need not retype it.
       if (error instanceof ApiError && error.status === 409) {
         setReason('');
-        setConfirming(false);
+        onClose();
       }
     } finally {
       inFlight.current = false;
@@ -92,7 +96,7 @@ function ConfirmedAction({
   if (!confirming) {
     return (
       <CardActions>
-        <Button onClick={() => setConfirming(true)} variant="secondary">
+        <Button onClick={onOpen} variant="secondary">
           {label}
         </Button>
       </CardActions>
@@ -126,7 +130,7 @@ function ConfirmedAction({
         >
           {submitting ? 'Saving...' : 'Confirm'}
         </Button>
-        <Button disabled={submitting} onClick={() => setConfirming(false)} variant="secondary">
+        <Button disabled={submitting} onClick={onClose} variant="secondary">
           Cancel
         </Button>
       </CardActions>
@@ -138,10 +142,12 @@ function SubscriptionRow({
   subscription,
   keepsCheckoutBar,
   onRestore,
+  confirming,
 }: {
   subscription: AdminMemberSubscription;
   keepsCheckoutBar: boolean;
   onRestore: (subscription: AdminMemberSubscription, reason: string) => Promise<void>;
+  confirming: Confirming;
 }) {
   const periodEnd = subscription.currentPeriodEnd
     ? formatDate(subscription.currentPeriodEnd)
@@ -192,6 +198,7 @@ function SubscriptionRow({
               ? `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.${barStays}`
               : `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.${subscription.restoreOpensCheckout ? ' They will be able to start a new subscription.' : barStays}`
           }
+          confirming={confirming}
           label="Restore access"
           onConfirm={(reason) => onRestore(subscription, reason)}
         />
@@ -210,6 +217,12 @@ export default function AdminMemberPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [grantUntil, setGrantUntil] = useState('');
+  const [openAction, setOpenAction] = useState<string | null>(null);
+  const confirming = (action: string): Confirming => ({
+    open: openAction === action,
+    onOpen: () => setOpenAction(action),
+    onClose: () => setOpenAction((current) => (current === action ? null : current)),
+  });
 
   const load = useCallback(async () => {
     try {
@@ -342,6 +355,7 @@ export default function AdminMemberPage() {
                       ? `End this manual grant? Their Stripe subscription still gives them access${member.accessAfterRevoke.validUntil ? ` until ${formatDate(member.accessAfterRevoke.validUntil)}` : ''}.`
                       : 'End this manual grant? They will have no premium access.'
                 }
+                confirming={confirming('revoke')}
                 label="Revoke access"
                 onConfirm={(reason) =>
                   act('revoke', { reason }, 'Access revoked.', 'Access could not be revoked.')
@@ -380,6 +394,7 @@ export default function AdminMemberPage() {
                     : 'Grant premium access with no end date?'
               }
               confirmDisabled={grantDateInvalid}
+              confirming={confirming('grant')}
               label={hasManualGrant ? 'Update access' : 'Grant access'}
               onConfirm={async (reason) => {
                 await act(
@@ -403,6 +418,7 @@ export default function AdminMemberPage() {
               <div className="flex flex-col gap-300">
                 {member.subscriptions.map((subscription) => (
                   <SubscriptionRow
+                    confirming={confirming(`restore:${subscription.id}`)}
                     key={subscription.id}
                     keepsCheckoutBar={restoreKeepsCheckoutBar(subscription, member.subscriptions)}
                     onRestore={(row, reason) =>

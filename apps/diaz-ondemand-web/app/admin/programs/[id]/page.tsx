@@ -197,7 +197,7 @@ export default function AdminProgramDetailPage() {
                 />
               </Field>
               <CardActions>
-                <Button type="submit" variant="primary">
+                <Button type="submit" variant="secondary">
                   Add course
                 </Button>
               </CardActions>
