@@ -16,8 +16,9 @@ The three share a Turborepo + pnpm workspace, TypeScript throughout, with shared
 rules in `packages/shared` and the Prisma schema and migrations in `packages/db`.
 
 **Tests:** `pnpm test` runs vitest in the API, shared and web workspaces and Jest (`jest-expo`) in
-mobile. Two API suites run against a real Postgres instead of a mocked Prisma client:
-`apps/api/src/tests/billing-lifecycle.db.test.ts` and `apps/api/src/tests/mux-ingestion.db.test.ts`.
+mobile. Three API suites run against a real Postgres instead of a mocked Prisma client:
+`apps/api/src/tests/billing-lifecycle.db.test.ts`, `apps/api/src/tests/mux-ingestion.db.test.ts`
+and `apps/api/src/tests/admin-members.db.test.ts`.
 See [Tests](#tests) for how to run them.
 
 | Landing                                       | Library                                         |
@@ -54,6 +55,8 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
   a lesson at its saved position
 - Favorites create/list/remove
 - Admin CRUD + publish/unpublish for programs/courses/lessons
+- Admin members screen (`/admin/members`): find a member, see their access and why they have
+  none, grant or revoke access, restore a refund made by mistake, with an audit trail
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
 - Stripe checkout session endpoint, and a Stripe billing portal endpoint so members can cancel
 - Stripe webhook handler syncing `Subscription` history + `Entitlement`, including refunds and
@@ -344,7 +347,7 @@ the webhooks have finished - every 4 seconds for the first two minutes, every 30
 that, and not at all after 30 minutes, when the editor says so and asks for a reload. The API chooses the asset's playback policy from the lesson's tier
 before the file exists - `signed` for `PAID`, `public` for `FREE` - and sets the lesson id as the
 asset's `passthrough`. No Mux credential reaches the browser; the route sits behind the same
-`ADMIN`/`COACH` guards as every other admin route, and `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` are
+`ADMIN`/`COACH` guards as the other content admin routes, and `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` are
 read only on the server, per request, so a process without them still boots and answers this one
 route 503.
 
@@ -435,10 +438,11 @@ state with Mux's message. Webhook _transport_ was simulated for that run - see "
 
 Billing endpoints (both Clerk-authenticated):
 
-- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for two
+- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for three
   different reasons, told apart by a `code` on the body so the client can say the right thing:
-  `subscription_exists` (the member already has an active subscription) and `checkout_in_flight`
-  (a checkout for them is already open). The codes live in `packages/shared/src/schemas.ts`.
+  `subscription_exists` (the member already has an active subscription), `checkout_in_flight`
+  (a checkout for them is already open) and `access_revoked` (an admin revocation stands on one of
+  their subscriptions). The codes live in `packages/shared/src/schemas.ts`.
   Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
 - `POST /billing/cancel-checkout` - expires the abandoned Stripe session and releases the calling
   member's checkout lock, called by the cancel return page. Holds the lock instead when Stripe
@@ -464,8 +468,9 @@ Stripe webhook endpoint:
   - the `Entitlement`, always **derived from the member's stored subscriptions** rather than from
     the event in hand. `PREMIUM` while any unrevoked subscription is `active`/`trialing`/`past_due`,
     otherwise `FREE`. `Entitlement.source` records whether Stripe or a human last set it, and a
-    **live** `MANUAL` `PREMIUM` row is left alone, so access collected in person does not vanish the
-    moment a Stripe event touches that member. The column defaults to `MANUAL`, which would have
+    **live** `MANUAL` `PREMIUM` row is left alone while it ends later than the Stripe access, so
+    access collected in person does not vanish the moment a Stripe event touches that member, and a
+    member who pays during a grant is not locked out when it lapses. The column defaults to `MANUAL`, which would have
     relabelled every row Stripe had already written and made that guard protect them from their own
     refunds - so `20260802120000_backfill_entitlement_source` stamps `STRIPE` on the entitlement of
     every user who has a `Subscription` row. That is sound because nothing granted an entitlement by
@@ -544,7 +549,7 @@ One checkout at a time (`CheckoutReservation`):
 
 Giving access back:
 
-- A revocation is cleared on exactly two events, and nothing else. A **genuine paid renewal**
+- A Stripe revocation is cleared in exactly three ways, and nothing else. A **genuine paid renewal**
   (`current_period_end` moving strictly forward) clears a _refund_ revocation; a status of `active`
   is not enough on its own, because `cancel_at_period_end`, a card update and a plan change all
   keep it active.
@@ -553,24 +558,73 @@ Giving access back:
   revocation standing. Without this a chargeback is a one-way door: the revocation is sticky against
   renewals by design, so a member who disputes and loses would keep paying and never get access
   back.
-- Every revocation stores `revokedAt` **and** `revokedReason` together, so a member without access
+- An admin clears a _refund_ revocation from **`/admin/members`** - the immediate way back for a
+  refund issued by mistake. It never clears a chargeback. The entitlement is then re-derived from
+  the subscription rows exactly as the webhook would (`syncEntitlementFromSubscriptions` in
+  `apps/api/src/billing/entitlement-sync.ts`), so a subscription that was also cancelled gets its
+  record cleared and no access back.
+- Every refund or chargeback stores `revokedAt` **and** `revokedReason` together, so a member without access
   can always be shown _why_ ("revoked by refund on <date>") rather than an unexplained gap. The
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
   just its first caller.
-- A revoke is not a one-way door, but only a **genuine renewal** opens it:
-  - Resubscribing always works. A new Stripe subscription id is a new row, which was never revoked.
+- A refund or chargeback is not a one-way door, and among subscription events only a **genuine
+  renewal** opens it:
+  - Resubscribing works after a refund or chargeback. A new Stripe subscription id is a new row,
+    which was never revoked. An admin revocation is the exception: it bars checkout until restored.
   - For the same subscription, a **refund** revocation clears only when a later Stripe event moves
     `current_period_end` **strictly forward** - i.e. the member was actually charged again. A live
     status is deliberately _not_ enough: `cancel_at_period_end`, a card update and a plan change all
     keep the status `active`, and treating those as proof would let a refunded member press Cancel
     and keep the period they were refunded for.
   - The cost of that strictness is accepted knowingly: a member refunded **by mistake** stays locked
-    out until their next renewal unless somebody corrects the record by hand.
-  - A **chargeback** revocation is sticky and never clears. The customer forcibly took the money
-    back, so they have to subscribe again. A chargeback landing on a subscription already revoked by
+    out until their next renewal unless an admin restores them from `/admin/members`.
+  - A **chargeback** revocation is sticky: no renewal clears it and neither can an admin. The
+    customer forcibly took the money back, so unless the dispute is won they have to subscribe
+    again. A chargeback landing on a subscription already revoked by
     a refund **upgrades** the stored reason, so the sticky outcome cannot inherit the clearable one.
   - Only an event Stripe generated _after_ the revocation can clear it. The subscription ordering
     guard alone does not cover this, because a revoke does not advance `lastEventAt`.
+
+The admin members screen (`/admin/members`). Its routes are `ADMIN` only, unlike the other admin
+routes, because they move paid access and expose billing identifiers; `COACH` keeps content editing:
+
+- Search matches a Clerk user id, a member id, or a Stripe customer or subscription id. `User`
+  stores no email or name, so these are the identifiers to copy from the Clerk and Stripe
+  dashboards.
+- A member without access is always shown why - revoked by refund or chargeback, revoked by a named
+  admin, expired, or subscription inactive, each with its date - whichever happened most recently.
+- **Grant** writes a `MANUAL` premium entitlement with an optional end date. It has to end later
+  than what the member's Stripe subscription grants, because the stored entitlement is always
+  whichever access ends later: `syncEntitlementFromSubscriptions` keeps a live grant only while it
+  outlasts Stripe, and writes the Stripe access once it does not. That is what stops a member who
+  pays during a grant being locked out when it lapses. The cost is that the row holds one end date:
+  once Stripe has taken over, a refund before the grant's end date ends access, and the `GRANT`
+  history entry is what is left to re-grant from.
+- **Revoke** ends what the member can watch now. A live manual grant goes first, leaving what their
+  subscriptions grant. Otherwise it withdraws the Stripe access: every subscription that could
+  still grant access gets `adminRevokedAt`, through `subscription-revocation.ts`, so a refunded,
+  charged-back or unpaid sibling recovering in Stripe cannot hand it back, and only `canceled` and
+  `incomplete_expired` rows are left alone. A subscription Stripe opens afterwards, from a checkout
+  already open at the time, takes the same stamp. The entitlement is re-derived, so this is the
+  in-app answer to a refund or chargeback alert that could not be traced to a member. It
+  needs a reason, and the API refuses it without one; the audit row holds that reason. The column
+  is separate from `revokedAt` and `revokedReason` so that a refund or chargeback landing later is
+  recorded beside the admin's decision instead of over it. No Stripe event clears it: a renewal or a
+  won dispute clears only its own refund or chargeback, and access stays withdrawn. Only a restore
+  from the same screen clears it, and a restore clears one revocation at a time, the admin's first,
+  so a refund underneath stays until an admin decides on it separately and the screen says that the
+  first restore gives no access back. While `adminRevokedAt` is set on any of the member's
+  subscriptions, ended ones included, checkout refuses them with `access_revoked`, and the account
+  page and `/subscribe` show a short message in place of checkout, so paying again cannot undo the
+  decision. A member who has access anyway, through a grant or another subscription, gets a link to
+  the library instead of that message. Only restoring the last revocation lifts the bar, so
+  restoring one row of several can give access back while checkout stays refused; the confirmation
+  and the member page both say so. The confirmation promises a new subscription only when nothing
+  would be live afterwards, because checkout refuses a second one as a duplicate. Revoking does not cancel the subscription or stop billing, so
+  cancel in Stripe as well when the member should not be charged.
+- Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,
+  action, reason, the stored access before and after, and when - shown as the member's history. An
+  acting admin's rows outlive their own account.
 
 Delivery safety:
 
@@ -594,8 +648,12 @@ Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
   charge genuinely carries no invoice link, and a **live** subscription carrying no `userId`
   metadata (one created in the Stripe dashboard or through a Payment Link). Those are processed,
   not rejected - they may be deliberate - but never silently.
-- The unmatched-subscription alert fires **exactly once per subscription**, on the first delivery
-  that shows it actually live. It waits for live rather than firing on creation because a card
+- A subscription that joins an admin revocation alerts too: a checkout left open before the admin
+  revoked the member can still complete, and the new subscription inherits the revocation, so
+  Stripe bills a member who stays locked out. Staff refund or cancel it in Stripe. Nothing does that
+  automatically, and a subscription the admin revoked directly does not alert.
+- Both of those subscription alerts fire **exactly once per subscription**, on the first delivery
+  that shows it actually live. They wait for live rather than firing on creation because a card
   needing 3D Secure starts `incomplete` and only turns `active` on a later update - money taken,
   nobody granted access. `StripeWebhookEvent.stripeSubscriptionId` is stamped on the delivery that
   raised the alert, which is what keeps renewals and the eventual cancellation quiet.
@@ -1397,10 +1455,10 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 
 `pnpm test` runs everything: vitest in `apps/api`, `packages/shared` and `apps/diaz-ondemand-web`,
 and Jest with the `jest-expo` preset in `apps/mobile`, because vitest does not carry React Native's
-transform. The remaining workspaces still have no runner at all. The web suite covers only
-`middleware.ts`: with the coming-soon wall on, every path but `/` must redirect there rather than
-answer 500, which it did while the redirect was a `Response.redirect` whose headers Clerk could
-not append to. The mobile suite is deliberately small, six
+transform. The remaining workspaces still have no runner at all. The web suite covers
+`lib/member-access.ts` and `middleware.ts`, and no pages. For `middleware.ts`: with the coming-soon
+wall on, every path but `/` must redirect there rather than answer 500, which it did while the
+redirect was a `Response.redirect` whose headers Clerk could not append to. The mobile suite is deliberately small, six
 tests, every one of them from the sign-in entry in "Security Invariants": an unknown address
 reaching the same screen a member reaches, the one deliberate asymmetry for a failure the
 provider never answered, the regression path the enumeration defect came back through, the code
@@ -1409,7 +1467,7 @@ is still signed in, and the guard that refuses a second revoke while one is in f
 them needs a simulator, an emulator or a device. Run the suite alone with
 `pnpm --filter mobile test`.
 
-Most of the API suite mocks Prisma. Two suites deliberately do not, because what they cover is
+Most of the API suite mocks Prisma. Three suites deliberately do not, because what they cover is
 invisible to a mocked client:
 
 - `apps/api/src/tests/billing-lifecycle.db.test.ts` - the resubscribe and double-subscription
@@ -1425,8 +1483,11 @@ invisible to a mocked client:
   overtakes the binding, and a replacement over a playing lesson - because the binding sets MUX on
   a row that may have been NONE and the replacement clears a playback id in the same write that
   sets the asset id. `mux-direct-upload.test.ts` is the mocked half: what the API asks Mux for.
+- `apps/api/src/tests/admin-members.db.test.ts` - an access change and its audit row have to commit
+  together or not at all, and a refund restore has to land on what the webhook derives from the
+  stored rows. `member-access.test.ts` is the pure half.
 
-Both run the real services against a real Postgres, and both have the same contract: they
+All three run the real services against a real Postgres, and all three have the same contract: they
 **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
 around - except on CI, where a missing `TEST_DATABASE_URL` fails the run rather than silently
 dropping the coverage. CI provides a Postgres service container.

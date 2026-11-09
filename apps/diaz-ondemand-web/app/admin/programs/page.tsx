@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
-import { Discipline, getDisciplineLabel, type ProgramWithContentDto } from '@diaz/shared';
+import {
+  Discipline,
+  Role,
+  getDisciplineLabel,
+  type MeDto,
+  type ProgramWithContentDto,
+} from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
@@ -26,6 +32,7 @@ export default function AdminProgramsPage() {
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [role, setRole] = useState<Role | null>(null);
 
   const load = async () => {
     try {
@@ -47,6 +54,12 @@ export default function AdminProgramsPage() {
     // re-run this effect after every render, and since load sets state that is an endless fetch loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    apiFetch<MeDto>('/me')
+      .then((me) => setRole(me.role))
+      .catch(() => setRole(null));
+  }, [apiFetch]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -81,7 +94,19 @@ export default function AdminProgramsPage() {
 
   return (
     <AppShell className="space-y-8">
-      <PageHeader title="Programs" />
+      <PageHeader
+        actions={
+          role === Role.ADMIN ? (
+            <Link
+              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+              href="/admin/members"
+            >
+              Members
+            </Link>
+          ) : undefined
+        }
+        title="Programs"
+      />
 
       {error ? (
         <EmptyState description={error} title="Admin unavailable" />

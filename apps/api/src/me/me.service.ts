@@ -10,6 +10,7 @@ import {
   isLiveStripeSubscription,
   resolveEntitlementTier,
 } from '../common/entitlement.js';
+import { hasAdminRevocation } from '../billing/subscription-revocation.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -34,10 +35,10 @@ export class MeService {
     const subscription = user.subscriptions.find(isLiveStripeSubscription) ?? user.subscriptions[0];
 
     // A revoked row still carries the Stripe status and period end it had when
-    // the refund or chargeback landed, and reporting those next to a FREE
-    // entitlement reads to the member as a contradiction. Report no
+    // the refund, chargeback or admin revocation landed, and reporting those next
+    // to a FREE entitlement reads to the member as a contradiction. Report no
     // subscription instead. The revoke reason stays admin-only.
-    const revoked = subscription != null && subscription.revokedAt !== null;
+    const revoked = Boolean(subscription?.revokedAt || subscription?.adminRevokedAt);
 
     const entitlementTier = resolveEntitlementTier(user.entitlement);
     const role =
@@ -57,6 +58,7 @@ export class MeService {
       // A revoked member still has a Stripe customer, so the billing portal
       // remains reachable for them.
       canManageBilling: Boolean(subscription),
+      checkoutBlocked: hasAdminRevocation(user.subscriptions),
     };
   }
 

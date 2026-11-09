@@ -23,8 +23,10 @@
  */
 import { readFile } from 'node:fs/promises';
 import { PrismaClient } from '@diaz/db';
+import { EntitlementTier, Role } from '@diaz/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Stripe from 'stripe';
+import { AdminMembersService } from '../admin/admin-members.service.js';
 import { BillingService } from '../billing/billing.service.js';
 import { CHECKOUT_RESERVATION_TTL_MS } from '../billing/checkout-reservation.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -53,6 +55,7 @@ function nextEventTime() {
 }
 
 const DAY = 24 * 60 * 60;
+const EVENT_PREFIX = 'evt_billing-test-';
 
 function subscriptionEvent(
   type:
@@ -71,7 +74,7 @@ function subscriptionEvent(
   },
 ): Stripe.Event {
   return {
-    id: `evt_${type}_${options.subscriptionId}_${options.created ?? eventClock}`,
+    id: `${EVENT_PREFIX}${type}_${options.subscriptionId}_${options.created ?? eventClock}`,
     type,
     created: options.created ?? nextEventTime(),
     data: {
@@ -125,7 +128,7 @@ function chargeEvent(
       : { id: 'dp_test', charge, status: options.disputeStatus ?? 'lost' };
 
   return {
-    id: `evt_${type}_${options.created ?? eventClock}`,
+    id: `${EVENT_PREFIX}${type}_${options.created ?? eventClock}`,
     type,
     created: options.created ?? nextEventTime(),
     data: { object },
@@ -253,7 +256,9 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
   });
 
   afterEach(async () => {
-    await prismaClient!.stripeWebhookEvent.deleteMany({});
+    await prismaClient!.stripeWebhookEvent.deleteMany({
+      where: { id: { startsWith: EVENT_PREFIX } },
+    });
     await prismaClient!.user.deleteMany({
       where: { clerkUserId: { startsWith: 'billing-test-' } },
     });
@@ -623,6 +628,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
       expect(alerts).toHaveLength(1);
       expect(alerts[0]).toContain('NOT withdrawn');
+      expect(alerts[0]).toContain('/admin/members');
     });
 
     it('leaves access alone and alerts when a chargeback cannot be traced to a subscription', async () => {
@@ -649,6 +655,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
       expect(alerts).toHaveLength(1);
       expect(alerts[0]).toContain('NOT withdrawn');
+      expect(alerts[0]).toContain('/admin/members');
     });
   });
 
@@ -1113,6 +1120,147 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
     });
   });
 
+  describe('an admin revocation survives what Stripe does next', () => {
+    /** Subscribe, then have an admin withdraw the access the subscription gives. */
+    async function adminRevoked(name: string) {
+      const user = await createUser(`billing-test-${name}`);
+      const admin = await createUser(`billing-test-${name}-admin`);
+      const customerId = `cus_${name}`;
+      const subscriptionId = `sub_${name}`;
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+      const members = new AdminMembersService(prisma);
+      const actor = {
+        id: admin.id,
+        clerkUserId: admin.clerkUserId,
+        role: Role.ADMIN,
+        entitlementTier: EntitlementTier.FREE,
+      };
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      await members.revokeAccess(actor, user.id, { reason: 'Banned' });
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+
+      const restore = async () => {
+        const [row] = await subscriptionsOf(user.id);
+        return members.restoreAccess(actor, user.id, { subscriptionId: row!.id, reason: null });
+      };
+
+      return { user, customerId, subscriptionId, periodEnd, members, restore };
+    }
+
+    it('keeps access withdrawn through a dispute and the dispute being won', async () => {
+      const { user, customerId, subscriptionId, restore } = await adminRevoked('admin-dispute');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
+      );
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.closed', {
+          customerId,
+          subscriptionId,
+          disputeStatus: 'won',
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBeNull();
+      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
+
+      const detail = await restore();
+
+      expect(detail.hasAccess).toBe(true);
+    });
+
+    it('leaves a chargeback standing when an admin clears their own revocation', async () => {
+      const { user, customerId, subscriptionId, members, restore } =
+        await adminRevoked('admin-chargeback');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
+      );
+
+      const before = await members.getMember(user.id);
+      expect(before.subscriptions[0]).toMatchObject({
+        revokedReason: 'chargeback',
+        restorable: true,
+        restoreGivesAccess: false,
+      });
+
+      const detail = await restore();
+
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.subscriptions[0]).toMatchObject({
+        adminRevokedAt: null,
+        revokedReason: 'chargeback',
+        restorable: false,
+      });
+    });
+
+    it('records a traced refund, and a restore says it gives no access back', async () => {
+      const { user, customerId, subscriptionId, members, restore } =
+        await adminRevoked('admin-refund');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', { customerId, subscriptionId }),
+      );
+
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBe('refund');
+      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
+
+      const before = await members.getMember(user.id);
+      expect(before.subscriptions[0]).toMatchObject({
+        restorable: true,
+        restoreGivesAccess: false,
+      });
+
+      const afterAdmin = await restore();
+
+      expect(afterAdmin.hasAccess).toBe(false);
+      expect(afterAdmin.subscriptions[0]).toMatchObject({
+        adminRevokedAt: null,
+        revokedReason: 'refund',
+        restorable: true,
+        restoreGivesAccess: true,
+      });
+
+      const afterRefund = await restore();
+
+      expect(afterRefund.hasAccess).toBe(true);
+    });
+
+    it('keeps access withdrawn when a renewal clears the refund underneath it', async () => {
+      const { user, customerId, subscriptionId, periodEnd } = await adminRevoked('admin-renewal');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', { customerId, subscriptionId }),
+      );
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.updated', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd + 30 * DAY,
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBeNull();
+      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
+    });
+  });
+
   describe('a member who wins a dispute gets access back', () => {
     /** Subscribe, then lose the money to a chargeback. */
     async function chargedBack(clerkUserId: string, customerId: string, subscriptionId: string) {
@@ -1403,6 +1551,97 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
     stripeStub.billingPortal.sessions.create.mockReset();
     await prismaClient!.user.deleteMany({
       where: { clerkUserId: { startsWith: 'billing-test-' } },
+    });
+  });
+
+  describe('an admin revocation blocks a new subscription', () => {
+    const webhooks = new WebhooksService(prisma);
+    const members = new AdminMembersService(prisma);
+
+    afterEach(async () => {
+      await prismaClient!.stripeWebhookEvent.deleteMany({
+        where: { id: { startsWith: EVENT_PREFIX } },
+      });
+    });
+
+    async function adminRevokedMember(name: string) {
+      const clerkUserId = `billing-test-${name}`;
+      const user = await createUser(clerkUserId);
+      const admin = await createUser(`${clerkUserId}-admin`);
+      const subscriptionId = `sub_${name}`;
+      const customerId = `cus_${name}`;
+      const actor = {
+        id: admin.id,
+        clerkUserId: admin.clerkUserId,
+        role: Role.ADMIN,
+        entitlementTier: EntitlementTier.FREE,
+      };
+
+      await webhooks.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+      await members.revokeAccess(actor, user.id, { reason: 'Banned' });
+
+      const restore = async () => {
+        const [row] = await subscriptionsOf(user.id);
+        return members.restoreAccess(actor, user.id, { subscriptionId: row!.id, reason: null });
+      };
+
+      return { clerkUserId, user, subscriptionId, customerId, restore };
+    }
+
+    it('refuses while the revoked subscription is still billing', async () => {
+      const { clerkUserId, restore } = await adminRevokedMember('admin-blocked-billing');
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'access_revoked' },
+      });
+      expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
+
+      await restore();
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'subscription_exists' },
+      });
+    });
+
+    it('still refuses once that subscription has ended, until an admin restores', async () => {
+      const { clerkUserId, user, subscriptionId, customerId, restore } =
+        await adminRevokedMember('admin-blocked-ended');
+
+      await webhooks.handleStripeEvent(
+        subscriptionEvent('customer.subscription.deleted', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'canceled',
+        }),
+      );
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'access_revoked' },
+      });
+      expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
+
+      await restore();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_admin_restored',
+        url: 'https://checkout.stripe.test/admin-restored',
+      });
+
+      await expect(createService().createCheckoutSession(clerkUserId)).resolves.toMatchObject({
+        url: 'https://checkout.stripe.test/admin-restored',
+      });
+      expect(stripeStub.checkout.sessions.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1735,7 +1974,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       ).not.toBeNull();
 
       await new WebhooksService(prisma).handleStripeEvent({
-        id: 'evt_checkout_completed',
+        id: `${EVENT_PREFIX}checkout_completed`,
         type: 'checkout.session.completed',
         created: nextEventTime(),
         data: { object: { id: 'cs_release', object: 'checkout.session' } },
@@ -1757,7 +1996,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       await service.createCheckoutSession('billing-test-reservation-expiry-event');
 
       await new WebhooksService(prisma).handleStripeEvent({
-        id: 'evt_checkout_expired',
+        id: `${EVENT_PREFIX}checkout_expired`,
         type: 'checkout.session.expired',
         created: nextEventTime(),
         data: { object: { id: 'cs_expired', object: 'checkout.session' } },
