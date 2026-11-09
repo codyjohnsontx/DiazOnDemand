@@ -192,7 +192,7 @@ export default function AdminProgramDetailPage() {
           <div className="space-y-3">
             {program.courses.map((course) => (
               <div
-                className="surface-panel-muted flex items-center justify-between gap-4 p-4"
+                className="surface-panel-muted flex flex-wrap items-center justify-between gap-4 p-4"
                 key={course.id}
               >
                 <div className="space-y-2">
