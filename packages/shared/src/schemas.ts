@@ -409,6 +409,12 @@ export const memberAccessStatusSchema = z.discriminatedUnion('kind', [
     at: z.string().datetime(),
     actorClerkUserId: z.string(),
   }),
+  /** A ban that has since been lifted, dated from the audit row that started it. */
+  z.object({
+    kind: z.literal('ban-lifted'),
+    at: z.string().datetime(),
+    actorClerkUserId: z.string(),
+  }),
   z.object({ kind: z.literal('expired'), at: z.string().datetime() }),
   z.object({
     kind: z.literal('subscription-inactive'),

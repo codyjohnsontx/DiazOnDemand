@@ -46,6 +46,12 @@ describe('describeAccess', () => {
       'Access removed by user_admin on November 9, 2026',
     );
   });
+
+  it('says a lifted ban was lifted', () => {
+    expect(describeAccess({ kind: 'ban-lifted', at, actorClerkUserId: 'user_admin' })).toBe(
+      'Banned by user_admin on November 9, 2026, since lifted',
+    );
+  });
 });
 
 describe('describeAuditAction', () => {

@@ -1054,6 +1054,24 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
+    it('explains a manual grant the ban ended as a lifted ban, not as never having access', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      await service.liftBan(admin, member.id, { reason: null });
+      const [summary] = (await service.listMembers(member.clerkUserId)).filter(
+        (row) => row.id === member.id,
+      );
+
+      expect(summary?.hasAccess).toBe(false);
+      expect(summary?.access).toMatchObject({
+        kind: 'ban-lifted',
+        actorClerkUserId: admin.clerkUserId,
+      });
+    });
+
     it('is refused on a member who is not banned', async () => {
       const admin = await createAdmin();
       const { member } = await payingMember();

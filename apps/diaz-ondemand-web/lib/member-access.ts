@@ -48,6 +48,8 @@ export function describeAccess(access: MemberAccessStatus): string {
         : `Banned on ${formatDate(access.at)}`;
     case 'admin-revoked':
       return `Access removed by ${access.actorClerkUserId} on ${formatDate(access.at)}`;
+    case 'ban-lifted':
+      return `Banned by ${access.actorClerkUserId} on ${formatDate(access.at)}, since lifted`;
     case 'expired':
       return `Expired on ${formatDate(access.at)}`;
     case 'subscription-inactive':

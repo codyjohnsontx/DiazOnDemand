@@ -81,6 +81,14 @@ export function banRecord(bannedAt: Date | null, audit: readonly AuditRow[]): Ba
   };
 }
 
+/** The newest ban on a member who is no longer banned, or null when none was lifted. */
+export function liftedBan(
+  bannedAt: Date | null,
+  audit: readonly AuditRow[],
+): AdminRevokeRecord | null {
+  return bannedAt === null ? newest(audit.filter(startedBan)) : null;
+}
+
 /** The last time an admin removed a manual grant ("Remove access"). */
 export function lastGrantRemoval(audit: readonly AuditRow[]): AdminRevokeRecord | null {
   return newest(
@@ -202,8 +210,8 @@ export function restoreGivesAccess(subscription: SubscriptionRow, now: Date): bo
  *
  * "No access" is never left unexplained. A ban is the answer whenever one
  * stands. Otherwise each thing that can take access away leaves a dated record
- * - a revoked subscription, a removed grant, an expiry, a subscription that
- * stopped - and the most recent of them is the answer.
+ * - a revoked subscription, a removed grant, a ban since lifted, an expiry, a
+ * subscription that stopped - and the most recent of them is the answer.
  */
 export function describeMemberAccess(
   input: {
@@ -211,10 +219,11 @@ export function describeMemberAccess(
     subscriptions: readonly SubscriptionRow[];
     lastAdminRevoke: AdminRevokeRecord | null;
     ban: BanRecord | null;
+    liftedBan: AdminRevokeRecord | null;
   },
   now: Date,
 ): MemberAccessStatus {
-  const { entitlement, subscriptions, lastAdminRevoke, ban } = input;
+  const { entitlement, subscriptions, lastAdminRevoke, ban, liftedBan } = input;
 
   if (ban) {
     return {
@@ -267,6 +276,17 @@ export function describeMemberAccess(
         kind: 'admin-revoked',
         at: lastAdminRevoke.createdAt.toISOString(),
         actorClerkUserId: lastAdminRevoke.actorClerkUserId,
+      },
+    });
+  }
+
+  if (liftedBan) {
+    candidates.push({
+      at: liftedBan.createdAt,
+      status: {
+        kind: 'ban-lifted',
+        at: liftedBan.createdAt.toISOString(),
+        actorClerkUserId: liftedBan.actorClerkUserId,
       },
     });
   }

@@ -42,6 +42,7 @@ import {
   hasLiveStripeAccess,
   isRestorable,
   lastGrantRemoval,
+  liftedBan,
   memberAccessVersion,
   planManualGrant,
   planManualRevoke,
@@ -127,6 +128,7 @@ function mapSummary(member: MemberRow, now: Date): AdminMemberSummary {
         subscriptions: member.subscriptions,
         lastAdminRevoke: lastGrantRemoval(member.accessAudit),
         ban: banRecord(member.bannedAt, member.accessAudit),
+        liftedBan: liftedBan(member.bannedAt, member.accessAudit),
       },
       now,
     ),
@@ -227,7 +229,7 @@ export class AdminMembersService {
         entitlement: true,
         subscriptions: true,
         // Only what the one-line description reads: a removed grant, and who
-        // started a ban.
+        // started a ban, standing or lifted.
         accessAudit: {
           where: { action: { in: [MemberAccessAction.REVOKE, MemberAccessAction.BAN] } },
         },
