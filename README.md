@@ -466,9 +466,9 @@ Stripe webhook endpoint:
   - a `Subscription` row per Stripe subscription. This is a **history**, not one row per member:
     a member who cancels and resubscribes gets a new Stripe subscription id, and both rows are
     kept.
-  - the `Entitlement`, always **derived from the member's stored subscriptions** rather than from
-    the event in hand. `PREMIUM` while any unrevoked subscription is `active`/`trialing`/`past_due`,
-    otherwise `FREE`. `Entitlement.source` records whether Stripe or a human last set it, and a
+  - the `Entitlement`, always **derived from the member's stored subscriptions and their ban**
+    rather than from the event in hand. `FREE` while the member is banned; otherwise `PREMIUM` while
+    any unrevoked subscription is `active`/`trialing`/`past_due`, and `FREE` if none is. `Entitlement.source` records whether Stripe or a human last set it, and a
     **live** `MANUAL` `PREMIUM` row is left alone while it ends later than the Stripe access, so
     access collected in person does not vanish the moment a Stripe event touches that member, and a
     member who pays during a grant is not locked out when it lapses. The column defaults to `MANUAL`, which would have
