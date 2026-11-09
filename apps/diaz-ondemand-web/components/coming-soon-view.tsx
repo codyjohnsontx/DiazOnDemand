@@ -19,13 +19,13 @@ export function ComingSoonView() {
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
-            className="inline-flex items-center rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+            className="inline-flex items-center btn-radius-py-3 bg-[var(--accent)] px-6 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
             href={waitlistUrl}
           >
             Join the waitlist
           </Link>
           <Link
-            className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+            className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
             href={marketingSiteUrl}
           >
             Back to Diaz Martial Arts

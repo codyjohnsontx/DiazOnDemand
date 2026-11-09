@@ -66,7 +66,7 @@ export function TopNav() {
 
             <div className="hidden items-center gap-3 lg:flex">
               <Link
-                className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 sm:text-sm"
+                className="inline-flex items-center btn-radius-py-2 btn-radius-bordered border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 sm:text-sm"
                 href={me ? '/account' : '/sign-in'}
               >
                 {me ? 'Account' : 'Sign In'}
@@ -83,7 +83,7 @@ export function TopNav() {
                 <Link
                   key={link.href}
                   className={[
-                    'shrink-0 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
+                    'shrink-0 btn-radius-py-2 btn-radius-bordered border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
                     active
                       ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]'
                       : 'border-white/10 bg-white/5 text-[var(--text-muted)]',

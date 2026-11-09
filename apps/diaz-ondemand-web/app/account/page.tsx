@@ -74,7 +74,7 @@ export default async function AccountPage() {
               </div>
               <div className="flex shrink-0 items-center gap-4">
                 <Link
-                  className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+                  className="inline-flex items-center btn-radius-py-3 bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
                   href={me.entitlementTier === 'PREMIUM' ? '/library' : '/subscribe'}
                 >
                   {me.entitlementTier === 'PREMIUM' ? 'Open library' : 'View premium'}

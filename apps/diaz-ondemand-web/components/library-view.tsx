@@ -68,7 +68,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
               aria-pressed={disciplineFilter === discipline}
               key={discipline}
               className={[
-                'rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200',
+                'btn-radius-py-2 btn-radius-bordered border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200',
                 disciplineFilter === discipline
                   ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]'
                   : 'border-white/10 bg-white/5 text-[var(--text-muted)]',
@@ -98,14 +98,14 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
           </div>
           <div className="flex flex-wrap gap-3">
             <Link
-              className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
+              className="inline-flex items-center btn-radius-py-3 btn-radius-stretched bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
               href={`/lesson/${recommendation.lessonId}`}
             >
               Open lesson
             </Link>
             {recommendation.courseId ? (
               <Link
-                className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+                className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
                 href={`/course/${recommendation.courseId}`}
               >
                 View course

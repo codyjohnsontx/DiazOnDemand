@@ -39,7 +39,7 @@ export function ManageBillingButton() {
   return (
     <div className="flex shrink-0 flex-col items-end gap-2">
       <button
-        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
+        className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
         disabled={loading}
         onClick={openPortal}
         type="button"

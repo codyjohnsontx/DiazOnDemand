@@ -16,6 +16,7 @@
     --progress: #35e0a1;
     --premium: #f2c14e;
     --danger: #e36d6d;
+    --button-radius-scale: 0.9;
   }
 
   html {
@@ -102,7 +103,8 @@
   }
 
   .nav-link {
-    @apply relative rounded-full px-4 py-2 text-sm font-semibold uppercase tracking-[0.16em] transition-colors duration-200;
+    @apply relative px-4 py-2 text-sm font-semibold uppercase tracking-[0.16em] transition-colors duration-200;
+    border-radius: calc((1lh + 1rem) / 2 * var(--button-radius-scale));
     color: var(--text-muted);
   }
 
@@ -127,6 +129,42 @@
 
   .page-enter {
     animation: page-enter 420ms ease-out both;
+  }
+
+  /*
+   * Button corners. Every button and button-styled link used to be rounded-full, which renders
+   * as half the button's height, and the owner asked for them a little squarer: 10% less radius.
+   * These classes set that radius explicitly as (height / 2) * --button-radius-scale. A button's
+   * height is its line box plus its vertical padding plus any border, so the radius is built from
+   * the same parts: 1lh follows the text size (including a responsive sm:text-sm), the rem term
+   * matches the py-* utility the button carries, and .btn-radius-bordered adds the 1px border on
+   * each side. A borderless button in a `flex flex-wrap gap-3` row beside a bordered one is 2px
+   * taller as well, because the row's default align-items: stretch gives it the sibling's height;
+   * that case takes .btn-radius-stretched. Measured in Chrome before and after: 34px buttons
+   * went from 17px to 15.3px, 36px from 18px to 16.2px, 38px from 19px to 17.1px, 44px from
+   * 22px to 19.8px, 46px from 23px to 20.7px, 52px from 26px to 23.4px.
+   */
+  .btn-radius-py-2 {
+    border-radius: calc(
+      (1lh + 1rem + var(--btn-extra-height, 0px)) / 2 * var(--button-radius-scale)
+    );
+  }
+
+  .btn-radius-py-3 {
+    border-radius: calc(
+      (1lh + 1.5rem + var(--btn-extra-height, 0px)) / 2 * var(--button-radius-scale)
+    );
+  }
+
+  .btn-radius-py-4 {
+    border-radius: calc(
+      (1lh + 2rem + var(--btn-extra-height, 0px)) / 2 * var(--button-radius-scale)
+    );
+  }
+
+  .btn-radius-bordered,
+  .btn-radius-stretched {
+    --btn-extra-height: 2px;
   }
 }
 

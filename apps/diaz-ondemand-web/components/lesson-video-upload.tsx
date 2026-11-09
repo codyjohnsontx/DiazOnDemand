@@ -181,7 +181,7 @@ export function LessonVideoUpload({
       <div className="flex flex-wrap items-center gap-3">
         <label
           className={[
-            'inline-flex cursor-pointer items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10',
+            'inline-flex cursor-pointer items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10',
             disabled ? 'cursor-not-allowed opacity-60' : '',
           ].join(' ')}
         >

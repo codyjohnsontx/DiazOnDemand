@@ -640,21 +640,21 @@ export default function AdminLessonDetailPage() {
           ) : null}
           <div className="flex flex-wrap gap-3">
             <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center btn-radius-py-3 btn-radius-stretched bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={saving}
               type="submit"
             >
               {saving ? 'Saving...' : 'Save lesson'}
             </button>
             <button
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+              className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
               onClick={togglePublish}
               type="button"
             >
               {lesson.isPublished ? 'Move to draft' : 'Publish lesson'}
             </button>
             <Link
-              className="inline-flex items-center rounded-full border border-white/10 bg-transparent px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] transition-colors duration-200 hover:border-white/20 hover:text-[var(--text)]"
+              className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-transparent px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] transition-colors duration-200 hover:border-white/20 hover:text-[var(--text)]"
               href={`/lesson/${lesson.id}`}
             >
               Preview lesson

@@ -156,13 +156,13 @@ export default function AdminProgramDetailPage() {
           </label>
           <div className="flex flex-wrap gap-3">
             <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+              className="inline-flex items-center btn-radius-py-3 btn-radius-stretched bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
               type="submit"
             >
               Save program
             </button>
             <button
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+              className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
               onClick={togglePublish}
               type="button"
             >
@@ -182,7 +182,7 @@ export default function AdminProgramDetailPage() {
               onChange={(event) => setNewCourseTitle(event.target.value)}
             />
             <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+              className="inline-flex items-center btn-radius-py-3 bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
               type="submit"
             >
               Add course
@@ -213,7 +213,7 @@ export default function AdminProgramDetailPage() {
                   </p>
                 </div>
                 <Link
-                  className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+                  className="inline-flex items-center btn-radius-py-2 btn-radius-bordered border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
                   href={`/admin/courses/${course.id}`}
                 >
                   Manage lessons

@@ -138,7 +138,7 @@ export function CourseDetailView({
             <div className="flex flex-wrap items-center gap-3">
               {primaryLessonId ? (
                 <Link
-                  className="inline-flex items-center rounded-full bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
+                  className="inline-flex items-center btn-radius-py-3 bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
                   href={`/lesson/${primaryLessonId}`}
                 >
                   {primaryCtaLabel}
@@ -146,7 +146,7 @@ export function CourseDetailView({
               ) : null}
               {recommendation.lessonId ? (
                 <Link
-                  className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+                  className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
                   href={`/lesson/${recommendation.lessonId}`}
                 >
                   Open recommendation

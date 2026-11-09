@@ -98,7 +98,7 @@ export default function AdminProgramsPage() {
         actions={
           role === Role.ADMIN ? (
             <Link
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+              className="inline-flex items-center btn-radius-py-2 btn-radius-bordered border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
               href="/admin/members"
             >
               Members
@@ -176,7 +176,7 @@ export default function AdminProgramsPage() {
               </p>
             ) : null}
             <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60"
+              className="inline-flex items-center btn-radius-py-3 bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60"
               disabled={submitting || !form.title.trim()}
               type="submit"
             >
@@ -223,7 +223,7 @@ export default function AdminProgramsPage() {
                       </p>
                     </div>
                     <Link
-                      className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+                      className="inline-flex items-center btn-radius-py-2 btn-radius-bordered border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
                       href={`/admin/programs/${program.id}`}
                     >
                       Manage

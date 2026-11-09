@@ -170,7 +170,7 @@ export default function AdminCourseDetailPage() {
             </div>
           </div>
           <button
-            className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+            className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
             onClick={togglePublish}
             type="button"
           >
@@ -189,7 +189,7 @@ export default function AdminCourseDetailPage() {
               onChange={(event) => setNewLessonTitle(event.target.value)}
             />
             <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+              className="inline-flex items-center btn-radius-py-3 bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
               type="submit"
             >
               Add lesson
@@ -249,7 +249,7 @@ export default function AdminCourseDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      className="rounded-full border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)] disabled:opacity-35"
+                      className="btn-radius-py-2 btn-radius-bordered border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)] disabled:opacity-35"
                       disabled={index === 0}
                       onClick={() => void moveLesson(lesson.id, -1)}
                       type="button"
@@ -257,7 +257,7 @@ export default function AdminCourseDetailPage() {
                       Up
                     </button>
                     <button
-                      className="rounded-full border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)] disabled:opacity-35"
+                      className="btn-radius-py-2 btn-radius-bordered border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)] disabled:opacity-35"
                       disabled={index === sorted.length - 1}
                       onClick={() => void moveLesson(lesson.id, 1)}
                       type="button"
@@ -265,7 +265,7 @@ export default function AdminCourseDetailPage() {
                       Down
                     </button>
                     <Link
-                      className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+                      className="inline-flex items-center btn-radius-py-2 btn-radius-bordered border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
                       href={`/admin/lessons/${lesson.id}`}
                     >
                       Edit

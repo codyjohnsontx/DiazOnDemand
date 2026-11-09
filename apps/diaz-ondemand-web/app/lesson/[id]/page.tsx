@@ -522,7 +522,7 @@ export default function LessonPage() {
               <div className="flex flex-wrap items-center gap-3">
                 {video.provider === VideoProvider.YOUTUBE ? (
                   <button
-                    className="inline-flex items-center rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+                    className="inline-flex items-center btn-radius-py-2 bg-[var(--accent)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
                     onClick={() => void markLessonComplete()}
                     type="button"
                   >
@@ -531,7 +531,7 @@ export default function LessonPage() {
                 ) : null}
                 <button
                   className={[
-                    'inline-flex items-center rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
+                    'inline-flex items-center btn-radius-py-2 btn-radius-bordered border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
                     isFavorite
                       ? 'border-[var(--premium)]/40 bg-[var(--premium)]/12 text-[var(--text)]'
                       : 'border-white/10 bg-white/5 text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--text)]',

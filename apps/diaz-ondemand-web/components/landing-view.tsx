@@ -10,13 +10,13 @@ export function LandingView() {
         <section className="surface-panel space-y-6 p-8">
           <div className="flex flex-wrap gap-3">
             <Link
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+              className="inline-flex items-center btn-radius-py-3 btn-radius-stretched bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
               href="/library"
             >
               Browse free content
             </Link>
             <Link
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+              className="inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
               href="/sign-in"
             >
               Sign in
@@ -29,7 +29,7 @@ export function LandingView() {
             Unlock the full library
           </h2>
           <Link
-            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
+            className="inline-flex items-center justify-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
             href="/subscribe"
           >
             View premium
