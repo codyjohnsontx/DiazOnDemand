@@ -29,7 +29,7 @@ import { List } from '@/components/ui/list';
 import { Progress } from '@/components/ui/progress';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
-import { tokenHex } from '@/lib/design-tokens';
+import { tokenLiteral } from '@/lib/design-tokens';
 import {
   buildCourseProgress,
   buildLessonQueue,
@@ -428,11 +428,11 @@ export default function LessonPage() {
             </div>
           </div>
 
-          <Card padded={false}>
+          <Card padding="none">
             {video.provider === VideoProvider.MUX && (video.muxPlaybackId || video.playbackUrl) ? (
               <MuxPlayer
                 ref={playerRef as never}
-                accentColor={tokenHex['color-surface-accent']}
+                accentColor={tokenLiteral['color-surface-accent']}
                 className="aspect-video w-full"
                 metadata={{ video_id: lesson.id, video_title: lesson.title }}
                 // `playbackId` and `src` are alternatives, and `playbackId`

@@ -1,103 +1,91 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import postcss, { type Root } from 'postcss';
+import tailwindcss from 'tailwindcss';
 import { describe, expect, it } from 'vitest';
-import { tokenHex } from '../lib/design-tokens';
+import { tokenLiteral } from '../lib/design-tokens';
+import tailwindConfig from '../tailwind.config';
 
 /**
  * The mechanical half of "no raw design values": every colour, size, space, radius,
  * shadow and duration in the web app comes from the token block in app/globals.css, by
- * name, through the Tailwind theme. These checks refuse the ways a raw value gets back in.
+ * name, through the Tailwind theme. These checks run the stylesheet the app ships through
+ * Tailwind and read what comes out.
  */
 const root = join(__dirname, '..');
-const sourceDirs = ['app', 'components'];
+const globalsPath = join(root, 'app', 'globals.css');
+const globals = readFileSync(globalsPath, 'utf8');
 
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((entry) => {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) return sourceFiles(path);
-    return /\.tsx?$/.test(entry) ? [path] : [];
-  });
+async function compile(css: string, content: string[]) {
+  const config = { ...tailwindConfig, content };
+  const result = await postcss([tailwindcss(config)]).process(css, { from: globalsPath });
+  return result.root;
 }
 
-const files = sourceDirs.flatMap((dir) => sourceFiles(join(root, dir)));
+function declarations(css: Root) {
+  const found: { selector: string; prop: string; value: string }[] = [];
+  css.walkDecls((decl) => {
+    const parent = decl.parent;
+    const selector =
+      parent && parent.type === 'rule' ? (parent as { selector: string }).selector : '';
+    found.push({ selector, prop: decl.prop, value: decl.value });
+  });
+  return found;
+}
 
-/** The numeric steps of the spacing scale; any other number after a spacing utility is raw. */
-const spacingSteps = new Set([
-  '0',
-  '050',
-  '100',
-  '200',
-  '300',
-  '400',
-  '500',
-  '600',
-  '800',
-  '1000',
-  '1200',
-  '1600',
-]);
-const spacingUtilities =
-  'p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y|space-x|space-y|w|h|size|min-w|min-h|max-h|top|bottom|left|right|inset|inset-x|inset-y|translate-x|translate-y';
+const key = ({ selector, prop, value }: { selector: string; prop: string; value: string }) =>
+  `${selector}|${prop}|${value}`;
 
-const forbidden: { name: string; pattern: RegExp }[] = [
-  { name: 'arbitrary Tailwind value', pattern: /\b[a-z][a-z-]*-\[[^\]]+\]/ },
-  { name: 'translucent white or black', pattern: /\b[a-z-]+-(?:white|black)(?:\/\d+)?\b/ },
-  {
-    name: 'default Tailwind radius',
-    pattern: /\brounded(?:-[trbl]{1,2})?(?:-(?:full|sm|md|lg|xl|\dxl))?(?=\s|"|'|`|$)/,
-  },
-  { name: 'default Tailwind font size', pattern: /\btext-(?:xs|sm|base|lg|xl|\dxl)\b/ },
-  {
-    name: 'default Tailwind weight',
-    pattern: /\bfont-(?:thin|light|normal|bold|extrabold|black)\b/,
-  },
-  {
-    name: 'default Tailwind tracking',
-    pattern: /\btracking-(?:tighter|tight|normal|wide|wider|widest)\b/,
-  },
-  { name: 'numeric duration, opacity or z-index', pattern: /\b(?:duration|opacity|z)-\d+\b/ },
-  {
-    name: 'default Tailwind shadow',
-    pattern: /\bshadow(?:-(?:sm|md|lg|xl|2xl|inner))?(?=\s|"|'|`|$)/,
-  },
-  { name: 'gradient or blur', pattern: /gradient|backdrop-blur/ },
-  { name: 'hex colour', pattern: /#[0-9a-fA-F]{3,8}\b/ },
-];
-
-const spacingPattern = new RegExp(`\\b(?:${spacingUtilities})-(\\d+(?:\\.\\d+)?|px)\\b`, 'g');
+const rawColour =
+  /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(|\b(?:white|black)\b/i;
+const decoration = /gradient|blur\(/i;
+/** Tailwind's empty shadow, a transparent placeholder in its ring and shadow composition. */
+const emptyShadow = /0 0 #0000/g;
 
 describe('design tokens', () => {
-  it('finds the web app source', () => {
-    expect(files.length).toBeGreaterThan(20);
+  const content = (tailwindConfig.content as string[]).map((glob) => join(root, glob));
+  const shipped = compile(globals, content);
+  const reset = compile('@tailwind base;', []);
+
+  it('compiles the utilities the app uses', async () => {
+    const selectors = new Set(declarations(await shipped).map((decl) => decl.selector));
+
+    expect(selectors).toContain('.bg-surface-raised');
+    expect(selectors).toContain('.p-600');
   });
 
-  for (const file of files) {
-    const name = relative(root, file);
-    const source = readFileSync(file, 'utf8');
-
-    it(`${name} is built only from tokens`, () => {
-      const offences: string[] = [];
-
-      for (const { name: kind, pattern } of forbidden) {
-        const match = source.match(pattern);
-        if (match) offences.push(`${kind}: ${match[0]}`);
-      }
-
-      for (const match of source.matchAll(spacingPattern)) {
-        if (!spacingSteps.has(match[1] ?? '')) offences.push(`raw spacing: ${match[0]}`);
-      }
-
-      expect(offences).toEqual([]);
+  it('generates no arbitrary Tailwind value', async () => {
+    const arbitrary = new Set<string>();
+    (await shipped).walkRules((rule) => {
+      if (rule.selector.includes('\\[')) arbitrary.add(rule.selector);
     });
-  }
 
-  const css = readFileSync(join(root, 'app', 'globals.css'), 'utf8');
+    expect([...arbitrary]).toEqual([]);
+  });
 
-  for (const [token, hex] of Object.entries(tokenHex)) {
+  it('holds raw colours, gradients and blurs only in the :root token block', async () => {
+    const tailwindReset = new Set(declarations(await reset).map(key));
+    const offences = declarations(await shipped)
+      .filter((decl) => decl.selector !== ':root' && !tailwindReset.has(key(decl)))
+      .filter((decl) => {
+        const value = decl.value.replace(emptyShadow, '');
+        return rawColour.test(value) || decoration.test(value);
+      })
+      .map((decl) => `${decl.selector} { ${decl.prop}: ${decl.value} }`);
+
+    expect(offences).toEqual([]);
+  });
+
+  const tokens = new Map<string, string>();
+  postcss.parse(globals).walkRules(':root', (rule) => {
+    rule.walkDecls((decl) => {
+      tokens.set(decl.prop, decl.value);
+    });
+  });
+
+  for (const [token, literal] of Object.entries(tokenLiteral)) {
     it(`mirrors ${token} from app/globals.css in lib/design-tokens.ts`, () => {
-      const declared = css.match(new RegExp(`--${token}:\\s*(#[0-9a-f]{6});`));
-
-      expect(declared?.[1] ?? null).toBe(hex);
+      expect(tokens.get(`--${token}`) ?? null).toBe(literal);
     });
   }
 });

@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { Card } from '@/components/ui/card';
 import { clerkEnabled, devBypassEnabled } from '@/lib/config';
-import { tokenHex } from '@/lib/design-tokens';
+import { tokenLiteral } from '@/lib/design-tokens';
 
 export default function SignInPage() {
   if (!clerkEnabled) {
@@ -32,17 +32,18 @@ export default function SignInPage() {
       <Card className="flex justify-center">
         <SignIn
           appearance={{
-            // Clerk derives shades from these, so they are the hex mirror of the tokens
-            // rather than the custom properties; the element classes below use the tokens.
+            // Clerk derives shades and radii from these, so they are the literal mirror of
+            // the tokens rather than the custom properties; the element classes below use
+            // the tokens.
             variables: {
-              colorBackground: tokenHex['color-surface-primary'],
-              colorInputBackground: tokenHex['color-surface-raised'],
-              colorInputText: tokenHex['color-foreground-primary'],
-              colorPrimary: tokenHex['color-surface-accent'],
-              colorText: tokenHex['color-foreground-primary'],
-              colorTextSecondary: tokenHex['color-foreground-faint'],
-              colorDanger: tokenHex['color-foreground-critical'],
-              borderRadius: 'var(--radius-200)',
+              colorBackground: tokenLiteral['color-surface-primary'],
+              colorInputBackground: tokenLiteral['color-surface-raised'],
+              colorInputText: tokenLiteral['color-foreground-primary'],
+              colorPrimary: tokenLiteral['color-surface-accent'],
+              colorText: tokenLiteral['color-foreground-primary'],
+              colorTextSecondary: tokenLiteral['color-foreground-faint'],
+              colorDanger: tokenLiteral['color-foreground-critical'],
+              borderRadius: tokenLiteral['radius-200'],
               fontFamily: 'var(--font-body), Helvetica Neue, sans-serif',
             },
             elements: {

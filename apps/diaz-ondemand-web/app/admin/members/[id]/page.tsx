@@ -102,7 +102,8 @@ function ConfirmedAction({
   return (
     <Card
       aria-label={`Confirm: ${label}`}
-      className="flex flex-col gap-400 p-400"
+      className="flex flex-col gap-400"
+      padding="compact"
       role="group"
       variant="raised"
     >
@@ -168,7 +169,7 @@ function SubscriptionRow({
     : '';
 
   return (
-    <Card className="flex flex-col gap-400 p-400" variant="raised">
+    <Card className="flex flex-col gap-400" padding="compact" variant="raised">
       <div className="flex flex-col gap-200">
         <div className="flex flex-wrap items-center gap-200">
           <h3 className="break-all text-body-300 font-semibold">
@@ -429,7 +430,7 @@ export default function AdminMemberPage() {
               <ol className="flex flex-col gap-300">
                 {member.history.map((entry) => (
                   <li key={entry.id}>
-                    <Card className="flex flex-col gap-100 p-400" variant="raised">
+                    <Card className="flex flex-col gap-100" padding="compact" variant="raised">
                       <p className="text-body-200 font-semibold">
                         {describeAuditAction(entry)} - {entry.actorClerkUserId},{' '}
                         {formatDate(entry.createdAt)}

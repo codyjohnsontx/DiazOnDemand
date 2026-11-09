@@ -8,7 +8,7 @@
     else is built from these names, through the Tailwind theme in tailwind.config.ts.
     Naming follows Helios: <category>-<role>-<variant>, with numeric scales for type, spacing
     and radius so a larger number always means larger. `--font-display` and `--font-body` are
-    set by next/font in app/layout.tsx. The hex values that third-party widgets need as
+    set by next/font in app/layout.tsx. The values that third-party widgets need as
     literals are mirrored in lib/design-tokens.ts, and tests/design-tokens.test.ts keeps the
     two in step.
   */

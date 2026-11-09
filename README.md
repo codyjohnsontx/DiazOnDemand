@@ -262,12 +262,13 @@ flat look with colour reserved for meaning.
   critical), `Card`, `List` / `ListRow`, `Progress`, and `Field` / `Input` / `Select` /
   `Textarea` / `Checkbox`. Orange is the one primary action on a screen; green means
   progress or success; gold means premium; red means critical.
-- `apps/diaz-ondemand-web/lib/design-tokens.ts` mirrors the few hex values that Clerk's
-  `appearance.variables` and the Mux player need as literals.
-- `apps/diaz-ondemand-web/tests/design-tokens.test.ts` runs with `pnpm test` and refuses raw
-  values in `app/` and `components/` (arbitrary `-[...]` values, default Tailwind scales,
-  translucent white, gradients, hex colours) and fails if a mirrored hex drifts from the
-  token in `globals.css`.
+- `apps/diaz-ondemand-web/lib/design-tokens.ts` mirrors the few token values (colours and
+  the base radius) that Clerk's `appearance.variables` and the Mux player need as literals.
+- `apps/diaz-ondemand-web/tests/design-tokens.test.ts` runs with `pnpm test`, compiles
+  `globals.css` through Tailwind with this config over `app/` and `components/`, and fails
+  if the output holds an arbitrary `-[...]` value, or a raw colour, gradient or blur outside
+  the `:root` token block that Tailwind's own reset does not already carry. It also fails if
+  a mirrored literal drifts from the token in `globals.css`.
 
 ### Vertical Slice Walkthrough
 

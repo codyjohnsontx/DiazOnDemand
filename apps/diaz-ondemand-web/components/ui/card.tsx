@@ -1,6 +1,7 @@
 import type { HTMLAttributes } from 'react';
 
 export type CardVariant = 'default' | 'raised' | 'emphasis';
+export type CardPadding = 'default' | 'compact' | 'none';
 
 /**
  * One solid surface with one solid border. `emphasis` is the stronger border for the one
@@ -12,20 +13,21 @@ const VARIANTS: Record<CardVariant, string> = {
   raised: 'border-border-strong bg-surface-raised',
 };
 
+const PADDING: Record<CardPadding, string> = {
+  default: 'p-600',
+  compact: 'p-400',
+  none: 'overflow-hidden',
+};
+
 export function Card({
   variant = 'default',
-  padded = true,
+  padding = 'default',
   className,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { variant?: CardVariant; padded?: boolean }) {
+}: HTMLAttributes<HTMLDivElement> & { variant?: CardVariant; padding?: CardPadding }) {
   return (
     <div
-      className={[
-        'rounded-300 border',
-        VARIANTS[variant],
-        padded ? 'p-600' : 'overflow-hidden',
-        className,
-      ]
+      className={['rounded-300 border', VARIANTS[variant], PADDING[padding], className]
         .filter(Boolean)
         .join(' ')}
       {...props}

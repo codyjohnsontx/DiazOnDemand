@@ -5,6 +5,7 @@ import {
   buildRecommendation,
   Discipline,
   getDisciplineLabel,
+  hasPlayableVideo,
   type ProgramWithContentDto,
   type ProgressDto,
 } from '@diaz/shared';
@@ -117,7 +118,9 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
                   {[
                     recommended.course.title,
                     recommended.program.title,
-                    formatDuration(recommended.lesson.durationSeconds),
+                    hasPlayableVideo(recommended.lesson)
+                      ? formatDuration(recommended.lesson.durationSeconds)
+                      : null,
                   ]
                     .filter(Boolean)
                     .join(' · ')}
