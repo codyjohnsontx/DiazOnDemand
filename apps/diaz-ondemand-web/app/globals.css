@@ -102,6 +102,11 @@
     background: color-mix(in srgb, var(--surface-2) 75%, transparent);
   }
 
+  .nav-group {
+    @apply text-sm;
+    border-radius: calc((1lh + 1rem + 0.5rem + 2px) / 2 * var(--button-radius-scale));
+  }
+
   .nav-link {
     @apply relative px-4 py-2 text-sm font-semibold uppercase tracking-[0.16em] transition-colors duration-200;
     border-radius: calc((1lh + 1rem) / 2 * var(--button-radius-scale));
@@ -138,11 +143,9 @@
    * height is its line box plus its vertical padding plus any border, so the radius is built from
    * the same parts: 1lh follows the text size (including a responsive sm:text-sm), the rem term
    * matches the py-* utility the button carries, and .btn-radius-bordered adds the 1px border on
-   * each side. A borderless button in a `flex flex-wrap gap-3` row beside a bordered one is 2px
-   * taller as well, because the row's default align-items: stretch gives it the sibling's height;
-   * that case takes .btn-radius-stretched. Measured in Chrome before and after: 34px buttons
-   * went from 17px to 15.3px, 36px from 18px to 16.2px, 38px from 19px to 17.1px, 44px from
-   * 22px to 19.8px, 46px from 23px to 20.7px, 52px from 26px to 23.4px.
+   * each side. Measured in Chrome before and after: 34px buttons went from 17px to 15.3px, 36px
+   * from 18px to 16.2px, 38px from 19px to 17.1px, 44px from 22px to 19.8px, 46px from 23px to
+   * 20.7px, 52px from 26px to 23.4px.
    */
   .btn-radius-py-2 {
     border-radius: calc(
@@ -162,8 +165,7 @@
     );
   }
 
-  .btn-radius-bordered,
-  .btn-radius-stretched {
+  .btn-radius-bordered {
     --btn-extra-height: 2px;
   }
 }

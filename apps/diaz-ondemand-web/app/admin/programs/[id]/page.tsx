@@ -156,7 +156,7 @@ export default function AdminProgramDetailPage() {
           </label>
           <div className="flex flex-wrap gap-3">
             <button
-              className="inline-flex items-center btn-radius-py-3 btn-radius-stretched bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
+              className="inline-flex items-center btn-radius-py-3 bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
               type="submit"
             >
               Save program

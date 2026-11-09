@@ -46,7 +46,7 @@ export function TopNav() {
               </div>
             </Link>
 
-            <nav className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 md:flex">
+            <nav className="nav-group hidden items-center gap-1 border border-white/10 bg-white/5 p-1 md:flex">
               {links.map((link) => {
                 const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
 

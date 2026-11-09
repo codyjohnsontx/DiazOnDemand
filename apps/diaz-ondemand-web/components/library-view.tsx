@@ -98,7 +98,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
           </div>
           <div className="flex flex-wrap gap-3">
             <Link
-              className="inline-flex items-center btn-radius-py-3 btn-radius-stretched bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
+              className="inline-flex items-center btn-radius-py-3 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
               href={`/lesson/${recommendation.lessonId}`}
             >
               Open lesson

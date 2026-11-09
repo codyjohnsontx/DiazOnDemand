@@ -20,7 +20,7 @@ import {
 } from '@/lib/member-access';
 
 const PRIMARY_BUTTON =
-  'inline-flex items-center btn-radius-py-3 btn-radius-stretched bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60';
+  'inline-flex items-center btn-radius-py-3 bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60';
 const SECONDARY_BUTTON =
   'inline-flex items-center btn-radius-py-3 btn-radius-bordered border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 disabled:opacity-60';
 const FIELD =
