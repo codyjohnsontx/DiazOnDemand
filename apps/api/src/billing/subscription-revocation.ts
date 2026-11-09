@@ -1,4 +1,4 @@
-import { STRIPE_TERMINAL_STATUSES, isLiveStripeSubscription } from '../common/entitlement.js';
+import { isLiveStripeSubscription } from '../common/entitlement.js';
 
 /**
  * When and why a subscription's access is withdrawn, and what it takes to earn
@@ -16,9 +16,8 @@ import { STRIPE_TERMINAL_STATUSES, isLiveStripeSubscription } from '../common/en
  * `created` stamp rather than the wall clock, so revocations and subscription
  * events can be ordered against each other.
  *
- * An admin revocation is stored apart, in `adminRevokedAt`, because it is a
- * person's decision rather than a fact from Stripe. A refund or chargeback is
- * recorded beside it without overwriting it, and nothing Stripe does clears it.
+ * An admin's decision to bar a member is not a revocation of any one
+ * subscription: it is a ban, `User.bannedAt`, which the entitlement sync reads.
  */
 
 /** A refund can be issued by mistake or as goodwill, so it is not final. */
@@ -28,8 +27,8 @@ export const REVOKE_REASON_REFUND = 'refund';
 export const REVOKE_REASON_CHARGEBACK = 'chargeback';
 
 /**
- * The only values `revokedReason` is ever written with. An admin revocation is
- * not one of them: it lives in `adminRevokedAt`. Callers pass one of these
+ * The only values `revokedReason` is ever written with. A ban is not one of
+ * them: it lives on the member. Callers pass one of these
  * rather than a free string, so a typo cannot invent a reason that no release
  * path knows how to clear - which would strand a member with access nothing can
  * give back.
@@ -43,10 +42,6 @@ export type RevocationState = {
    * an older build may carry a reason this build no longer defines.
    */
   revokedReason: string | null;
-};
-
-export type AdminRevocationState = {
-  adminRevokedAt: Date | null;
 };
 
 type RevocationSubject = RevocationState & {
@@ -111,71 +106,18 @@ export function planDisputeWonRelease(current: RevocationState): RevocationState
 }
 
 /**
- * What an admin withdrawing a subscription's access writes to the row, usually
- * because an alert said a refund or chargeback could not be traced to a member.
- * The subscription, and its billing, stay exactly as they were.
- */
-export function planAdminRevocation(now: Date): AdminRevocationState {
-  return { adminRevokedAt: now };
-}
-
-/**
- * Whether a withdrawal has to stamp this row. The decision is about the member,
- * but access is derived row by row, so every row that could ever grant access
- * has to carry it: not just the live ones, or a refunded, charged-back or unpaid
- * sibling recovering in Stripe would hand access straight back. A row Stripe can
- * never revive is left alone, so a restore never has to clear a dead one, and a
- * row already stamped keeps the date of the decision that covers it.
- */
-export function needsAdminRevocation(
-  subscription: AdminRevocationState & { status: string },
-): boolean {
-  return subscription.adminRevokedAt === null && !STRIPE_TERMINAL_STATUSES.has(subscription.status);
-}
-
-/**
- * Whether a subscription joined an admin revocation rather than being withdrawn
- * by it: it was created after the decision it carries, so the admin never saw it
- * when they confirmed, and it is billing a member who cannot watch.
- */
-export function joinedAdminRevocation(
-  subscription: AdminRevocationState & { createdAt: Date },
-): boolean {
-  return !!subscription.adminRevokedAt && subscription.adminRevokedAt < subscription.createdAt;
-}
-
-/**
- * Whether an admin revocation stands on any of a member's subscriptions, ended
- * ones included. That bars a new subscription until an admin restores them,
- * because paying again would undo the decision with no admin involved.
- */
-export function hasAdminRevocation(subscriptions: readonly AdminRevocationState[]): boolean {
-  return subscriptions.some((subscription) => subscription.adminRevokedAt);
-}
-
-/**
  * What an admin restoring a member should write to the row, or `null` when
  * there is no revocation an admin may clear.
  *
- * This is the only way back from an admin revocation, and the immediate way back
- * for a refund issued by mistake, which the renewal rule below deliberately
- * cannot see. It is a person's decision rather than evidence from Stripe, so the
- * admin members screen records who made it.
- *
- * It clears one revocation at a time, the admin's own first, so a refund that
- * landed afterwards is decided on separately rather than waved through with it.
+ * This is the immediate way back for a refund issued by mistake, which the
+ * renewal rule below deliberately cannot see. It is a person's decision rather
+ * than evidence from Stripe, so the admin members screen records who made it.
  *
  * A chargeback is not released. It took the money back by force and clears only
  * on a won dispute; letting an admin wave it through would hand access back to
  * somebody who is not paying.
  */
-export function planManualRelease(
-  current: RevocationState & AdminRevocationState,
-): RevocationState | AdminRevocationState | null {
-  if (current.adminRevokedAt !== null) {
-    return { adminRevokedAt: null };
-  }
-
+export function planManualRelease(current: RevocationState): RevocationState | null {
   if (current.revokedAt === null || current.revokedReason !== REVOKE_REASON_REFUND) {
     return null;
   }

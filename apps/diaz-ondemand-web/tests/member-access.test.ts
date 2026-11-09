@@ -1,11 +1,11 @@
-import { EntitlementTier, type AdminMemberSubscription } from '@diaz/shared';
+import { EntitlementTier, MemberAccessAction, type AdminMemberAuditEntry } from '@diaz/shared';
 import { describe, expect, it } from 'vitest';
 import {
+  describeAccess,
+  describeAuditAction,
   endOfDayIso,
-  isCheckoutBarred,
   offerAfterAccessRevoked,
   premiumOffer,
-  restoreKeepsCheckoutBar,
 } from '../lib/member-access';
 
 describe('endOfDayIso', () => {
@@ -26,37 +26,43 @@ describe('endOfDayIso', () => {
   });
 });
 
-describe('restoreKeepsCheckoutBar', () => {
-  const row = (id: string, adminRevokedAt: string | null) =>
-    ({ id, adminRevokedAt }) as AdminMemberSubscription;
-  const live = row('sub-1', '2026-11-01T00:00:00.000Z');
-  const unpaid = row('sub-2', '2026-11-01T00:00:00.000Z');
+describe('describeAccess', () => {
+  const at = '2026-11-09T12:00:00.000Z';
 
-  it('is true for the row that gives access back while a sibling stays revoked', () => {
-    expect(restoreKeepsCheckoutBar(live, [live, unpaid])).toBe(true);
+  it('names who banned the member and when', () => {
+    expect(
+      describeAccess({ kind: 'banned', at, actorClerkUserId: 'user_admin', reason: 'Abuse' }),
+    ).toBe('Banned by user_admin on November 9, 2026');
   });
 
-  it('is false for the last admin revocation, the restore that lifts the bar', () => {
-    expect(restoreKeepsCheckoutBar(live, [live, row('sub-2', null)])).toBe(false);
+  it('still dates a ban whose starting audit row is gone', () => {
+    expect(describeAccess({ kind: 'banned', at, actorClerkUserId: null, reason: null })).toBe(
+      'Banned on November 9, 2026',
+    );
   });
 
-  it('is true for a refund restored while an admin revocation stands elsewhere', () => {
-    const refunded = row('sub-3', null);
-
-    expect(restoreKeepsCheckoutBar(refunded, [refunded, unpaid])).toBe(true);
+  it('calls ending a manual grant removing access', () => {
+    expect(describeAccess({ kind: 'admin-revoked', at, actorClerkUserId: 'user_admin' })).toBe(
+      'Access removed by user_admin on November 9, 2026',
+    );
   });
 });
 
-describe('isCheckoutBarred', () => {
-  const row = (adminRevokedAt: string | null) => ({ adminRevokedAt }) as AdminMemberSubscription;
+describe('describeAuditAction', () => {
+  const entry = (action: MemberAccessAction, stripeSubscriptionId: string | null = null) =>
+    ({ action, stripeSubscriptionId }) as AdminMemberAuditEntry;
 
-  it('stays true for a leftover revocation after the live row was restored', () => {
-    expect(isCheckoutBarred([row(null), row('2026-11-01T00:00:00.000Z')])).toBe(true);
+  it('labels a ban and its lifting', () => {
+    expect(describeAuditAction(entry(MemberAccessAction.BAN))).toBe('Banned');
+    expect(describeAuditAction(entry(MemberAccessAction.UNBAN))).toBe('Lifted the ban');
   });
 
-  it('is false once no row carries an admin revocation', () => {
-    expect(isCheckoutBarred([row(null), row(null)])).toBe(false);
-    expect(isCheckoutBarred([])).toBe(false);
+  it('labels ending a manual grant as removing access', () => {
+    expect(describeAuditAction(entry(MemberAccessAction.REVOKE))).toBe('Removed access');
+  });
+
+  it('keeps the old words on a revocation of Stripe access written before bans existed', () => {
+    expect(describeAuditAction(entry(MemberAccessAction.REVOKE, 'sub_123'))).toBe('Revoked access');
   });
 });
 
@@ -71,7 +77,7 @@ describe('premiumOffer', () => {
     expect(premiumOffer({ checkoutBlocked: true, entitlementTier: FREE })).toBe('blocked');
   });
 
-  it('offers checkout when no admin revocation stands, whatever the tier', () => {
+  it('offers checkout to a member who is not banned, whatever the tier', () => {
     expect(premiumOffer({ checkoutBlocked: false, entitlementTier: FREE })).toBe('checkout');
     expect(premiumOffer({ checkoutBlocked: false, entitlementTier: PREMIUM })).toBe('checkout');
     expect(premiumOffer({ entitlementTier: FREE })).toBe('checkout');

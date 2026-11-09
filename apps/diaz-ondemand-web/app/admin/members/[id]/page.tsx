@@ -15,8 +15,6 @@ import {
   describeAuditChange,
   endOfDayIso,
   formatDate,
-  isCheckoutBarred,
-  restoreKeepsCheckoutBar,
 } from '@/lib/member-access';
 
 const PRIMARY_BUTTON =
@@ -146,11 +144,11 @@ function ConfirmedAction({
 
 function SubscriptionRow({
   subscription,
-  keepsCheckoutBar,
+  banned,
   onRestore,
 }: {
   subscription: AdminMemberSubscription;
-  keepsCheckoutBar: boolean;
+  banned: boolean;
   onRestore: (subscription: AdminMemberSubscription, reason: string) => Promise<void>;
 }) {
   const periodEnd = subscription.currentPeriodEnd
@@ -159,24 +157,14 @@ function SubscriptionRow({
   const periodOver =
     subscription.currentPeriodEnd !== null && new Date(subscription.currentPeriodEnd) <= new Date();
   const status = subscription.status.replace(/_/g, ' ');
-  const revocations = [
-    subscription.adminRevokedAt
-      ? `Revoked by an admin on ${formatDate(subscription.adminRevokedAt)}`
-      : null,
-    subscription.revokedAt
-      ? `Revoked by ${subscription.revokedReason ?? 'unknown reason'} on ${formatDate(subscription.revokedAt)}`
-      : null,
-  ].filter(Boolean);
-  const clearing = subscription.adminRevokedAt ? 'admin' : subscription.revokedReason;
-  const whyNoAccess =
-    subscription.adminRevokedAt && subscription.revokedAt
-      ? `It stays revoked by ${subscription.revokedReason}`
-      : periodOver
-        ? `Its paid period ended ${periodEnd}`
-        : `The subscription is ${status}`;
-  const barStays = keepsCheckoutBar
-    ? ' Another subscription keeps an admin revocation, so they still cannot start a new subscription.'
-    : '';
+  const revocation = subscription.revokedAt
+    ? `Revoked by ${subscription.revokedReason ?? 'unknown reason'} on ${formatDate(subscription.revokedAt)}`
+    : null;
+  const whyNoAccess = banned
+    ? 'The member is banned'
+    : periodOver
+      ? `Its paid period ended ${periodEnd}`
+      : `The subscription is ${status}`;
 
   return (
     <div className="surface-panel-muted space-y-4 p-4">
@@ -188,8 +176,8 @@ function SubscriptionRow({
           <PremiumBadge label={status} />
         </div>
         <p className="text-sm text-[var(--text-muted)]">
-          {revocations.length > 0
-            ? revocations.join('. ')
+          {revocation
+            ? revocation
             : periodEnd
               ? `Paid period ends ${periodEnd}`
               : 'No paid period recorded'}
@@ -199,8 +187,8 @@ function SubscriptionRow({
         <ConfirmedAction
           confirmation={
             subscription.restoreGivesAccess
-              ? `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.${barStays}`
-              : `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.${subscription.restoreOpensCheckout ? ' They will be able to start a new subscription.' : barStays}`
+              ? `Clear the ${subscription.revokedReason} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.`
+              : `Clear the ${subscription.revokedReason} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.`
           }
           label="Restore access"
           onConfirm={(reason) => onRestore(subscription, reason)}
@@ -295,6 +283,8 @@ export default function AdminMemberPage() {
   }
 
   const hasManualGrant = member.access.kind === 'manual-grant';
+  const ban = member.access.kind === 'banned' ? member.access : null;
+  const stripeAccess = member.stripeAccess;
 
   return (
     <AppShell className="space-y-8">
@@ -318,13 +308,16 @@ export default function AdminMemberPage() {
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="type-title-lg text-[var(--text)]">
-                {member.hasAccess ? 'Premium access' : 'No access'}
+                {ban ? 'Banned' : member.hasAccess ? 'Premium access' : 'No access'}
               </h2>
             </div>
-            <p className="text-sm text-[var(--text-muted)]">{describeAccess(member.access)}</p>
-            {isCheckoutBarred(member.subscriptions) ? (
+            <p className="text-sm text-[var(--text-muted)]">
+              {describeAccess(member.access)}
+              {ban?.reason ? <>: &ldquo;{ban.reason}&rdquo;</> : null}
+            </p>
+            {ban ? (
               <p className="text-sm text-[var(--text-muted)]">
-                They cannot start a new subscription until every admin revocation is restored.
+                They cannot start a new subscription until the ban is lifted.
               </p>
             ) : null}
           </div>
@@ -345,72 +338,111 @@ export default function AdminMemberPage() {
             </p>
           ) : null}
 
-          {member.canRevoke ? (
+          {ban ? null : member.canRemove ? (
             <div className="space-y-4 border-t border-white/10 pt-6">
               <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-                Revoke access
+                Remove access
               </h3>
               <ConfirmedAction
                 confirmation={
-                  member.revokeRequiresReason
-                    ? 'Withdraw their Stripe access? It ends at once and stays off through renewals, and they cannot start a new subscription, until restored here. This does not cancel the subscription or stop billing; do that in Stripe.'
-                    : member.accessAfterRevoke?.hasAccess
-                      ? `End this manual grant? Their Stripe subscription still gives them access${member.accessAfterRevoke.validUntil ? ` until ${formatDate(member.accessAfterRevoke.validUntil)}` : ''}.`
-                      : 'End this manual grant? They will have no premium access.'
+                  member.accessAfterRemove?.hasAccess
+                    ? `End the access an admin granted? Their Stripe subscription still gives them access${member.accessAfterRemove.validUntil ? ` until ${formatDate(member.accessAfterRemove.validUntil)}` : ''}.`
+                    : 'End the access an admin granted? They will have no premium access until they subscribe or an admin grants it again.'
                 }
-                label="Revoke access"
+                label="Remove access"
                 onConfirm={(reason) =>
-                  act('revoke', { reason }, 'Access revoked.', 'Access could not be revoked.')
+                  act('revoke', { reason }, 'Access removed.', 'Access could not be removed.')
                 }
-                reasonRequired={member.revokeRequiresReason}
               />
+            </div>
+          ) : stripeAccess ? (
+            <div className="space-y-4 border-t border-white/10 pt-6">
+              <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
+                Remove access
+              </h3>
+              <p className="text-sm text-[var(--text-muted)]">
+                Their access comes from Stripe subscription{' '}
+                <span className="break-all">{stripeAccess.stripeSubscriptionId}</span> (
+                {stripeAccess.status.replace(/_/g, ' ')}). To end it now, cancel the subscription in
+                Stripe; access ends when Stripe confirms, and they get back in by subscribing again.
+              </p>
             </div>
           ) : null}
 
-          <div className="space-y-4 border-t border-white/10 pt-6">
-            <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-              {hasManualGrant ? 'Change access end date' : 'Grant access'}
-            </h3>
-            {member.stripeAccess ? (
-              <p className="text-sm text-[var(--text-muted)]">
-                {member.stripeAccess.validUntil
-                  ? `Their Stripe subscription runs until ${formatDate(member.stripeAccess.validUntil)}, so a grant has to end later.`
-                  : 'Their Stripe subscription has no end date on record, so only a grant with no end date can outlast it.'}
-              </p>
-            ) : null}
-            <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={validUntilId}>
-                Access ends (leave empty for no end date)
-              </label>
-              <input
-                id={validUntilId}
-                className={FIELD}
-                max="9999-12-31"
-                type="date"
-                value={grantUntil}
-                onChange={(event) => setGrantUntil(event.target.value)}
+          {ban ? null : (
+            <div className="space-y-4 border-t border-white/10 pt-6">
+              <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
+                {hasManualGrant ? 'Change access end date' : 'Grant access'}
+              </h3>
+              {member.stripeAccess ? (
+                <p className="text-sm text-[var(--text-muted)]">
+                  {member.stripeAccess.validUntil
+                    ? `Their Stripe subscription runs until ${formatDate(member.stripeAccess.validUntil)}, so a grant has to end later.`
+                    : 'Their Stripe subscription has no end date on record, so only a grant with no end date can outlast it.'}
+                </p>
+              ) : null}
+              <div className="space-y-2">
+                <label className="type-kicker text-[var(--text-muted)]" htmlFor={validUntilId}>
+                  Access ends (leave empty for no end date)
+                </label>
+                <input
+                  id={validUntilId}
+                  className={FIELD}
+                  max="9999-12-31"
+                  type="date"
+                  value={grantUntil}
+                  onChange={(event) => setGrantUntil(event.target.value)}
+                />
+              </div>
+              <ConfirmedAction
+                confirmation={
+                  grantDateInvalid
+                    ? 'That end date is not a real date. Fix it or clear it to continue.'
+                    : grantUntilIso
+                      ? `Grant premium access until ${formatDate(grantUntilIso)}?`
+                      : 'Grant premium access with no end date?'
+                }
+                confirmDisabled={grantDateInvalid}
+                label={hasManualGrant ? 'Update access' : 'Grant access'}
+                onConfirm={async (reason) => {
+                  await act(
+                    'grant',
+                    { validUntil: grantUntilIso, reason },
+                    'Access granted.',
+                    'Access could not be granted.',
+                  );
+                  setGrantUntil('');
+                }}
               />
             </div>
-            <ConfirmedAction
-              confirmation={
-                grantDateInvalid
-                  ? 'That end date is not a real date. Fix it or clear it to continue.'
-                  : grantUntilIso
-                    ? `Grant premium access until ${formatDate(grantUntilIso)}?`
-                    : 'Grant premium access with no end date?'
-              }
-              confirmDisabled={grantDateInvalid}
-              label={hasManualGrant ? 'Update access' : 'Grant access'}
-              onConfirm={async (reason) => {
-                await act(
-                  'grant',
-                  { validUntil: grantUntilIso, reason },
-                  'Access granted.',
-                  'Access could not be granted.',
-                );
-                setGrantUntil('');
-              }}
-            />
+          )}
+
+          <div className="space-y-4 border-t border-white/10 pt-6">
+            <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
+              {ban ? 'Lift ban' : 'Ban member'}
+            </h3>
+            {ban ? (
+              <ConfirmedAction
+                confirmation={
+                  stripeAccess
+                    ? `Lift the ban? Their Stripe subscription gives access back right away${stripeAccess.validUntil ? `, until ${formatDate(stripeAccess.validUntil)}` : ''}.`
+                    : 'Lift the ban? They have no subscription, so they get no access until they subscribe or an admin grants it.'
+                }
+                label="Lift ban"
+                onConfirm={(reason) =>
+                  act('unban', { reason }, 'Ban lifted.', 'The ban could not be lifted.')
+                }
+              />
+            ) : (
+              <ConfirmedAction
+                confirmation="Ban this member? They lose premium access now, it stays off no matter what Stripe sends, and they cannot subscribe until the ban is lifted here. This does not cancel their subscription or stop billing; do that in Stripe."
+                label="Ban member"
+                onConfirm={(reason) =>
+                  act('ban', { reason }, 'Member banned.', 'The member could not be banned.')
+                }
+                reasonRequired
+              />
+            )}
           </div>
         </div>
 
@@ -424,7 +456,7 @@ export default function AdminMemberPage() {
                 {member.subscriptions.map((subscription) => (
                   <SubscriptionRow
                     key={subscription.id}
-                    keepsCheckoutBar={restoreKeepsCheckoutBar(subscription, member.subscriptions)}
+                    banned={ban !== null}
                     onRestore={(row, reason) =>
                       act(
                         'restore',

@@ -44,10 +44,15 @@ enum EntitlementSource {
 }
 
 /// What an admin did to a member's access from the admin members screen.
+/// REVOKE is "Remove access": it ends a manual grant. Rows written before bans
+/// existed may carry a `stripeSubscriptionId`; those withdrew Stripe access,
+/// which is what a ban does now.
 enum MemberAccessAction {
   GRANT
   REVOKE
   RESTORE
+  BAN
+  UNBAN
 }
 
 enum StripeWebhookEventStatus {
@@ -59,6 +64,10 @@ model User {
   id                  String               @id @default(uuid())
   clerkUserId         String               @unique
   role                Role                 @default(STUDENT)
+  /// Set while the member is banned: no premium access whatever their
+  /// subscriptions say, and checkout refuses them, until an admin lifts it.
+  /// `MemberAccessAudit` holds who did it and why.
+  bannedAt            DateTime?
   createdAt           DateTime             @default(now())
   progress            Progress[]
   favorites           Favorite[]
@@ -184,9 +193,9 @@ model Subscription {
   /// `status`, which mirrors Stripe, so a later Stripe event cannot undo it.
   revokedAt            DateTime?
   revokedReason        String?
-  /// Set when an admin withdraws access. Kept apart from `revokedAt`, so a refund
-  /// or chargeback cannot overwrite it and a won dispute cannot clear it. Only an
-  /// admin restore does. `MemberAccessAudit` holds who did it and why.
+  /// No longer read. It recorded an admin withdrawing access before bans existed;
+  /// the member_ban migration turned every one into `User.bannedAt`. Dropped by a
+  /// later migration.
   adminRevokedAt       DateTime?
   /// `created` of the newest Stripe event applied to this row. Stripe does not
   /// guarantee delivery order, so an older event must not overwrite a newer one.

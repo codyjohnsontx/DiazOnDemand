@@ -93,10 +93,14 @@ export default function AdminMembersPage() {
                       <h2 className="break-all font-display text-2xl leading-tight text-[var(--text)]">
                         {member.clerkUserId}
                       </h2>
-                      <PremiumBadge
-                        label={member.hasAccess ? 'Premium' : 'No access'}
-                        tone={member.hasAccess ? 'premium' : 'neutral'}
-                      />
+                      {member.access.kind === 'banned' ? (
+                        <PremiumBadge label="Banned" tone="danger" />
+                      ) : (
+                        <PremiumBadge
+                          label={member.hasAccess ? 'Premium' : 'No access'}
+                          tone={member.hasAccess ? 'premium' : 'neutral'}
+                        />
+                      )}
                       {member.role === 'STUDENT' ? null : <PremiumBadge label={member.role} />}
                     </div>
                     <p className="text-sm text-[var(--text-muted)]">

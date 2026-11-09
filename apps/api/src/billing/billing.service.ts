@@ -18,7 +18,6 @@ import {
   releaseCheckout,
   reserveCheckout,
 } from './checkout-reservation.js';
-import { hasAdminRevocation } from './subscription-revocation.js';
 
 @Injectable()
 export class BillingService {
@@ -45,18 +44,19 @@ export class BillingService {
 
     const user = await this.upsertMember(clerkUserId);
 
-    const subscriptions = await this.prisma.client.subscription.findMany({
-      where: { userId: user.id },
-      orderBy: { updatedAt: 'desc' },
-    });
-
-    if (hasAdminRevocation(subscriptions)) {
-      this.logger.warn('Refused checkout for a member whose access an admin revoked');
+    // Paying again is not a way back from a ban; only an admin lifting it is.
+    if (user.bannedAt) {
+      this.logger.warn('Refused checkout for a banned member');
       throw new ConflictException({
         code: CHECKOUT_CONFLICT_CODES.accessRevoked,
         message: CHECKOUT_BLOCKED_MESSAGE,
       });
     }
+
+    const subscriptions = await this.prisma.client.subscription.findMany({
+      where: { userId: user.id },
+      orderBy: { updatedAt: 'desc' },
+    });
 
     // Nothing in Stripe stops the same person subscribing twice, so the refusal
     // has to happen here. Two live subscriptions means two charges a month.

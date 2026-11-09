@@ -56,7 +56,8 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
 - Favorites create/list/remove
 - Admin CRUD + publish/unpublish for programs/courses/lessons
 - Admin members screen (`/admin/members`): find a member, see their access and why they have
-  none, grant or revoke access, restore a refund made by mistake, with an audit trail
+  none, grant or remove access, ban a member or lift a ban, restore a refund made by mistake, with
+  an audit trail
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
 - Stripe checkout session endpoint, and a Stripe billing portal endpoint so members can cancel
 - Stripe webhook handler syncing `Subscription` history + `Entitlement`, including refunds and
@@ -441,8 +442,8 @@ Billing endpoints (both Clerk-authenticated):
 - `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for three
   different reasons, told apart by a `code` on the body so the client can say the right thing:
   `subscription_exists` (the member already has an active subscription), `checkout_in_flight`
-  (a checkout for them is already open) and `access_revoked` (an admin revocation stands on one of
-  their subscriptions). The codes live in `packages/shared/src/schemas.ts`.
+  (a checkout for them is already open) and `access_revoked` (the member is banned). The codes live
+  in `packages/shared/src/schemas.ts`.
   Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
 - `POST /billing/cancel-checkout` - expires the abandoned Stripe session and releases the calling
   member's checkout lock, called by the cancel return page. Holds the lock instead when Stripe
@@ -570,7 +571,7 @@ Giving access back:
 - A refund or chargeback is not a one-way door, and among subscription events only a **genuine
   renewal** opens it:
   - Resubscribing works after a refund or chargeback. A new Stripe subscription id is a new row,
-    which was never revoked. An admin revocation is the exception: it bars checkout until restored.
+    which was never revoked. A ban is the exception: it bars checkout until an admin lifts it.
   - For the same subscription, a **refund** revocation clears only when a later Stripe event moves
     `current_period_end` **strictly forward** - i.e. the member was actually charged again. A live
     status is deliberately _not_ enough: `cancel_at_period_end`, a card update and a plan change all
@@ -591,50 +592,66 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
 - Search matches a Clerk user id, a member id, or a Stripe customer or subscription id. `User`
   stores no email or name, so these are the identifiers to copy from the Clerk and Stripe
   dashboards.
-- A member without access is always shown why - revoked by refund or chargeback, revoked by a named
-  admin, expired, or subscription inactive, each with its date - whichever happened most recently.
+- A member without access is always shown why - banned by a named admin, revoked by refund or
+  chargeback, access removed by a named admin, expired, or subscription inactive, each with its
+  date. A ban is the answer whenever one stands, with the reason the admin gave; otherwise whichever
+  happened most recently.
 - **Grant** writes a `MANUAL` premium entitlement with an optional end date. It has to end later
   than what the member's Stripe subscription grants, because the stored entitlement is always
   whichever access ends later: `syncEntitlementFromSubscriptions` keeps a live grant only while it
   outlasts Stripe, and writes the Stripe access once it does not. That is what stops a member who
   pays during a grant being locked out when it lapses. The cost is that the row holds one end date:
   once Stripe has taken over, a refund before the grant's end date ends access, and the `GRANT`
-  history entry is what is left to re-grant from.
-- **Revoke** ends what the member can watch now. A live manual grant goes first, leaving what their
-  subscriptions grant. Otherwise it withdraws the Stripe access: every subscription that could
-  still grant access gets `adminRevokedAt`, through `subscription-revocation.ts`, so a refunded,
-  charged-back or unpaid sibling recovering in Stripe cannot hand it back, and only `canceled` and
-  `incomplete_expired` rows are left alone. A subscription Stripe opens afterwards, from a checkout
-  already open at the time, takes the same stamp. The entitlement is re-derived, so this is the
-  in-app answer to a refund or chargeback alert that could not be traced to a member. It
-  needs a reason, and the API refuses it without one; the audit row holds that reason. The column
-  is separate from `revokedAt` and `revokedReason` so that a refund or chargeback landing later is
-  recorded beside the admin's decision instead of over it. No Stripe event clears it: a renewal or a
-  won dispute clears only its own refund or chargeback, and access stays withdrawn. Only a restore
-  from the same screen clears it, and a restore clears one revocation at a time, the admin's first,
-  so a refund underneath stays until an admin decides on it separately and the screen says that the
-  first restore gives no access back. While `adminRevokedAt` is set on any of the member's
-  subscriptions, ended ones included, checkout refuses them with `access_revoked`, and the account
-  page and `/subscribe` show a short message in place of checkout, so paying again cannot undo the
-  decision. A member who has access anyway, through a grant or another subscription, gets a link to
-  the library instead of that message. Only restoring the last revocation lifts the bar, so
-  restoring one row of several can give access back while checkout stays refused; the confirmation
-  and the member page both say so. The confirmation promises a new subscription only when nothing
-  would be live afterwards, because checkout refuses a second one as a duplicate. Revoking does not cancel the subscription or stop billing, so
-  cancel in Stripe as well when the member should not be charged.
-- Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,
-  action, reason, the stored access before and after, and when - shown as the member's history. An
-  acting admin's rows outlive their own account.
+  history entry is what is left to re-grant from. A banned member cannot be granted access until
+  the ban is lifted.
+- There are two ways to take access away, for two different reasons.
+  - **Remove access** is for a member who is not paying. It ends a live manual grant and leaves
+    whatever their subscriptions grant. Nothing is stamped, so checkout stays open and the member
+    gets back in by paying. It is only offered for a manual grant: when a member's access comes
+    from Stripe, the screen names the subscription and says to cancel it in Stripe, because that is
+    the removal a member can pay their way back from. Stripe also does it on its own once it gives
+    up on a failed card (`past_due` still grants; `unpaid` and `canceled` do not).
+  - **Ban member** is for abuse. It sets `User.bannedAt`, and needs a reason. While it is set the
+    member is `FREE` whatever their subscriptions say - a live manual grant included - because
+    `syncEntitlementFromSubscriptions` reads the ban, so no renewal, won dispute, recovered
+    subscription or subscription opened later can give access back. Checkout refuses them with
+    `access_revoked`, and the account page and `/subscribe` show "Premium is not available on this
+    account. Please contact us." in place of checkout. They can still sign in and watch free
+    lessons; the API makes no Clerk write. A ban does not cancel the subscription or stop billing,
+    so cancel in Stripe as well when the member should not be charged. **Lift ban** is the one way
+    back: it clears `bannedAt` and re-derives the entitlement, so a live subscription gives access
+    back at once and otherwise the member can subscribe again. A manual grant the ban ended is not
+    brought back; re-grant from its history entry.
+- Before bans, an admin barred a member by stamping `Subscription.adminRevokedAt` on their rows.
+  The `20261109120000_member_ban` migration turned every member carrying one into a ban dated from
+  their first such revocation, which is exactly the access they already had. Nothing reads that
+  column any more, and a later migration drops it. Their old `REVOKE` history entries, which name a
+  subscription, read "Revoked access" and are where the ban's actor and reason are shown from. Staff
+  should review each of those reasons on the members screen and lift the bans that were not abuse;
+  the lift leaves an `UNBAN` entry saying why. This query lists them, before or after migrating:
+
+  ```sql
+  SELECT u."clerkUserId", a."createdAt", a."actorClerkUserId", a."reason", a."stripeSubscriptionId"
+  FROM "MemberAccessAudit" a
+  JOIN "User" u ON u.id = a."memberId"
+  WHERE a.action = 'REVOKE' AND a."stripeSubscriptionId" IS NOT NULL
+  ORDER BY a."createdAt";
+  ```
+
+- **Restore access** on a subscription clears a refund revocation, as described above. Under a ban
+  it clears the record and gives nothing back until the ban is lifted.
+- Every grant, removal, ban, lifted ban and restore is one transaction with a `MemberAccessAudit`
+  row - actor, member, action, reason, the stored access before and after, and when - shown as the
+  member's history. An acting admin's rows outlive their own account.
 - That transaction holds the member's access lock (`withMemberAccessLock` in
   `apps/api/src/billing/member-access-lock.ts`, a transaction-scoped Postgres advisory lock keyed on
   the member id), and so does every Stripe webhook that writes a subscription row and re-derives
   the entitlement. A webhook and an admin change for the same member therefore never interleave:
-  a subscription opened during a revoke joins it, a grant is never overwritten by a sync that read
-  the entitlement first, and a restore is never undone by a new subscription copying the stamp it
-  cleared.
+  a subscription opened while a ban is being written waits for it and then grants nothing, and a
+  grant is never overwritten by a sync that read the entitlement first.
 - Each change also carries the `accessVersion` of the member detail the admin confirmed against.
-  If the member's access has changed since - another admin, a Stripe event, or a grant or paid
-  period running out - the API answers 409 and changes nothing, and the page reloads the member so
+  If the member's access has changed since - another admin, a ban or a lifted ban, a Stripe event,
+  or a grant or paid period running out - the API answers 409 and changes nothing, and the page reloads the member so
   the confirmation says what would happen now. A malformed request body answers 400.
 
 Delivery safety:
@@ -659,10 +676,10 @@ Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
   charge genuinely carries no invoice link, and a **live** subscription carrying no `userId`
   metadata (one created in the Stripe dashboard or through a Payment Link). Those are processed,
   not rejected - they may be deliberate - but never silently.
-- A subscription that joins an admin revocation alerts too: a checkout left open before the admin
-  revoked the member can still complete, and the new subscription inherits the revocation, so
-  Stripe bills a member who stays locked out. Staff refund or cancel it in Stripe. Nothing does that
-  automatically, and a subscription the admin revoked directly does not alert.
+- A subscription opened after a ban alerts too: a checkout left open before the admin banned the
+  member can still complete, and Stripe then bills a member who stays locked out. Staff refund or
+  cancel it in Stripe. Nothing does that automatically, and a subscription the member already had
+  when the admin banned them does not alert, because the ban confirmation said to cancel it.
 - Both of those subscription alerts fire **exactly once per subscription**, on the first delivery
   that shows it actually live. They wait for live rather than firing on creation because a card
   needing 3D Secure starts `incomplete` and only turns `active` on a later update - money taken,

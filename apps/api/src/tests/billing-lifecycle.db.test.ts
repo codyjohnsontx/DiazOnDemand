@@ -1133,9 +1133,9 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
     });
   });
 
-  describe('an admin revocation survives what Stripe does next', () => {
-    /** Subscribe, then have an admin withdraw the access the subscription gives. */
-    async function adminRevoked(name: string) {
+  describe('a ban survives what Stripe does next', () => {
+    /** Subscribe, then have an admin ban the member. */
+    async function banned(name: string) {
       const user = await createUser(`billing-test-${name}`);
       const admin = await createUser(`billing-test-${name}-admin`);
       const customerId = `cus_${name}`;
@@ -1158,19 +1158,20 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
           currentPeriodEnd: periodEnd,
         }),
       );
-      await members.revokeAccess(actor, user.id, { reason: 'Banned' });
+      await members.banMember(actor, user.id, { reason: 'Banned' });
       expect((await entitlementOf(user.id))?.tier).toBe('FREE');
 
+      const liftBan = () => members.liftBan(actor, user.id, { reason: null });
       const restore = async () => {
         const [row] = await subscriptionsOf(user.id);
         return members.restoreAccess(actor, user.id, { subscriptionId: row!.id, reason: null });
       };
 
-      return { user, customerId, subscriptionId, periodEnd, members, restore };
+      return { user, customerId, subscriptionId, periodEnd, members, liftBan, restore };
     }
 
-    it('keeps access withdrawn through a dispute and the dispute being won', async () => {
-      const { user, customerId, subscriptionId, restore } = await adminRevoked('admin-dispute');
+    it('keeps access off through a dispute and the dispute being won', async () => {
+      const { user, customerId, subscriptionId, liftBan } = await banned('admin-dispute');
 
       await service.handleStripeEvent(
         chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
@@ -1186,41 +1187,31 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('FREE');
       const [subscription] = await subscriptionsOf(user.id);
       expect(subscription?.revokedReason).toBeNull();
-      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
 
-      const detail = await restore();
+      const detail = await liftBan();
 
       expect(detail.hasAccess).toBe(true);
     });
 
-    it('leaves a chargeback standing when an admin clears their own revocation', async () => {
-      const { user, customerId, subscriptionId, members, restore } =
-        await adminRevoked('admin-chargeback');
+    it('leaves a chargeback standing when the ban is lifted', async () => {
+      const { customerId, subscriptionId, liftBan } = await banned('admin-chargeback');
 
       await service.handleStripeEvent(
         chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
       );
 
-      const before = await members.getMember(user.id);
-      expect(before.subscriptions[0]).toMatchObject({
-        revokedReason: 'chargeback',
-        restorable: true,
-        restoreGivesAccess: false,
-      });
-
-      const detail = await restore();
+      const detail = await liftBan();
 
       expect(detail.hasAccess).toBe(false);
       expect(detail.subscriptions[0]).toMatchObject({
-        adminRevokedAt: null,
         revokedReason: 'chargeback',
         restorable: false,
       });
     });
 
-    it('records a traced refund, and a restore says it gives no access back', async () => {
-      const { user, customerId, subscriptionId, members, restore } =
-        await adminRevoked('admin-refund');
+    it('records a traced refund, which a restore gives back only once the ban is lifted', async () => {
+      const { user, customerId, subscriptionId, members, liftBan, restore } =
+        await banned('admin-refund');
 
       await service.handleStripeEvent(
         chargeEvent('charge.refunded', { customerId, subscriptionId }),
@@ -1228,7 +1219,6 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
 
       const [subscription] = await subscriptionsOf(user.id);
       expect(subscription?.revokedReason).toBe('refund');
-      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
 
       const before = await members.getMember(user.id);
       expect(before.subscriptions[0]).toMatchObject({
@@ -1236,11 +1226,10 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
         restoreGivesAccess: false,
       });
 
-      const afterAdmin = await restore();
+      const lifted = await liftBan();
 
-      expect(afterAdmin.hasAccess).toBe(false);
-      expect(afterAdmin.subscriptions[0]).toMatchObject({
-        adminRevokedAt: null,
+      expect(lifted.hasAccess).toBe(false);
+      expect(lifted.subscriptions[0]).toMatchObject({
         revokedReason: 'refund',
         restorable: true,
         restoreGivesAccess: true,
@@ -1251,8 +1240,8 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect(afterRefund.hasAccess).toBe(true);
     });
 
-    it('keeps access withdrawn when a renewal clears the refund underneath it', async () => {
-      const { user, customerId, subscriptionId, periodEnd } = await adminRevoked('admin-renewal');
+    it('keeps access off when a renewal clears the refund underneath it', async () => {
+      const { user, customerId, subscriptionId, periodEnd } = await banned('admin-renewal');
 
       await service.handleStripeEvent(
         chargeEvent('charge.refunded', { customerId, subscriptionId }),
@@ -1270,7 +1259,6 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('FREE');
       const [subscription] = await subscriptionsOf(user.id);
       expect(subscription?.revokedReason).toBeNull();
-      expect(subscription?.adminRevokedAt).toBeInstanceOf(Date);
     });
   });
 
@@ -1590,7 +1578,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
     });
   });
 
-  describe('an admin revocation blocks a new subscription', () => {
+  describe('a ban blocks a new subscription', () => {
     const webhooks = new WebhooksService(prisma);
     const members = membersPage(new AdminMembersService(prisma));
 
@@ -1600,7 +1588,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       });
     });
 
-    async function adminRevokedMember(name: string) {
+    async function bannedMember(name: string) {
       const clerkUserId = `billing-test-${name}`;
       const user = await createUser(clerkUserId);
       const admin = await createUser(`${clerkUserId}-admin`);
@@ -1622,18 +1610,15 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
           currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
         }),
       );
-      await members.revokeAccess(actor, user.id, { reason: 'Banned' });
+      await members.banMember(actor, user.id, { reason: 'Banned' });
 
-      const restore = async () => {
-        const [row] = await subscriptionsOf(user.id);
-        return members.restoreAccess(actor, user.id, { subscriptionId: row!.id, reason: null });
-      };
+      const liftBan = () => members.liftBan(actor, user.id, { reason: null });
 
-      return { clerkUserId, user, subscriptionId, customerId, restore };
+      return { clerkUserId, user, subscriptionId, customerId, liftBan };
     }
 
-    it('refuses while the revoked subscription is still billing', async () => {
-      const { clerkUserId, restore } = await adminRevokedMember('admin-blocked-billing');
+    it("refuses while the banned member's subscription is still billing", async () => {
+      const { clerkUserId, liftBan } = await bannedMember('admin-blocked-billing');
 
       await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
         status: 409,
@@ -1641,7 +1626,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       });
       expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
 
-      await restore();
+      await liftBan();
 
       await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
         status: 409,
@@ -1649,9 +1634,9 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       });
     });
 
-    it('still refuses once that subscription has ended, until an admin restores', async () => {
-      const { clerkUserId, user, subscriptionId, customerId, restore } =
-        await adminRevokedMember('admin-blocked-ended');
+    it('still refuses once that subscription has ended, until the ban is lifted', async () => {
+      const { clerkUserId, user, subscriptionId, customerId, liftBan } =
+        await bannedMember('admin-blocked-ended');
 
       await webhooks.handleStripeEvent(
         subscriptionEvent('customer.subscription.deleted', {
@@ -1668,7 +1653,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       });
       expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
 
-      await restore();
+      await liftBan();
       stripeStub.checkout.sessions.create.mockResolvedValue({
         id: 'cs_admin_restored',
         url: 'https://checkout.stripe.test/admin-restored',

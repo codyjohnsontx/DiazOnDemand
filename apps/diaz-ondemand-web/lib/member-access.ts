@@ -2,7 +2,6 @@ import {
   EntitlementTier,
   MemberAccessAction,
   type AdminMemberAuditEntry,
-  type AdminMemberSubscription,
   type MeDto,
   type MemberAccessStatus,
 } from '@diaz/shared';
@@ -43,8 +42,12 @@ export function describeAccess(access: MemberAccessStatus): string {
       return `Paid through Stripe, ${until(access.validUntil)}`;
     case 'revoked':
       return `Revoked by ${access.reason} on ${formatDate(access.at)}`;
+    case 'banned':
+      return access.actorClerkUserId
+        ? `Banned by ${access.actorClerkUserId} on ${formatDate(access.at)}`
+        : `Banned on ${formatDate(access.at)}`;
     case 'admin-revoked':
-      return `Revoked by ${access.actorClerkUserId} on ${formatDate(access.at)}`;
+      return `Access removed by ${access.actorClerkUserId} on ${formatDate(access.at)}`;
     case 'expired':
       return `Expired on ${formatDate(access.at)}`;
     case 'subscription-inactive':
@@ -54,26 +57,13 @@ export function describeAccess(access: MemberAccessStatus): string {
   }
 }
 
-/** Whether restoring this row leaves an admin revocation on another, which keeps checkout refused. */
-export function restoreKeepsCheckoutBar(
-  subscription: AdminMemberSubscription,
-  subscriptions: readonly AdminMemberSubscription[],
-) {
-  return subscriptions.some((row) => row.id !== subscription.id && row.adminRevokedAt !== null);
-}
-
-/** Whether checkout refuses this member, which any one admin revocation is enough for. */
-export function isCheckoutBarred(subscriptions: readonly AdminMemberSubscription[]) {
-  return subscriptions.some((row) => row.adminRevokedAt !== null);
-}
-
 export type PremiumOffer = 'checkout' | 'blocked' | 'has-access';
 
 /**
- * What a member sees where premium is offered. Checkout refuses a standing admin
- * revocation even while a grant or another subscription gives access, and telling
- * that member premium is unavailable would be false, so they get neither message
- * nor checkout.
+ * What a member sees where premium is offered. Checkout refuses a banned member.
+ * A ban leaves no access, but a page can be read between a ban being lifted and
+ * the next load, and telling a member with access that premium is unavailable
+ * would be false, so they get neither message nor checkout.
  */
 export function premiumOffer(me: Pick<MeDto, 'checkoutBlocked' | 'entitlementTier'>): PremiumOffer {
   if (!me.checkoutBlocked) {
@@ -103,12 +93,20 @@ export async function offerAfterAccessRevoked(
 
 const ACTION_LABELS: Record<MemberAccessAction, string> = {
   [MemberAccessAction.GRANT]: 'Granted access',
-  [MemberAccessAction.REVOKE]: 'Revoked access',
+  [MemberAccessAction.REVOKE]: 'Removed access',
   [MemberAccessAction.RESTORE]: 'Restored a revoked subscription',
+  [MemberAccessAction.BAN]: 'Banned',
+  [MemberAccessAction.UNBAN]: 'Lifted the ban',
 };
 
+/**
+ * A REVOKE naming a subscription was written before bans existed, when an admin
+ * withdrew a member's Stripe access; it keeps the words it was written under.
+ */
 export function describeAuditAction(entry: AdminMemberAuditEntry) {
-  return ACTION_LABELS[entry.action];
+  return entry.action === MemberAccessAction.REVOKE && entry.stripeSubscriptionId
+    ? 'Revoked access'
+    : ACTION_LABELS[entry.action];
 }
 
 function describeStoredAccess(tier: string, validUntil: string | null) {

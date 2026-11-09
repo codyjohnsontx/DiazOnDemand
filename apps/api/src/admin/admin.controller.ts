@@ -14,8 +14,10 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   adminCreateCourseSchema,
   adminCreateLessonSchema,
+  adminBanMemberSchema,
   adminCreateProgramSchema,
   adminGrantMemberAccessSchema,
+  adminLiftBanSchema,
   adminRestoreMemberAccessSchema,
   adminRevokeMemberAccessSchema,
   adminUpdateCourseSchema,
@@ -221,6 +223,26 @@ export class AdminController {
       actor,
       id,
       parseMemberAccessBody(adminRevokeMemberAccessSchema, body),
+    );
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('members/:id/ban')
+  banMember(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    return this.adminMembersService.banMember(
+      actor,
+      id,
+      parseMemberAccessBody(adminBanMemberSchema, body),
+    );
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('members/:id/unban')
+  liftMemberBan(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    return this.adminMembersService.liftBan(
+      actor,
+      id,
+      parseMemberAccessBody(adminLiftBanSchema, body),
     );
   }
 

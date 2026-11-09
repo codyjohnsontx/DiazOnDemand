@@ -13,7 +13,6 @@ import {
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
   type RevokeReason,
-  joinedAdminRevocation,
   planDisputeWonRelease,
   planRevocation,
   releasesRevocation,
@@ -245,21 +244,27 @@ export class WebhooksService {
     // Read, decide and write under the member's access lock, which the admin
     // members screen takes too, so an admin change cannot land between this
     // event's reads and its writes. The alert below stays outside it.
-    const row = await withMemberAccessLock(this.prisma.client, userId, (tx) =>
+    const recorded = await withMemberAccessLock(this.prisma.client, userId, (tx) =>
       this.recordSubscription(tx, userId, sub, stripeCreatedAt),
     );
 
-    if (!row) {
+    if (!recorded) {
       return null;
     }
 
     this.logger.log(`Processed Stripe subscription ${sub.id}; user=REDACTED; status=${sub.status}`);
 
-    if (joinedAdminRevocation(row)) {
+    // A subscription opened after the ban - from a checkout already in flight
+    // when it landed - was never seen by the admin who banned them, and it is
+    // billing a member who cannot watch. One the admin did see stays quiet: the
+    // ban confirmation told them to stop its billing in Stripe.
+    const { row, bannedAt } = recorded;
+
+    if (bannedAt !== null && bannedAt < row.createdAt) {
       return this.alertOnceLive(
         sub,
-        `Stripe subscription ${sub.id} is live (${sub.status}) but an admin revoked this member, ` +
-          `so a revoked member has a live paid subscription and it grants them nothing. Refund or ` +
+        `Stripe subscription ${sub.id} is live (${sub.status}) but this member is banned, so a ` +
+          `banned member has a live paid subscription and it grants them nothing. Refund or ` +
           `cancel it in Stripe. The member is on the admin members screen (/admin/members).`,
       );
     }
@@ -268,8 +273,9 @@ export class WebhooksService {
   }
 
   /**
-   * The subscription row and entitlement this event leaves, or `null` for an
-   * event older than what is already stored. Runs inside the member's access lock.
+   * The subscription row this event leaves and whether the member is banned, or
+   * `null` for an event older than what is already stored. Runs inside the
+   * member's access lock, so the ban read here is the one the sync applied.
    */
   private async recordSubscription(
     tx: Prisma.TransactionClient,
@@ -315,26 +321,21 @@ export class WebhooksService {
         stripeCreatedAt,
       });
 
-    // Checkout refuses a member an admin revoked, but one left open before that
-    // can still complete. The new row joins the revocation, or paying would undo it.
-    const siblings = existing ? [] : await tx.subscription.findMany({ where: { userId } });
-    const adminRevokedAt = siblings.find((row) => row.adminRevokedAt)?.adminRevokedAt;
-
     // Upsert by the Stripe subscription id: a member can hold several rows over
     // time (cancel then resubscribe) and, briefly, at the same time.
     const row = await tx.subscription.upsert({
       where: { stripeSubscriptionId: sub.id },
       update: released ? { ...fields, revokedAt: null, revokedReason: null } : fields,
-      create: {
-        ...fields,
-        stripeSubscriptionId: sub.id,
-        ...(adminRevokedAt ? { adminRevokedAt } : {}),
-      },
+      create: { ...fields, stripeSubscriptionId: sub.id },
     });
 
+    // A banned member's new subscription grants nothing because the sync reads
+    // the ban, so nothing has to be copied onto the row.
     await this.syncEntitlementFromSubscriptions(tx, userId);
 
-    return row;
+    const member = await tx.user.findUnique({ where: { id: userId }, select: { bannedAt: true } });
+
+    return { row, bannedAt: member?.bannedAt ?? null };
   }
 
   /**

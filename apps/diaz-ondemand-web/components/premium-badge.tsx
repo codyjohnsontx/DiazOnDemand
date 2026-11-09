@@ -3,14 +3,16 @@ export function PremiumBadge({
   tone = 'neutral',
 }: {
   label: string;
-  tone?: 'neutral' | 'premium' | 'accent';
+  tone?: 'neutral' | 'premium' | 'accent' | 'danger';
 }) {
   const toneClass =
     tone === 'premium'
       ? 'border-[var(--premium)]/30 bg-[var(--premium)]/10 text-[var(--premium)]'
       : tone === 'accent'
         ? 'border-[var(--progress)]/30 bg-[var(--progress)]/10 text-[var(--progress)]'
-        : 'border-white/10 bg-white/5 text-[var(--text-muted)]';
+        : tone === 'danger'
+          ? 'border-[var(--danger)]/30 bg-[var(--danger)]/10 text-[var(--danger)]'
+          : 'border-white/10 bg-white/5 text-[var(--text-muted)]';
 
   return (
     <span
