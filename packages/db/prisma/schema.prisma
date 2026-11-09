@@ -194,8 +194,8 @@ model Subscription {
   revokedAt            DateTime?
   revokedReason        String?
   /// No longer read. It recorded an admin withdrawing access before bans existed;
-  /// the member_ban migration turned every one into `User.bannedAt`. Dropped by a
-  /// later migration.
+  /// the member_ban_backfill migration turned every one still in force into
+  /// `User.bannedAt`. Dropped by a later migration.
   adminRevokedAt       DateTime?
   /// `created` of the newest Stripe event applied to this row. Stripe does not
   /// guarantee delivery order, so an older event must not overwrite a newer one.

@@ -11,6 +11,7 @@
  * Same contract as `billing-lifecycle.db.test.ts`: point TEST_DATABASE_URL at a
  * migrated throwaway database, skip without it, fail on CI without it.
  */
+import { readFile } from 'node:fs/promises';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import {
   EntitlementSource,
@@ -223,6 +224,43 @@ function auditOf(memberId: string) {
   return prismaClient!.memberAccessAudit.findMany({
     where: { memberId },
     orderBy: { createdAt: 'asc' },
+  });
+}
+
+/**
+ * Runs the migration that turned admin revocations into bans, as written, over
+ * these members only. Temporary views named after the three tables it reads and
+ * writes shadow them for this transaction - the migration names them
+ * unqualified, and the temporary schema is searched first - so the other
+ * database-backed files sharing this database are not touched.
+ */
+async function runBanBackfillFor(memberIds: readonly string[]) {
+  const sql = await readFile(
+    new URL(
+      '../../../../packages/db/prisma/migrations/20261109120001_member_ban_backfill/migration.sql',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  const ids = memberIds.map((id) => `'${id}'`).join(', ');
+
+  await prismaClient!.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      `CREATE TEMP VIEW "User" AS SELECT * FROM "public"."User" WHERE id IN (${ids})`,
+    );
+    for (const table of ['Subscription', 'Entitlement']) {
+      await tx.$executeRawUnsafe(
+        `CREATE TEMP VIEW "${table}" AS SELECT * FROM "public"."${table}" WHERE "userId" IN (${ids})`,
+      );
+    }
+    for (const statement of sql
+      .split(/;\s*$/m)
+      .filter((part) => /\S/.test(part.replace(/--.*$/gm, '')))) {
+      await tx.$executeRawUnsafe(statement);
+    }
+    await tx.$executeRawUnsafe(
+      'DROP VIEW pg_temp."User", pg_temp."Subscription", pg_temp."Entitlement"',
+    );
   });
 }
 
@@ -1424,6 +1462,90 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
           accessVersion: seen.accessVersion,
         }),
       ).resolves.toMatchObject({ hasAccess: false });
+    });
+  });
+
+  describe('the migration that turned admin revocations into bans', () => {
+    async function stamp(subscriptionId: string, adminRevokedAt: Date) {
+      return prismaClient!.subscription.update({
+        where: { id: subscriptionId },
+        data: { adminRevokedAt },
+      });
+    }
+
+    async function bannedAtOf(memberId: string) {
+      return (await prismaClient!.user.findUniqueOrThrow({ where: { id: memberId } })).bannedAt;
+    }
+
+    it('bans a member whose revocation is in force, from the first one, on FREE', async () => {
+      const member = await createUser();
+      const firstRevoked = daysFromNow(-5);
+      await stamp((await createSubscription(member.id)).id, firstRevoked);
+      await stamp(
+        (await createSubscription(member.id, { status: 'canceled' })).id,
+        daysFromNow(-3),
+      );
+      await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: {
+          tier: EntitlementTier.PREMIUM,
+          validUntil: daysFromNow(-8),
+          source: EntitlementSource.MANUAL,
+        },
+      });
+
+      await runBanBackfillFor([member.id]);
+
+      expect(await bannedAtOf(member.id)).toEqual(firstRevoked);
+      expect(await entitlementOf(member.id)).toMatchObject({
+        tier: EntitlementTier.FREE,
+        validUntil: null,
+        source: EntitlementSource.MANUAL,
+      });
+    });
+
+    it('leaves a member an admin re-granted access to unbanned, with their grant', async () => {
+      const member = await createUser();
+      const subscription = await stamp((await createSubscription(member.id)).id, daysFromNow(-5));
+      const grant = await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: { tier: EntitlementTier.PREMIUM, validUntil: null, source: EntitlementSource.MANUAL },
+      });
+
+      await runBanBackfillFor([member.id]);
+
+      expect(await bannedAtOf(member.id)).toBeNull();
+      expect(await entitlementOf(member.id)).toEqual(grant);
+      expect(
+        (await prismaClient!.subscription.findUniqueOrThrow({ where: { id: subscription.id } }))
+          .adminRevokedAt,
+      ).toEqual(subscription.adminRevokedAt);
+    });
+
+    it('leaves a member whose live subscription an admin restored unbanned, still paid', async () => {
+      const member = await createUser();
+      const stamped = await stamp(
+        (await createSubscription(member.id, { status: 'unpaid' })).id,
+        daysFromNow(-5),
+      );
+      const restored = await createSubscription(member.id);
+      const paid = await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: {
+          tier: EntitlementTier.PREMIUM,
+          validUntil: restored.currentPeriodEnd,
+          source: EntitlementSource.STRIPE,
+        },
+      });
+
+      await runBanBackfillFor([member.id]);
+
+      expect(await bannedAtOf(member.id)).toBeNull();
+      expect(await entitlementOf(member.id)).toEqual(paid);
+      expect(
+        (await prismaClient!.subscription.findUniqueOrThrow({ where: { id: stamped.id } }))
+          .adminRevokedAt,
+      ).toEqual(stamped.adminRevokedAt);
     });
   });
 

@@ -394,7 +394,8 @@ export class WebhooksService {
       this.logger.warn(`Dispute ${dispute.id} could not be traced to a charge; access unchanged`);
       await this.alerter.send(
         `Chargeback ${dispute.id} could not be traced to a charge - the money went back but access ` +
-          `was NOT withdrawn. Revoke it on the admin members screen (/admin/members) and check Stripe.`,
+          `was NOT withdrawn. Cancel or refund the subscription in Stripe to end it. Ban the member on ` +
+          `the admin members screen (/admin/members) only if this was abuse.`,
       );
       return;
     }
@@ -539,7 +540,9 @@ export class WebhooksService {
     const traced = await this.findSubscriptionForCharge(
       charge,
       description,
-      'the money went back but access was NOT withdrawn. Revoke it on the admin members screen (/admin/members).',
+      'the money went back but access was NOT withdrawn. Cancel or refund the subscription in ' +
+        'Stripe to end it. Ban the member on the admin members screen (/admin/members) only if ' +
+        'this was abuse.',
     );
 
     if (!traced) {

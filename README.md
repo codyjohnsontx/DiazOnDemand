@@ -623,9 +623,12 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
     back at once and otherwise the member can subscribe again. A manual grant the ban ended is not
     brought back; re-grant from its history entry.
 - Before bans, an admin barred a member by stamping `Subscription.adminRevokedAt` on their rows.
-  The `20261109120000_member_ban` migration turned every member carrying one into a ban dated from
-  their first such revocation, which is exactly the access they already had. Nothing reads that
-  column any more, and a later migration drops it. Their old `REVOKE` history entries, which name a
+  The `20261109120001_member_ban_backfill` migration turned every member whose revocation was still
+  in force into a ban dated from their first such revocation: those the stamps were already keeping
+  from all access, so the ban changes nothing they can watch. A member an admin had given access
+  back to - a live manual grant, or a live subscription without the stamp, which only a restore
+  leaves - was not banned and keeps exactly the access they had. Nothing reads that column any
+  more, and a later migration drops it. Their old `REVOKE` history entries, which name a
   subscription, read "Revoked access" and are where the ban's actor and reason are shown from. Staff
   should review each of those reasons on the members screen and lift the bans that were not abuse;
   the lift leaves an `UNBAN` entry saying why. This query lists them, before or after migrating:
