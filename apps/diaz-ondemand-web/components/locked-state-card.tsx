@@ -4,7 +4,6 @@ import { PremiumBadge } from './premium-badge';
 export function LockedStateCard() {
   return (
     <div className="surface-panel relative overflow-hidden p-8 sm:p-10">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(242,193,78,0.18),transparent_24%)]" />
       <div className="relative space-y-8">
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">

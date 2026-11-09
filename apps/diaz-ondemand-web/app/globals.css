@@ -128,13 +128,6 @@
   .page-enter {
     animation: page-enter 420ms ease-out both;
   }
-
-  .poster-grid {
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-    background-size: 22px 22px;
-  }
 }
 
 @layer utilities {

@@ -20,7 +20,7 @@ export function ContinueCard({ item }: { item: ContinueWatchingItem }) {
             </div>
           </div>
 
-          <div className="space-y-4 rounded-t-[28px] border-t border-white/10 bg-[linear-gradient(180deg,rgba(8,9,11,0.18),rgba(8,9,11,0.92)_16%,rgba(8,9,11,0.98)_100%)] p-5">
+          <div className="space-y-4 rounded-t-[28px] border-t border-white/10 bg-[rgba(8,9,11,0.92)] p-5">
             <ProgressBar label="Progress" value={item.progressPercent} />
             <div className="space-y-2">
               <h3 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">

@@ -477,7 +477,7 @@ export default function LessonPage() {
                 />
               </div>
             ) : (
-              <div className="flex aspect-video items-end bg-[linear-gradient(135deg,#1f242d_0%,#0f1217_55%,#08090b_100%)] p-6 sm:p-8">
+              <div className="flex aspect-video items-end bg-[var(--surface)] p-6 sm:p-8">
                 {/*
                   The no-source state is what a member sees on a lesson that
                   has not been filmed, and it is the state the API now resolves
