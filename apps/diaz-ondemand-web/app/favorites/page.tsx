@@ -6,6 +6,7 @@ import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { FavoriteRow } from '@/components/favorite-row';
 import { PageHeader } from '@/components/page-header';
+import { List } from '@/components/ui/list';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 
@@ -59,11 +60,11 @@ export default function FavoritesPage() {
   };
 
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <PageHeader title="Favorites" />
 
       {error ? (
-        <p className="text-sm text-[var(--danger)]" role="alert">
+        <p className="text-body-200 text-foreground-critical" role="alert">
           {error}
         </p>
       ) : null}
@@ -75,11 +76,11 @@ export default function FavoritesPage() {
           title={requiresSignIn ? 'Sign in to use favorites' : 'No saved lessons yet'}
         />
       ) : (
-        <div className="space-y-1">
+        <List>
           {favorites.map((favorite) => (
             <FavoriteRow favorite={favorite} key={favorite.id} onRemove={removeFavorite} />
           ))}
-        </div>
+        </List>
       )}
     </AppShell>
   );

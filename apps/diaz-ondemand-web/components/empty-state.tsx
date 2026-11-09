@@ -1,4 +1,5 @@
-import Link from 'next/link';
+import { ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
 
 export function EmptyState({
   title,
@@ -12,21 +13,20 @@ export function EmptyState({
   ctaLabel?: string;
 }) {
   return (
-    <div className="surface-panel flex min-h-[260px] flex-col justify-between gap-8 p-8">
-      <div className="space-y-3">
-        <h2 className="type-title-lg text-[var(--text)]">{title}</h2>
+    <Card className="flex flex-col gap-600">
+      <div className="flex flex-col gap-200">
+        <h2 className="type-display-500">{title}</h2>
         {description ? (
-          <p className="type-body max-w-xl text-[var(--text-muted)]">{description}</p>
+          <p className="max-w-reading text-body-300 text-foreground-faint">{description}</p>
         ) : null}
       </div>
       {ctaHref && ctaLabel ? (
-        <Link
-          className="inline-flex w-fit items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-          href={ctaHref}
-        >
-          {ctaLabel}
-        </Link>
+        <CardActions>
+          <ButtonLink href={ctaHref} variant="secondary">
+            {ctaLabel}
+          </ButtonLink>
+        </CardActions>
       ) : null}
-    </div>
+    </Card>
   );
 }

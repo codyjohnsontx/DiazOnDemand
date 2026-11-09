@@ -5,7 +5,7 @@ import {
   type AdminLessonSummary,
 } from '@diaz/shared';
 import { AwaitingMuxPlaybackNote } from '@/components/awaiting-mux-playback-note';
-import { PremiumBadge } from '@/components/premium-badge';
+import { Badge, type BadgeVariant } from '@/components/ui/badge';
 
 /**
  * The one video state a lesson is in, as both admin surfaces show it.
@@ -17,15 +17,12 @@ import { PremiumBadge } from '@/components/premium-badge';
  * never from the Mux dashboard, which is why FAILED carries Mux's own message
  * and the replacement case says outright that the previous video still plays.
  */
-const STATE_BADGES: Record<
-  LessonVideoState,
-  { label: string; tone: 'neutral' | 'premium' | 'accent' }
-> = {
-  [LessonVideoState.NONE]: { label: 'No video', tone: 'neutral' },
-  [LessonVideoState.UPLOADING]: { label: 'Upload in progress', tone: 'neutral' },
-  [LessonVideoState.PROCESSING]: { label: 'Waiting for Mux', tone: 'neutral' },
-  [LessonVideoState.READY]: { label: 'Video ready', tone: 'accent' },
-  [LessonVideoState.FAILED]: { label: 'Upload failed', tone: 'premium' },
+const STATE_BADGES: Record<LessonVideoState, { label: string; variant: BadgeVariant }> = {
+  [LessonVideoState.NONE]: { label: 'No video', variant: 'neutral' },
+  [LessonVideoState.UPLOADING]: { label: 'Upload in progress', variant: 'neutral' },
+  [LessonVideoState.PROCESSING]: { label: 'Waiting for Mux', variant: 'neutral' },
+  [LessonVideoState.READY]: { label: 'Video ready', variant: 'success' },
+  [LessonVideoState.FAILED]: { label: 'Upload failed', variant: 'critical' },
 };
 
 type VideoStateLesson = Pick<
@@ -41,7 +38,7 @@ type VideoStateLesson = Pick<
 export function LessonVideoStateBadge({ lesson }: { lesson: VideoStateLesson }) {
   const badge = STATE_BADGES[resolveLessonVideoState(lesson).state];
 
-  return <PremiumBadge label={badge.label} tone={badge.tone} />;
+  return <Badge label={badge.label} variant={badge.variant} />;
 }
 
 /**
@@ -63,7 +60,7 @@ export function LessonVideoStateNote({
 
   if (state === LessonVideoState.FAILED) {
     return (
-      <p className={[className, 'text-[var(--danger)]'].join(' ')}>
+      <p className={[className, 'text-foreground-critical'].join(' ')}>
         {lesson.muxVideoError}
         {previous} Choose the file again to retry; a new upload clears this message.
       </p>

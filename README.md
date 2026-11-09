@@ -244,6 +244,31 @@ pnpm dev:mobile
 - Web: `pnpm --filter diaz-ondemand-web dev` (`http://localhost:3000`)
 - Mobile: `pnpm --filter mobile dev`
 
+### Web App Design Tokens
+
+The web app is styled the Helios way: one named token set, one small component library, a
+flat look with colour reserved for meaning.
+
+- `apps/diaz-ondemand-web/app/globals.css` holds the token block (`--color-surface-*`,
+  `--color-border-*`, `--color-foreground-*`, the type scale, `--space-*`, `--radius-*`, one
+  elevation, sizes and motion). It is the only place in the web app that holds a raw design
+  value.
+- `apps/diaz-ondemand-web/tailwind.config.ts` maps those tokens into the Tailwind theme by
+  name, replacing the default scales rather than extending them, so `bg-surface-raised`,
+  `text-foreground-faint`, `p-400`, `rounded-200` and `text-display-500` exist and `p-4`,
+  `text-sm`, `rounded-full` and `bg-white/5` do not.
+- `apps/diaz-ondemand-web/components/ui/` is the component library: `Button` / `ButtonLink`
+  (primary, secondary, ghost; sm, md, lg), `Chip`, `Badge` (neutral, premium, success,
+  critical), `Card`, `List` / `ListRow`, `Progress`, and `Field` / `Input` / `Select` /
+  `Textarea` / `Checkbox`. Orange is the one primary action on a screen; green means
+  progress or success; gold means premium; red means critical.
+- `apps/diaz-ondemand-web/lib/design-tokens.ts` mirrors the few hex values that Clerk's
+  `appearance.variables` and the Mux player need as literals.
+- `apps/diaz-ondemand-web/tests/design-tokens.test.ts` runs with `pnpm test` and refuses raw
+  values in `app/` and `components/` (arbitrary `-[...]` values, default Tailwind scales,
+  translucent white, gradients, hex colours) and fails if a mirrored hex drifts from the
+  token in `globals.css`.
+
 ### Vertical Slice Walkthrough
 
 After seed:

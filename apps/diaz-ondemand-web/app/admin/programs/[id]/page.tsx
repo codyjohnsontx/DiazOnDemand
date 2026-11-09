@@ -1,12 +1,16 @@
 'use client';
 
-import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Discipline, getDisciplineLabel, type ProgramWithContentDto } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
-import { PremiumBadge } from '@/components/premium-badge';
+import { SectionHeader } from '@/components/section-header';
+import { Badge } from '@/components/ui/badge';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
+import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/field';
+import { List, ListRow } from '@/components/ui/list';
 import { useApiClient } from '@/lib/api-client';
 
 export default function AdminProgramDetailPage() {
@@ -101,126 +105,129 @@ export default function AdminProgramDetailPage() {
     );
   }
 
-  return (
-    <AppShell className="space-y-8">
-      <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-        <form className="surface-panel space-y-5 p-6" onSubmit={saveProgram}>
-          <div className="flex items-start justify-between gap-4">
-            <h1 className="font-display text-4xl leading-none text-[var(--text)]">
-              {program.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-2">
-              <PremiumBadge label={getDisciplineLabel(program.discipline)} />
-              {program.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
-              <PremiumBadge
-                label={program.isPublished ? 'Published' : 'Draft'}
-                tone={program.isPublished ? 'accent' : 'neutral'}
-              />
-            </div>
-          </div>
+  const titleInputId = 'program-title';
+  const descriptionInputId = 'program-description';
+  const disciplineSelectId = 'program-discipline';
+  const featuredDemoId = 'program-featured-demo';
+  const newCourseInputId = 'new-course-title';
 
-          <input
-            className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-            value={draft.title}
-            onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
-          />
-          <textarea
-            className="min-h-[180px] w-full rounded-[24px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-            rows={6}
-            value={draft.description}
-            onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
-          />
-          <select
-            className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-            value={draft.discipline}
-            onChange={(event) =>
-              setDraft((prev) => ({ ...prev, discipline: event.target.value as Discipline }))
-            }
-          >
-            {Object.values(Discipline).map((discipline) => (
-              <option key={discipline} value={discipline}>
-                {getDisciplineLabel(discipline)}
-              </option>
-            ))}
-          </select>
-          <label className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
-            <input
+  return (
+    <AppShell>
+      <div className="grid gap-600 xl:grid-cols-split">
+        <form onSubmit={saveProgram}>
+          <Card className="flex flex-col gap-500">
+            <div className="flex flex-col gap-300">
+              <h1 className="type-display-500">{program.title}</h1>
+              <div className="flex flex-wrap items-center gap-200">
+                <Badge label={getDisciplineLabel(program.discipline)} />
+                {program.isFeaturedDemo ? <Badge label="Demo" /> : null}
+                <Badge
+                  label={program.isPublished ? 'Published' : 'Draft'}
+                  variant={program.isPublished ? 'success' : 'neutral'}
+                />
+              </div>
+            </div>
+
+            <Field htmlFor={titleInputId} label="Program title">
+              <Input
+                id={titleInputId}
+                value={draft.title}
+                onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
+              />
+            </Field>
+            <Field htmlFor={descriptionInputId} label="Program description">
+              <Textarea
+                id={descriptionInputId}
+                rows={6}
+                value={draft.description}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, description: event.target.value }))
+                }
+              />
+            </Field>
+            <Field htmlFor={disciplineSelectId} label="Discipline">
+              <Select
+                id={disciplineSelectId}
+                value={draft.discipline}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, discipline: event.target.value as Discipline }))
+                }
+              >
+                {Object.values(Discipline).map((discipline) => (
+                  <option key={discipline} value={discipline}>
+                    {getDisciplineLabel(discipline)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Checkbox
               checked={draft.isFeaturedDemo}
-              className="h-4 w-4 rounded border-white/10 bg-[var(--surface-2)]"
+              id={featuredDemoId}
+              label="Featured demo program"
               onChange={(event) =>
                 setDraft((prev) => ({ ...prev, isFeaturedDemo: event.target.checked }))
               }
-              type="checkbox"
             />
-            Featured demo program
-          </label>
-          <div className="flex flex-wrap gap-3">
-            <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-              type="submit"
-            >
-              Save program
-            </button>
-            <button
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-              onClick={togglePublish}
-              type="button"
-            >
-              {program.isPublished ? 'Move to draft' : 'Publish program'}
-            </button>
-          </div>
-          {status ? <p className="text-sm text-[var(--progress)]">{status}</p> : null}
+            <CardActions>
+              <Button type="submit" variant="primary">
+                Save program
+              </Button>
+              <Button onClick={togglePublish} variant="secondary">
+                {program.isPublished ? 'Move to draft' : 'Publish program'}
+              </Button>
+            </CardActions>
+            {status ? (
+              <p aria-live="polite" className="text-body-200 text-foreground-success">
+                {status}
+              </p>
+            ) : null}
+          </Card>
         </form>
 
-        <section className="space-y-5">
-          <form className="surface-panel space-y-4 p-6" onSubmit={createCourse}>
-            <h2 className="type-title-lg text-[var(--text)]">Course list</h2>
-            <input
-              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-              placeholder="New course title"
-              value={newCourseTitle}
-              onChange={(event) => setNewCourseTitle(event.target.value)}
-            />
-            <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-              type="submit"
-            >
-              Add course
-            </button>
+        <section className="flex flex-col gap-400">
+          <SectionHeader title="Course list" />
+          <form onSubmit={createCourse}>
+            <Card className="flex flex-col gap-400">
+              <Field htmlFor={newCourseInputId} label="New course">
+                <Input
+                  id={newCourseInputId}
+                  placeholder="New course title"
+                  value={newCourseTitle}
+                  onChange={(event) => setNewCourseTitle(event.target.value)}
+                />
+              </Field>
+              <CardActions>
+                <Button type="submit" variant="primary">
+                  Add course
+                </Button>
+              </CardActions>
+            </Card>
           </form>
 
-          <div className="space-y-3">
+          <List>
             {program.courses.map((course) => (
-              <div
-                className="surface-panel-muted flex items-center justify-between gap-4 p-4"
-                key={course.id}
-              >
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-                      {course.title}
-                    </h3>
-                    {program.isFeaturedDemo ? (
-                      <PremiumBadge label="Demo track" tone="accent" />
-                    ) : null}
-                    <PremiumBadge
+              <ListRow
+                badges={
+                  <>
+                    {program.isFeaturedDemo ? <Badge label="Demo track" /> : null}
+                    <Badge
                       label={course.isPublished ? 'Published' : 'Draft'}
-                      tone={course.isPublished ? 'accent' : 'neutral'}
+                      variant={course.isPublished ? 'success' : 'neutral'}
                     />
-                  </div>
-                  <p className="text-sm text-[var(--text-muted)]">
-                    {course.lessons.length} lessons in this course
-                  </p>
-                </div>
-                <Link
-                  className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-                  href={`/admin/courses/${course.id}`}
-                >
-                  Manage lessons
-                </Link>
-              </div>
+                  </>
+                }
+                key={course.id}
+                meta={`${course.lessons.length} lessons in this course`}
+                stack
+                title={course.title}
+                trailing={
+                  <ButtonLink href={`/admin/courses/${course.id}`} size="sm" variant="secondary">
+                    Manage lessons
+                  </ButtonLink>
+                }
+              />
             ))}
-          </div>
+          </List>
         </section>
       </div>
     </AppShell>

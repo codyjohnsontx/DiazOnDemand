@@ -4,7 +4,9 @@ import { SignIn } from '@clerk/nextjs';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
+import { Card } from '@/components/ui/card';
 import { clerkEnabled, devBypassEnabled } from '@/lib/config';
+import { tokenHex } from '@/lib/design-tokens';
 
 export default function SignInPage() {
   if (!clerkEnabled) {
@@ -25,38 +27,41 @@ export default function SignInPage() {
   }
 
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <PageHeader title="Enter Diaz on Demand" />
-      <div className="surface-panel flex justify-center p-4 sm:p-8">
+      <Card className="flex justify-center">
         <SignIn
           appearance={{
+            // Clerk derives shades from these, so they are the hex mirror of the tokens
+            // rather than the custom properties; the element classes below use the tokens.
             variables: {
-              colorBackground: '#12151A',
-              colorInputBackground: '#1B1F26',
-              colorInputText: '#F3F0E8',
-              colorPrimary: '#C44A2D',
-              colorText: '#F3F0E8',
-              colorTextSecondary: '#9AA3AF',
-              borderRadius: '24px',
+              colorBackground: tokenHex['color-surface-primary'],
+              colorInputBackground: tokenHex['color-surface-raised'],
+              colorInputText: tokenHex['color-foreground-primary'],
+              colorPrimary: tokenHex['color-surface-accent'],
+              colorText: tokenHex['color-foreground-primary'],
+              colorTextSecondary: tokenHex['color-foreground-faint'],
+              colorDanger: tokenHex['color-foreground-critical'],
+              borderRadius: 'var(--radius-200)',
               fontFamily: 'var(--font-body), Helvetica Neue, sans-serif',
             },
             elements: {
-              rootBox: 'w-full max-w-[440px]',
-              card: 'w-full border border-white/10 bg-transparent shadow-none',
-              headerTitle: 'font-display text-3xl text-[#F3F0E8]',
-              headerSubtitle: 'text-[#9AA3AF]',
+              rootBox: 'w-full max-w-sidebar',
+              card: 'w-full border border-border-primary bg-transparent shadow-none',
+              headerTitle: 'type-display-500',
+              headerSubtitle: 'text-foreground-faint',
               socialButtonsBlockButton:
-                'border border-white/10 bg-white/5 text-[#F3F0E8] hover:bg-white/10 transition-colors duration-200',
+                'border border-border-strong bg-surface-raised text-foreground-primary hover:bg-surface-interactive-hover transition-colors duration-fast',
               formButtonPrimary:
-                'bg-[#C44A2D] hover:bg-[#E0643F] text-[#F3F0E8] uppercase tracking-[0.18em] text-xs font-semibold',
+                'bg-surface-accent hover:bg-surface-accent-hover text-foreground-on-accent text-body-200 font-semibold',
               formFieldInput:
-                'border border-white/10 bg-[#1B1F26] text-[#F3F0E8] focus:border-[#35E0A1] focus:ring-0',
-              footerActionLink: 'text-[#F3F0E8] hover:text-white',
+                'border border-border-strong bg-surface-raised text-foreground-primary focus:border-focus-ring focus:ring-0',
+              footerActionLink: 'text-foreground-primary hover:text-foreground-accent',
             },
           }}
           fallbackRedirectUrl="/library"
         />
-      </div>
+      </Card>
     </AppShell>
   );
 }
