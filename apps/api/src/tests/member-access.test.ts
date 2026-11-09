@@ -5,7 +5,7 @@
  * `admin-members.db.test.ts` is the database-backed half: the same transitions
  * run through the real service, with the audit rows they write.
  */
-import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants.js';
 import { Reflector } from '@nestjs/core';
 import { EntitlementSource, EntitlementTier } from '@diaz/db';
@@ -15,6 +15,7 @@ import { AdminController } from '../admin/admin.controller.js';
 import {
   describeMemberAccess,
   hasLiveStripeAccess,
+  memberAccessVersion,
   planManualGrant,
   planManualRevoke,
   restoreGivesAccess,
@@ -22,6 +23,7 @@ import {
 } from '../admin/member-access.js';
 import { AuthGuard } from '../auth/auth.guard.js';
 import { ROLES_KEY } from '../auth/roles.decorator.js';
+import type { AuthUser } from '../common/request-with-user.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import {
   NO_REVOCATION,
@@ -568,5 +570,74 @@ describe('who can reach the members screen', () => {
     expect(Reflect.getMetadata(ROLES_KEY, AdminController)).toEqual([Role.ADMIN, Role.COACH]);
     expect(allows(Role.COACH, 'listPrograms')).toBe(true);
     expect(allows(Role.COACH, 'updateLesson')).toBe(true);
+  });
+});
+
+describe('memberAccessVersion', () => {
+  const stored = (overrides: Partial<ReturnType<typeof subscription>> = {}) => ({
+    entitlement: { ...entitlement(EntitlementTier.PREMIUM, null), updatedAt: daysFromNow(-1) },
+    subscriptions: [
+      { id: 'a', ...subscription(overrides) },
+      { id: 'b', ...subscription({ status: 'canceled' }) },
+    ],
+  });
+
+  it('is the same for the same member, whatever order the rows come back in', () => {
+    const member = stored();
+    const reversed = { ...member, subscriptions: [...member.subscriptions].reverse() };
+
+    expect(memberAccessVersion(reversed, NOW)).toBe(memberAccessVersion(member, NOW));
+  });
+
+  it('ignores the bookkeeping a Stripe redelivery bumps without changing anything', () => {
+    expect(memberAccessVersion(stored({ updatedAt: NOW, lastEventAt: NOW }), NOW)).toBe(
+      memberAccessVersion(stored(), NOW),
+    );
+  });
+
+  it('changes when any stored access field does', () => {
+    const base = memberAccessVersion(stored(), NOW);
+
+    for (const changed of [
+      stored({ status: 'past_due' }),
+      stored({ currentPeriodEnd: daysFromNow(50) }),
+      stored({ revokedAt: NOW, revokedReason: REVOKE_REASON_REFUND }),
+      stored({ adminRevokedAt: NOW }),
+      { ...stored(), entitlement: null },
+      { ...stored(), subscriptions: stored().subscriptions.slice(1) },
+    ]) {
+      expect(memberAccessVersion(changed, NOW)).not.toBe(base);
+    }
+  });
+
+  it('changes when time alone changes what a confirmation would do', () => {
+    // A grant that lapses between page load and Confirm turns "end this grant"
+    // into "withdraw Stripe access" without touching a row.
+    const member = {
+      entitlement: { ...entitlement(EntitlementTier.PREMIUM, daysFromNow(1)), updatedAt: NOW },
+      subscriptions: [{ id: 'a', ...subscription() }],
+    };
+
+    expect(memberAccessVersion(member, daysFromNow(2))).not.toBe(memberAccessVersion(member, NOW));
+  });
+});
+
+describe('member access request bodies', () => {
+  const controller = new AdminController({} as never, {} as never);
+  const actor = { id: 'admin', clerkUserId: 'user_admin', role: Role.ADMIN } as AuthUser;
+
+  it('answers an invalid body with a 400 naming the field, not a 500', () => {
+    const cases = [
+      () =>
+        controller.grantMemberAccess(actor, 'member', { validUntil: 'soon', accessVersion: 'v' }),
+      () => controller.revokeMemberAccess(actor, 'member', { reason: null }),
+      () => controller.restoreMemberAccess(actor, 'member', { accessVersion: 'v' }),
+    ];
+    const fields = ['validUntil', 'accessVersion', 'subscriptionId'];
+
+    cases.forEach((call, index) => {
+      expect(call).toThrow(BadRequestException);
+      expect(call).toThrow(fields[index]);
+    });
   });
 });

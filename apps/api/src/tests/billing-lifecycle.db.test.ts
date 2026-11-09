@@ -31,6 +31,7 @@ import { BillingService } from '../billing/billing.service.js';
 import { CHECKOUT_RESERVATION_TTL_MS } from '../billing/checkout-reservation.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
+import { membersPage } from './members-page.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -155,40 +156,74 @@ async function subscriptionsOf(userId: string) {
   });
 }
 
-/**
- * The real database, but with `subscription.upsert` failing the first N times.
- * Spying on the Prisma client itself is not an option: its model accessors are
- * lazy getters, so restoring a spy leaves the method undefined for later tests.
- */
-function prismaFailingUpsert(times: number): PrismaService {
-  let remaining = times;
+type ModelMethod = (...args: unknown[]) => unknown;
 
-  return {
-    client: new Proxy(prismaClient!, {
+/**
+ * The real database with some model methods replaced. Spying on the Prisma
+ * client itself is not an option: its model accessors are lazy getters, so
+ * restoring a spy leaves the method undefined for later tests.
+ *
+ * `$transaction` hands its callback a separate client, so the replacement has
+ * to be applied to that one too, or a write made under the member access lock
+ * would reach the real method.
+ */
+function prismaReplacing(
+  replacements: Record<string, Record<string, (original: ModelMethod) => ModelMethod>>,
+): PrismaService {
+  const wrap = <T extends object>(client: T): T =>
+    new Proxy(client, {
       get(target, property, receiver) {
-        if (property !== 'subscription') {
-          return Reflect.get(target, property, receiver);
+        const value = Reflect.get(target, property, receiver) as unknown;
+
+        if (property === '$transaction') {
+          return (run: (tx: object) => unknown, options?: unknown) =>
+            (value as (run: (tx: object) => unknown, options?: unknown) => unknown).call(
+              target,
+              (tx: object) => run(wrap(tx)),
+              options,
+            );
         }
 
-        return new Proxy(target.subscription, {
-          get(model, modelProperty, modelReceiver) {
-            if (modelProperty !== 'upsert') {
-              return Reflect.get(model, modelProperty, modelReceiver);
-            }
+        const methods = typeof property === 'string' ? replacements[property] : undefined;
 
-            return (...args: unknown[]) => {
-              if (remaining > 0) {
-                remaining -= 1;
-                return Promise.reject(new Error('database exploded'));
-              }
+        if (!methods) {
+          return value;
+        }
 
-              return (model.upsert as (...inner: unknown[]) => unknown)(...args);
-            };
+        return new Proxy(value as object, {
+          get(model, method, modelReceiver) {
+            const original = Reflect.get(model, method, modelReceiver) as ModelMethod;
+            const replace = typeof method === 'string' ? methods[method] : undefined;
+
+            return replace ? replace(original.bind(model)) : original;
           },
         });
       },
-    }),
-  } as unknown as PrismaService;
+    });
+
+  return { client: wrap(prismaClient!) } as unknown as PrismaService;
+}
+
+const explode = () => () => Promise.reject(new Error('database exploded'));
+
+/** The real database, but with `subscription.upsert` failing the first N times. */
+function prismaFailingUpsert(times: number): PrismaService {
+  let remaining = times;
+
+  return prismaReplacing({
+    subscription: {
+      upsert:
+        (original) =>
+        (...args) => {
+          if (remaining > 0) {
+            remaining -= 1;
+            return Promise.reject(new Error('database exploded'));
+          }
+
+          return original(...args);
+        },
+    },
+  });
 }
 
 /**
@@ -197,32 +232,10 @@ function prismaFailingUpsert(times: number): PrismaService {
  * for, and the FAILED record cannot be the thing that suppresses it.
  */
 function prismaWithDatabaseDown(): PrismaService {
-  const failWrite = (model: object, method: string) =>
-    new Proxy(model, {
-      get(target, property, receiver) {
-        if (property !== method) {
-          return Reflect.get(target, property, receiver);
-        }
-
-        return () => Promise.reject(new Error('database exploded'));
-      },
-    });
-
-  return {
-    client: new Proxy(prismaClient!, {
-      get(target, property, receiver) {
-        if (property === 'subscription') {
-          return failWrite(target.subscription, 'upsert');
-        }
-
-        if (property === 'stripeWebhookEvent') {
-          return failWrite(target.stripeWebhookEvent, 'upsert');
-        }
-
-        return Reflect.get(target, property, receiver);
-      },
-    }),
-  } as unknown as PrismaService;
+  return prismaReplacing({
+    subscription: { upsert: explode },
+    stripeWebhookEvent: { upsert: explode },
+  });
 }
 
 // One connection for the whole file. Both suites below share `prismaClient`, so
@@ -1128,7 +1141,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       const customerId = `cus_${name}`;
       const subscriptionId = `sub_${name}`;
       const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
-      const members = new AdminMembersService(prisma);
+      const members = membersPage(new AdminMembersService(prisma));
       const actor = {
         id: admin.id,
         clerkUserId: admin.clerkUserId,
@@ -1492,7 +1505,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
         data: { source: 'MANUAL' },
       });
 
-      await prismaClient!.$executeRawUnsafe(await backfillMigrationSql());
+      await runBackfillMigrationFor(user.id);
 
       await service.handleStripeEvent(
         chargeEvent('charge.refunded', {
@@ -1517,6 +1530,29 @@ async function backfillMigrationSql() {
     ),
     'utf8',
   );
+}
+
+/**
+ * Runs the backfill migration as written, but over one member's entitlement.
+ *
+ * The statement rewrites every `Entitlement` row with a subscription, and the
+ * other database-backed test files share this database and run at the same
+ * time, so running it bare relabelled their members mid-test. A temporary view
+ * named `Entitlement` shadows the table for this transaction only - the
+ * migration names the table unqualified, and the temporary schema is searched
+ * first - and exposes just this member's row, which Postgres updates through
+ * the view. Prisma's own queries name `"public"."Entitlement"` and never see it.
+ */
+async function runBackfillMigrationFor(userId: string) {
+  const sql = await backfillMigrationSql();
+
+  await prismaClient!.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      `CREATE TEMP VIEW "Entitlement" AS SELECT * FROM "public"."Entitlement" WHERE "userId" = '${userId}'`,
+    );
+    await tx.$executeRawUnsafe(sql);
+    await tx.$executeRawUnsafe('DROP VIEW pg_temp."Entitlement"');
+  });
 }
 
 describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
@@ -1556,7 +1592,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
 
   describe('an admin revocation blocks a new subscription', () => {
     const webhooks = new WebhooksService(prisma);
-    const members = new AdminMembersService(prisma);
+    const members = membersPage(new AdminMembersService(prisma));
 
     afterEach(async () => {
       await prismaClient!.stripeWebhookEvent.deleteMany({

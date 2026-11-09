@@ -625,6 +625,17 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
 - Every grant, revoke and restore is one transaction with a `MemberAccessAudit` row - actor, member,
   action, reason, the stored access before and after, and when - shown as the member's history. An
   acting admin's rows outlive their own account.
+- That transaction holds the member's access lock (`withMemberAccessLock` in
+  `apps/api/src/billing/member-access-lock.ts`, a transaction-scoped Postgres advisory lock keyed on
+  the member id), and so does every Stripe webhook that writes a subscription row and re-derives
+  the entitlement. A webhook and an admin change for the same member therefore never interleave:
+  a subscription opened during a revoke joins it, a grant is never overwritten by a sync that read
+  the entitlement first, and a restore is never undone by a new subscription copying the stamp it
+  cleared.
+- Each change also carries the `accessVersion` of the member detail the admin confirmed against.
+  If the member's access has changed since - another admin, a Stripe event, or a grant or paid
+  period running out - the API answers 409 and changes nothing, and the page reloads the member so
+  the confirmation says what would happen now. A malformed request body answers 400.
 
 Delivery safety:
 

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -22,6 +23,7 @@ import {
   adminUpdateProgramSchema,
   Role,
 } from '@diaz/shared';
+import type { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
@@ -29,6 +31,25 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../common/request-with-user.js';
 import { AdminMembersService } from './admin-members.service.js';
 import { AdminService } from './admin.service.js';
+
+/**
+ * A member-access request body, or a 400 naming what is wrong with it. A bare
+ * `parse` lets the ZodError reach Nest's default filter as a 500, and the
+ * members screen then shows a generic failure instead of the reason.
+ */
+function parseMemberAccessBody<T extends z.ZodTypeAny>(schema: T, body: unknown): z.output<T> {
+  const parsed = schema.safeParse(body);
+
+  if (!parsed.success) {
+    throw new BadRequestException(
+      parsed.error.issues
+        .map((issue) => (issue.path.length ? `${issue.path.join('.')}: ` : '') + issue.message)
+        .join('; '),
+    );
+  }
+
+  return parsed.data;
+}
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -185,7 +206,7 @@ export class AdminController {
     return this.adminMembersService.grantAccess(
       actor,
       id,
-      adminGrantMemberAccessSchema.parse(body),
+      parseMemberAccessBody(adminGrantMemberAccessSchema, body),
     );
   }
 
@@ -199,7 +220,7 @@ export class AdminController {
     return this.adminMembersService.revokeAccess(
       actor,
       id,
-      adminRevokeMemberAccessSchema.parse(body),
+      parseMemberAccessBody(adminRevokeMemberAccessSchema, body),
     );
   }
 
@@ -213,7 +234,7 @@ export class AdminController {
     return this.adminMembersService.restoreAccess(
       actor,
       id,
-      adminRestoreMemberAccessSchema.parse(body),
+      parseMemberAccessBody(adminRestoreMemberAccessSchema, body),
     );
   }
 }

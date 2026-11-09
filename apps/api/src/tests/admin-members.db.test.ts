@@ -22,7 +22,7 @@ import {
 import { EntitlementTier as SharedEntitlementTier, Role } from '@diaz/shared';
 import type Stripe from 'stripe';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { AdminMembersService } from '../admin/admin-members.service.js';
+import { AdminMembersService, STALE_CONFIRMATION_MESSAGE } from '../admin/admin-members.service.js';
 import type { BillingAlerter } from '../billing/billing-alerter.js';
 import {
   REVOKE_REASON_CHARGEBACK,
@@ -32,6 +32,7 @@ import type { AuthUser } from '../common/request-with-user.js';
 import { MeService } from '../me/me.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
+import { membersPage } from './members-page.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -46,6 +47,25 @@ const prismaClient = databaseUrl
   : null;
 
 const prisma = { client: prismaClient } as unknown as PrismaService;
+
+/**
+ * The Stripe webhook's side of a race, on its own connections. The application
+ * name is how `waitingOnLock` finds them in `pg_stat_activity` without mistaking
+ * another test file's connections for them.
+ */
+const RACER_APPLICATION = 'members-race-webhook';
+const racerClient = databaseUrl
+  ? new PrismaClient({
+      datasources: { db: { url: withApplicationName(databaseUrl, RACER_APPLICATION) } },
+      log: ['error'],
+    })
+  : null;
+
+function withApplicationName(url: string, name: string) {
+  const parsed = new URL(url);
+  parsed.searchParams.set('application_name', name);
+  return parsed.toString();
+}
 
 const PREFIX = 'members-test-';
 const DAY = 24 * 60 * 60 * 1000;
@@ -137,10 +157,15 @@ async function deliverSubscriptionEvent(
   subscription: { stripeSubscriptionId: string; stripeCustomerId: string },
   currentPeriodEnd: Date,
   type: Stripe.Event.Type = 'customer.subscription.updated',
-  delivery: { alerter?: BillingAlerter; eventId?: string; status?: string } = {},
+  delivery: {
+    alerter?: BillingAlerter;
+    eventId?: string;
+    status?: string;
+    prismaService?: PrismaService;
+  } = {},
 ) {
   sequence += 1;
-  await new WebhooksService(prisma, delivery.alerter).handleStripeEvent({
+  await new WebhooksService(delivery.prismaService ?? prisma, delivery.alerter).handleStripeEvent({
     id: delivery.eventId ?? `evt_${PREFIX}${sequence}`,
     type,
     created: Math.floor(Date.now() / 1000) + sequence,
@@ -198,14 +223,146 @@ function auditOf(memberId: string) {
 
 beforeAll(async () => {
   await prismaClient?.$connect();
+  await racerClient?.$connect();
 });
 
 afterAll(async () => {
   await prismaClient?.$disconnect();
+  await racerClient?.$disconnect();
 });
 
+/**
+ * An admin service whose access change is held open just before it commits:
+ * it has read the member and written everything but its audit row, the last
+ * statement of every admin access change. `resume` lets it commit.
+ */
+function adminChangePausedBeforeCommit() {
+  let reached!: () => void;
+  let resume!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const resumed = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+
+  const holdAuditWrite = (tx: object) =>
+    new Proxy(tx, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver) as object;
+
+        if (property !== 'memberAccessAudit') {
+          return value;
+        }
+
+        return new Proxy(value, {
+          get(model, method, modelReceiver) {
+            const original = Reflect.get(model, method, modelReceiver) as (
+              ...args: unknown[]
+            ) => Promise<unknown>;
+
+            if (method !== 'create' && method !== 'createMany') {
+              return original;
+            }
+
+            return async (...args: unknown[]) => {
+              reached();
+              await resumed;
+              return original.apply(model, args);
+            };
+          },
+        });
+      },
+    });
+
+  const client = new Proxy(prismaClient!, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown;
+
+      if (property !== '$transaction') {
+        return value;
+      }
+
+      return (run: (tx: object) => unknown, options?: unknown) =>
+        (value as (run: (tx: object) => unknown, options?: unknown) => unknown).call(
+          target,
+          (tx: object) => run(holdAuditWrite(tx)),
+          options,
+        );
+    },
+  });
+
+  return {
+    service: membersPage(new AdminMembersService({ client } as unknown as PrismaService)),
+    paused,
+    resume,
+  };
+}
+
+/**
+ * Resolves once the webhook has finished, or once one of its connections is
+ * waiting on a lock - the only two ways it can stop making progress while an
+ * admin change is held open.
+ */
+async function webhookFinishedOrBlocked(delivery: Promise<unknown>) {
+  let settled = false;
+  void delivery.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+  const deadline = Date.now() + 4000;
+
+  while (!settled) {
+    const [row] = await prismaClient!.$queryRaw<{ waiting: bigint }[]>`
+      SELECT count(*) AS waiting FROM pg_stat_activity
+      WHERE application_name = ${RACER_APPLICATION} AND wait_event_type = 'Lock'`;
+
+    if (row && row.waiting > 0n) {
+      return;
+    }
+
+    if (Date.now() > deadline) {
+      throw new Error('The webhook neither finished nor waited on a lock.');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+/**
+ * The race CodeRabbit described, made deterministic: the admin change reads
+ * and writes but has not committed when the Stripe webhook arrives, and only
+ * commits once the webhook has run as far as it can.
+ *
+ * With the member access lock, the webhook waits for the admin change and then
+ * reads what it committed. Without it, the webhook reads the state from before
+ * the admin change and writes its decision after it, which is the defect.
+ */
+async function raceAdminChangeAgainstWebhook<T>(
+  adminChange: (members: ReturnType<typeof membersPage>) => Promise<T>,
+  webhook: (racer: PrismaService) => Promise<void>,
+) {
+  const { service: members, paused, resume } = adminChangePausedBeforeCommit();
+  const change = adminChange(members);
+
+  await Promise.race([paused, change]);
+
+  const delivery = webhook({ client: racerClient } as unknown as PrismaService);
+
+  try {
+    await webhookFinishedOrBlocked(delivery);
+  } finally {
+    resume();
+  }
+
+  const [changed, delivered] = await Promise.allSettled([change, delivery]);
+
+  expect(changed.status).toBe('fulfilled');
+  expect(delivered.status).toBe('fulfilled');
+}
+
 describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
-  const service = new AdminMembersService(prisma);
+  const service = membersPage(new AdminMembersService(prisma));
 
   afterEach(async () => {
     await prismaClient!.user.deleteMany({ where: { clerkUserId: { startsWith: PREFIX } } });
@@ -1020,6 +1177,157 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       ).rejects.toThrow();
 
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+    });
+  });
+
+  describe('an admin change and a Stripe webhook at the same moment', () => {
+    /** A Stripe subscription the member has not been seen with before. */
+    function newSubscriptionFor(subscription: { stripeCustomerId: string }) {
+      sequence += 1;
+      return {
+        stripeSubscriptionId: `sub_${PREFIX}${sequence}`,
+        stripeCustomerId: subscription.stripeCustomerId,
+      };
+    }
+
+    it('a revoke and a new subscription: the new subscription joins the revocation', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      const late = newSubscriptionFor(subscription);
+
+      await raceAdminChangeAgainstWebhook(
+        (members) => members.revokeAccess(admin, member.id, { reason: 'Banned for conduct' }),
+        (racer) =>
+          deliverSubscriptionEvent(member, late, stripeDate(30), 'customer.subscription.created', {
+            prismaService: racer,
+          }),
+      );
+
+      const row = await prismaClient!.subscription.findUnique({
+        where: { stripeSubscriptionId: late.stripeSubscriptionId },
+      });
+      expect(row?.adminRevokedAt).not.toBeNull();
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+    });
+
+    it('a grant and a subscription event: the event leaves the grant in place', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+
+      await raceAdminChangeAgainstWebhook(
+        (members) =>
+          members.grantAccess(admin, member.id, { validUntil: null, reason: 'Paid cash' }),
+        (racer) =>
+          deliverSubscriptionEvent(member, subscription, stripeDate(20), undefined, {
+            prismaService: racer,
+          }),
+      );
+
+      expect(await entitlementOf(member.id)).toMatchObject({
+        tier: EntitlementTier.PREMIUM,
+        validUntil: null,
+        source: EntitlementSource.MANUAL,
+      });
+    });
+
+    it('a restore and a new subscription: the new one does not copy the cleared revocation', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      await service.revokeAccess(admin, member.id, { reason: 'Banned for conduct' });
+      const late = newSubscriptionFor(subscription);
+
+      await raceAdminChangeAgainstWebhook(
+        (members) =>
+          members.restoreAccess(admin, member.id, {
+            subscriptionId: subscription.id,
+            reason: 'Revoked the wrong member',
+          }),
+        (racer) =>
+          deliverSubscriptionEvent(member, late, stripeDate(30), 'customer.subscription.created', {
+            prismaService: racer,
+          }),
+      );
+
+      const rows = await prismaClient!.subscription.findMany({ where: { userId: member.id } });
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.adminRevokedAt)).toEqual([null, null]);
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
+    });
+  });
+
+  describe('a confirmation that went stale before Confirm was pressed', () => {
+    it('refuses a revoke confirmed before another admin ended the grant, and keeps Stripe access', async () => {
+      const admin = await createAdmin();
+      const other = await createAdmin();
+      const { member } = await payingMember();
+      await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
+
+      // The page says "End this manual grant?", with an optional reason.
+      const seen = await service.getMember(member.id);
+      expect(seen.revokeRequiresReason).toBe(false);
+
+      await service.revokeAccess(other, member.id, { reason: null });
+
+      await expect(
+        service.revokeAccess(admin, member.id, {
+          reason: 'Grant was a mistake',
+          accessVersion: seen.accessVersion,
+        }),
+      ).rejects.toThrow(STALE_CONFIRMATION_MESSAGE);
+
+      expect(await entitlementOf(member.id)).toMatchObject({
+        tier: EntitlementTier.PREMIUM,
+        source: EntitlementSource.STRIPE,
+      });
+      const rows = await prismaClient!.subscription.findMany({ where: { userId: member.id } });
+      expect(rows.map((row) => row.adminRevokedAt)).toEqual([null]);
+      expect(await auditOf(member.id)).toHaveLength(2);
+    });
+
+    it('refuses a change confirmed before a Stripe event changed what it does', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      const seen = await service.getMember(member.id);
+
+      await deliverSubscriptionEvent(member, subscription, stripeDate(20), undefined, {
+        status: 'canceled',
+      });
+
+      await expect(
+        service.grantAccess(admin, member.id, {
+          validUntil: daysFromNow(60).toISOString(),
+          reason: null,
+          accessVersion: seen.accessVersion,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(await auditOf(member.id)).toHaveLength(0);
+
+      // Confirmed again against the member as they now stand, it goes through.
+      const fresh = await service.getMember(member.id);
+      await expect(
+        service.grantAccess(admin, member.id, {
+          validUntil: daysFromNow(60).toISOString(),
+          reason: null,
+          accessVersion: fresh.accessVersion,
+        }),
+      ).resolves.toMatchObject({ hasAccess: true });
+    });
+
+    it('does not count a Stripe redelivery that changed nothing', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await payingMember();
+      const periodEnd = stripeDate(20);
+      await deliverSubscriptionEvent(member, subscription, periodEnd);
+      const seen = await service.getMember(member.id);
+
+      await deliverSubscriptionEvent(member, subscription, periodEnd);
+
+      await expect(
+        service.revokeAccess(admin, member.id, {
+          reason: 'Banned for conduct',
+          accessVersion: seen.accessVersion,
+        }),
+      ).resolves.toMatchObject({ hasAccess: false });
     });
   });
 

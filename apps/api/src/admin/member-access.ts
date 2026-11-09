@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { EntitlementSource, EntitlementTier } from '@diaz/db';
 import type { MemberAccessStatus } from '@diaz/shared';
 import {
@@ -240,4 +241,48 @@ export function describeMemberAccess(
 
   return candidates.reduce((latest, candidate) => (candidate.at > latest.at ? candidate : latest))
     .status;
+}
+
+/**
+ * A fingerprint of everything an access confirmation on the members screen is
+ * built from, so the API can refuse a confirmation made against state that has
+ * since changed.
+ *
+ * The page sends back the version it rendered, and the change is refused unless
+ * it still matches. Without that, a confirmation that went stale did something
+ * other than what it said: another admin ends the manual grant, and a "End this
+ * manual grant?" confirmed with a reason withdraws the member's Stripe access
+ * instead.
+ *
+ * It covers the stored rows and what they mean at `now`, because a grant or a
+ * paid period that lapses between page load and Confirm changes what the action
+ * does without changing a row. Only `updatedAt` and `lastEventAt` are left out:
+ * a Stripe redelivery bumps both without changing anything an admin was shown.
+ * Every other field is in, so a column added later is covered by default - an
+ * unnecessary refusal costs a reload, a missed change costs access.
+ */
+export function memberAccessVersion(
+  input: {
+    entitlement: (EntitlementRow & { updatedAt: Date }) | null;
+    subscriptions: readonly (SubscriptionRow & { id: string })[];
+  },
+  now: Date,
+): string {
+  const { entitlement } = input;
+  const subscriptions = [...input.subscriptions].sort((a, b) => a.id.localeCompare(b.id));
+  const stored = {
+    entitlement: entitlement ? omitKeys(entitlement, ['updatedAt']) : null,
+    subscriptions: subscriptions.map((row) => omitKeys(row, ['updatedAt', 'lastEventAt'])),
+  };
+  const meaning = {
+    entitlementActive: isEntitlementActive(entitlement, now),
+    stripeLive: hasLiveStripeAccess(subscriptions, now),
+    restoreGivesAccess: subscriptions.map((row) => restoreGivesAccess(row, now)),
+  };
+
+  return createHash('sha256').update(JSON.stringify({ stored, meaning })).digest('base64url');
+}
+
+function omitKeys<T extends object>(row: T, keys: readonly string[]) {
+  return Object.fromEntries(Object.entries(row).filter(([key]) => !keys.includes(key)));
 }
