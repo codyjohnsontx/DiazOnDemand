@@ -20,10 +20,17 @@ const displayFont = Oswald({
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${bodyFont.variable} ${displayFont.variable} antialiased`}>
+      <body className={`${bodyFont.variable} ${displayFont.variable}`}>
         <AuthProvider>
           {!comingSoonEnabled && <Nav />}
-          <main className={comingSoonEnabled ? 'py-16 sm:py-20' : 'pb-28 pt-36 sm:pb-20 md:pt-32'}>
+          {/* The bottom padding clears the phone tab bar, which is fixed over the page. */}
+          <main
+            className={
+              comingSoonEnabled
+                ? 'py-1200 md:py-1600'
+                : 'pb-tabbar-clearance pt-800 md:pb-1600 md:pt-1200'
+            }
+          >
             {children}
           </main>
         </AuthProvider>

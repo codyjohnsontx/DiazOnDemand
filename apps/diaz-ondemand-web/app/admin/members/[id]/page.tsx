@@ -6,7 +6,10 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { AdminMemberDetail, AdminMemberSubscription } from '@diaz/shared';
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
-import { PremiumBadge } from '@/components/premium-badge';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
+import { Field, Input, Textarea } from '@/components/ui/field';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 import {
@@ -18,13 +21,6 @@ import {
   isCheckoutBarred,
   restoreKeepsCheckoutBar,
 } from '@/lib/member-access';
-
-const PRIMARY_BUTTON =
-  'inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60';
-const SECONDARY_BUTTON =
-  'inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 disabled:opacity-60';
-const FIELD =
-  'w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]';
 
 /** The API's own refusal, which names the rule, or a generic line when it gave none. */
 function messageFrom(error: unknown, fallback: string) {
@@ -42,6 +38,9 @@ function messageFrom(error: unknown, fallback: string) {
   return fallback;
 }
 
+/** Which access change is open for confirmation; the page opens one at a time. */
+type Confirming = { open: boolean; onOpen: () => void; onClose: () => void };
+
 /**
  * An access change: a reason, then a second, explicit confirmation that says
  * what will happen before anything is sent.
@@ -50,18 +49,19 @@ function ConfirmedAction({
   label,
   confirmation,
   onConfirm,
+  confirming: { open: confirming, onOpen, onClose },
   confirmDisabled = false,
   reasonRequired = false,
 }: {
   label: string;
   confirmation: string;
   onConfirm: (reason: string) => Promise<void>;
+  confirming: Confirming;
   confirmDisabled?: boolean;
   reasonRequired?: boolean;
 }) {
   const reasonId = useId();
   const [reason, setReason] = useState('');
-  const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Refuses a second submit while one is in flight, before React re-renders.
   const inFlight = useRef(false);
@@ -77,7 +77,7 @@ function ConfirmedAction({
     try {
       await onConfirm(reason);
       setReason('');
-      setConfirming(false);
+      onClose();
     } catch (error) {
       // The page reports the failure. A 409 means the member changed and the page
       // has reloaded them, so this confirmation may now do something else: close it,
@@ -85,7 +85,7 @@ function ConfirmedAction({
       // keep the reason so a retry need not retype it.
       if (error instanceof ApiError && error.status === 409) {
         setReason('');
-        setConfirming(false);
+        onClose();
       }
     } finally {
       inFlight.current = false;
@@ -95,52 +95,46 @@ function ConfirmedAction({
 
   if (!confirming) {
     return (
-      <button className={SECONDARY_BUTTON} onClick={() => setConfirming(true)} type="button">
-        {label}
-      </button>
+      <CardActions>
+        <Button onClick={onOpen} variant="secondary">
+          {label}
+        </Button>
+      </CardActions>
     );
   }
 
   return (
-    <div
-      className="surface-panel-muted space-y-4 p-4"
-      role="group"
+    <Card
       aria-label={`Confirm: ${label}`}
+      className="flex flex-col gap-400"
+      padding="compact"
+      role="group"
+      variant="raised"
     >
-      <p className="text-sm text-[var(--text)]">{confirmation}</p>
-      <div className="space-y-2">
-        <label className="type-kicker text-[var(--text-muted)]" htmlFor={reasonId}>
-          {reasonRequired ? 'Reason' : 'Reason (optional)'}
-        </label>
-        <textarea
+      <p className="text-body-200">{confirmation}</p>
+      <Field htmlFor={reasonId} label={reasonRequired ? 'Reason' : 'Reason (optional)'}>
+        <Textarea
           id={reasonId}
-          className={`${FIELD} min-h-[80px]`}
           maxLength={500}
           required={reasonRequired}
           rows={2}
           value={reason}
           onChange={(event) => setReason(event.target.value)}
         />
-      </div>
-      <div className="flex flex-wrap gap-3">
-        <button
-          className={PRIMARY_BUTTON}
+      </Field>
+      <CardActions>
+        <Button
           disabled={submitting || confirmDisabled || (reasonRequired && !reason.trim())}
           onClick={confirm}
-          type="button"
+          variant="primary"
         >
           {submitting ? 'Saving...' : 'Confirm'}
-        </button>
-        <button
-          className={SECONDARY_BUTTON}
-          disabled={submitting}
-          onClick={() => setConfirming(false)}
-          type="button"
-        >
+        </Button>
+        <Button disabled={submitting} onClick={onClose} variant="secondary">
           Cancel
-        </button>
-      </div>
-    </div>
+        </Button>
+      </CardActions>
+    </Card>
   );
 }
 
@@ -148,10 +142,12 @@ function SubscriptionRow({
   subscription,
   keepsCheckoutBar,
   onRestore,
+  confirming,
 }: {
   subscription: AdminMemberSubscription;
   keepsCheckoutBar: boolean;
   onRestore: (subscription: AdminMemberSubscription, reason: string) => Promise<void>;
+  confirming: Confirming;
 }) {
   const periodEnd = subscription.currentPeriodEnd
     ? formatDate(subscription.currentPeriodEnd)
@@ -179,15 +175,15 @@ function SubscriptionRow({
     : '';
 
   return (
-    <div className="surface-panel-muted space-y-4 p-4">
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="break-all font-display text-xl leading-tight text-[var(--text)]">
+    <Card className="flex flex-col gap-400" padding="compact" variant="raised">
+      <div className="flex flex-col gap-200">
+        <div className="flex flex-wrap items-center gap-200">
+          <h3 className="break-all text-body-300 font-semibold">
             {subscription.stripeSubscriptionId}
           </h3>
-          <PremiumBadge label={status} />
+          <Badge label={status} />
         </div>
-        <p className="text-sm text-[var(--text-muted)]">
+        <p className="text-body-200 text-foreground-faint">
           {revocations.length > 0
             ? revocations.join('. ')
             : periodEnd
@@ -202,11 +198,12 @@ function SubscriptionRow({
               ? `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? Access returns at once${periodEnd ? ` and runs until ${periodEnd}` : ''}.${barStays}`
               : `Clear the ${clearing} revocation on ${subscription.stripeSubscriptionId}? ${whyNoAccess}, so this clears the record but gives no access back.${subscription.restoreOpensCheckout ? ' They will be able to start a new subscription.' : barStays}`
           }
+          confirming={confirming}
           label="Restore access"
           onConfirm={(reason) => onRestore(subscription, reason)}
         />
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -220,6 +217,12 @@ export default function AdminMemberPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [grantUntil, setGrantUntil] = useState('');
+  const [openAction, setOpenAction] = useState<string | null>(null);
+  const confirming = (action: string): Confirming => ({
+    open: openAction === action,
+    onOpen: () => setOpenAction(action),
+    onClose: () => setOpenAction((current) => (current === action ? null : current)),
+  });
 
   const load = useCallback(async () => {
     try {
@@ -289,7 +292,7 @@ export default function AdminMemberPage() {
   if (!member) {
     return (
       <AppShell>
-        <p className="text-sm text-[var(--text-muted)]">Loading member...</p>
+        <p className="text-body-200 text-foreground-faint">Loading member...</p>
       </AppShell>
     );
   }
@@ -297,33 +300,29 @@ export default function AdminMemberPage() {
   const hasManualGrant = member.access.kind === 'manual-grant';
 
   return (
-    <AppShell className="space-y-8">
-      <div className="space-y-4">
+    <AppShell>
+      <div className="flex flex-col items-start gap-400">
         <Link
-          className="text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
+          className="text-body-200 font-semibold text-foreground-faint transition-colors duration-fast hover:text-foreground-primary"
           href="/admin/members"
         >
           Members
         </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="break-all font-display text-3xl leading-none text-[var(--text)] sm:text-4xl">
-            {member.clerkUserId}
-          </h1>
-          {member.role === 'STUDENT' ? null : <PremiumBadge label={member.role} />}
+        <div className="flex min-w-0 flex-wrap items-center gap-300">
+          <h1 className="type-display-700 break-all">{member.clerkUserId}</h1>
+          {member.role === 'STUDENT' ? null : <Badge label={member.role} />}
         </div>
       </div>
 
-      <section className="grid items-start gap-6 xl:grid-cols-[1fr_1fr]">
-        <div className="surface-panel space-y-6 p-6">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="type-title-lg text-[var(--text)]">
-                {member.hasAccess ? 'Premium access' : 'No access'}
-              </h2>
-            </div>
-            <p className="text-sm text-[var(--text-muted)]">{describeAccess(member.access)}</p>
+      <section className="grid items-start gap-600 xl:grid-cols-split">
+        <Card className="flex flex-col gap-600">
+          <div className="flex flex-col gap-200">
+            <h2 className="type-display-500">
+              {member.hasAccess ? 'Premium access' : 'No access'}
+            </h2>
+            <p className="text-body-200 text-foreground-faint">{describeAccess(member.access)}</p>
             {isCheckoutBarred(member.subscriptions) ? (
-              <p className="text-sm text-[var(--text-muted)]">
+              <p className="text-body-200 text-foreground-faint">
                 They cannot start a new subscription until every admin revocation is restored.
               </p>
             ) : null}
@@ -333,23 +332,21 @@ export default function AdminMemberPage() {
             <p
               aria-atomic="true"
               aria-live="assertive"
-              className="text-sm text-[var(--danger)]"
+              className="text-body-200 text-foreground-critical"
               role="alert"
             >
               {actionError}
             </p>
           ) : null}
           {status ? (
-            <p aria-live="polite" className="text-sm text-[var(--progress)]">
+            <p aria-live="polite" className="text-body-200 text-foreground-success">
               {status}
             </p>
           ) : null}
 
           {member.canRevoke ? (
-            <div className="space-y-4 border-t border-white/10 pt-6">
-              <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-                Revoke access
-              </h3>
+            <div className="flex flex-col gap-400 border-t border-border-primary pt-600">
+              <h3 className="type-display-400">Revoke access</h3>
               <ConfirmedAction
                 confirmation={
                   member.revokeRequiresReason
@@ -358,6 +355,7 @@ export default function AdminMemberPage() {
                       ? `End this manual grant? Their Stripe subscription still gives them access${member.accessAfterRevoke.validUntil ? ` until ${formatDate(member.accessAfterRevoke.validUntil)}` : ''}.`
                       : 'End this manual grant? They will have no premium access.'
                 }
+                confirming={confirming('revoke')}
                 label="Revoke access"
                 onConfirm={(reason) =>
                   act('revoke', { reason }, 'Access revoked.', 'Access could not be revoked.')
@@ -367,30 +365,26 @@ export default function AdminMemberPage() {
             </div>
           ) : null}
 
-          <div className="space-y-4 border-t border-white/10 pt-6">
-            <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
+          <div className="flex flex-col gap-400 border-t border-border-primary pt-600">
+            <h3 className="type-display-400">
               {hasManualGrant ? 'Change access end date' : 'Grant access'}
             </h3>
             {member.stripeAccess ? (
-              <p className="text-sm text-[var(--text-muted)]">
+              <p className="text-body-200 text-foreground-faint">
                 {member.stripeAccess.validUntil
                   ? `Their Stripe subscription runs until ${formatDate(member.stripeAccess.validUntil)}, so a grant has to end later.`
                   : 'Their Stripe subscription has no end date on record, so only a grant with no end date can outlast it.'}
               </p>
             ) : null}
-            <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={validUntilId}>
-                Access ends (leave empty for no end date)
-              </label>
-              <input
+            <Field htmlFor={validUntilId} label="Access ends (leave empty for no end date)">
+              <Input
                 id={validUntilId}
-                className={FIELD}
                 max="9999-12-31"
                 type="date"
                 value={grantUntil}
                 onChange={(event) => setGrantUntil(event.target.value)}
               />
-            </div>
+            </Field>
             <ConfirmedAction
               confirmation={
                 grantDateInvalid
@@ -400,6 +394,7 @@ export default function AdminMemberPage() {
                     : 'Grant premium access with no end date?'
               }
               confirmDisabled={grantDateInvalid}
+              confirming={confirming('grant')}
               label={hasManualGrant ? 'Update access' : 'Grant access'}
               onConfirm={async (reason) => {
                 await act(
@@ -412,17 +407,18 @@ export default function AdminMemberPage() {
               }}
             />
           </div>
-        </div>
+        </Card>
 
-        <div className="space-y-6">
-          <div className="surface-panel space-y-4 p-6">
-            <h2 className="type-title-lg text-[var(--text)]">Subscriptions</h2>
+        <div className="flex flex-col gap-600">
+          <Card className="flex flex-col gap-400">
+            <h2 className="type-display-500">Subscriptions</h2>
             {member.subscriptions.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)]">No Stripe subscriptions.</p>
+              <p className="text-body-200 text-foreground-faint">No Stripe subscriptions.</p>
             ) : (
-              <div className="space-y-3">
+              <div className="flex flex-col gap-300">
                 {member.subscriptions.map((subscription) => (
                   <SubscriptionRow
+                    confirming={confirming(`restore:${subscription.id}`)}
                     key={subscription.id}
                     keepsCheckoutBar={restoreKeepsCheckoutBar(subscription, member.subscriptions)}
                     onRestore={(row, reason) =>
@@ -438,38 +434,42 @@ export default function AdminMemberPage() {
                 ))}
               </div>
             )}
-          </div>
+          </Card>
 
-          <div className="surface-panel space-y-4 p-6">
-            <h2 className="type-title-lg text-[var(--text)]">History</h2>
+          <Card className="flex flex-col gap-400">
+            <h2 className="type-display-500">History</h2>
             {member.history.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)]">
+              <p className="text-body-200 text-foreground-faint">
                 No admin has changed this member&apos;s access.
               </p>
             ) : (
-              <ol className="space-y-3">
+              <ol className="flex flex-col gap-300">
                 {member.history.map((entry) => (
-                  <li className="surface-panel-muted space-y-1 p-4" key={entry.id}>
-                    <p className="text-sm font-semibold text-[var(--text)]">
-                      {describeAuditAction(entry)} - {entry.actorClerkUserId},{' '}
-                      {formatDate(entry.createdAt)}
-                    </p>
-                    <p className="text-sm text-[var(--text-muted)]">{describeAuditChange(entry)}</p>
-                    {entry.stripeSubscriptionId ? (
-                      <p className="break-all text-sm text-[var(--text-muted)]">
-                        {entry.stripeSubscriptionId}
+                  <li key={entry.id}>
+                    <Card className="flex flex-col gap-100" padding="compact" variant="raised">
+                      <p className="text-body-200 font-semibold">
+                        {describeAuditAction(entry)} - {entry.actorClerkUserId},{' '}
+                        {formatDate(entry.createdAt)}
                       </p>
-                    ) : null}
-                    {entry.reason ? (
-                      <p className="text-sm text-[var(--text-muted)]">
-                        &ldquo;{entry.reason}&rdquo;
+                      <p className="text-body-200 text-foreground-faint">
+                        {describeAuditChange(entry)}
                       </p>
-                    ) : null}
+                      {entry.stripeSubscriptionId ? (
+                        <p className="break-all text-body-200 text-foreground-faint">
+                          {entry.stripeSubscriptionId}
+                        </p>
+                      ) : null}
+                      {entry.reason ? (
+                        <p className="text-body-200 text-foreground-faint">
+                          &ldquo;{entry.reason}&rdquo;
+                        </p>
+                      ) : null}
+                    </Card>
                   </li>
                 ))}
               </ol>
             )}
-          </div>
+          </Card>
         </div>
       </section>
     </AppShell>

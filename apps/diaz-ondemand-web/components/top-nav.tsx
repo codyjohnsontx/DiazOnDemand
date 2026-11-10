@@ -1,10 +1,12 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { MeDto } from '@diaz/shared';
 import { SignOutControl } from '@/components/sign-out-control';
+import { ButtonLink } from '@/components/ui/button';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 
@@ -15,6 +17,11 @@ const links = [
   { href: '/account', label: 'Account' },
 ];
 
+/**
+ * One sticky top bar: the wordmark, the four links from tablet width up, and the Account
+ * (or Sign in) button. At phone width the links move to a fixed, bordered tab bar along the
+ * bottom edge; the main element in app/layout.tsx pads for it.
+ */
 export function TopNav() {
   const pathname = usePathname();
   const apiFetch = useApiClient();
@@ -30,89 +37,73 @@ export function TopNav() {
       });
   }, [apiFetch]);
 
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+
   return (
     <>
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[rgba(8,9,11,0.82)] backdrop-blur-xl">
-        <div className="student-shell">
-          <div className="flex min-h-[72px] items-center justify-between gap-4">
-            <Link className="min-w-0" href="/library">
-              <div className="space-y-1">
-                <p className="font-display text-xl leading-none tracking-[0.04em] text-[var(--text)] sm:text-2xl">
-                  Diaz
-                </p>
-                <p className="type-kicker text-[10px] text-[var(--text-muted)] sm:text-xs">
-                  On Demand
-                </p>
-              </div>
-            </Link>
+      <header className="sticky top-0 z-nav border-b border-border-primary bg-surface-page">
+        <div className="mx-auto flex min-h-nav w-full max-w-container items-center justify-between gap-400 px-400 md:px-600 md:py-100">
+          <Link className="flex min-w-0 items-center gap-300 rounded-100" href="/library">
+            <Image
+              alt=""
+              className="size-logo rounded-100"
+              height={32}
+              priority
+              src="/diaz-logo.png"
+              width={32}
+            />
+            <span className="type-display-300 whitespace-nowrap">Diaz On Demand</span>
+          </Link>
 
-            <nav className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 md:flex">
-              {links.map((link) => {
-                const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
-
-                return (
-                  <Link
-                    key={link.href}
-                    className={['nav-link', active ? 'nav-link-active' : '']
-                      .filter(Boolean)
-                      .join(' ')}
-                    href={link.href}
-                  >
-                    {link.label}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            <div className="hidden items-center gap-3 lg:flex">
-              <Link
-                className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 sm:text-sm"
-                href={me ? '/account' : '/sign-in'}
-              >
-                {me ? 'Account' : 'Sign In'}
-              </Link>
-              {me ? <SignOutControl /> : null}
-            </div>
-          </div>
-
-          <nav className="flex gap-2 overflow-x-auto pb-3 md:hidden">
+          <nav aria-label="Primary" className="hidden items-center gap-100 md:flex">
             {links.map((link) => {
-              const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+              const active = isActive(link.href);
 
               return (
                 <Link
-                  key={link.href}
+                  aria-current={active ? 'page' : undefined}
                   className={[
-                    'shrink-0 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
+                    'inline-flex h-control-md items-center rounded-200 px-300 text-body-200 font-semibold transition-colors duration-fast',
                     active
-                      ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]'
-                      : 'border-white/10 bg-white/5 text-[var(--text-muted)]',
+                      ? 'bg-surface-interactive-active text-foreground-primary'
+                      : 'text-foreground-faint hover:bg-surface-interactive-hover hover:text-foreground-primary',
                   ].join(' ')}
                   href={link.href}
+                  key={link.href}
                 >
                   {link.label}
                 </Link>
               );
             })}
           </nav>
+
+          <div className="flex shrink-0 items-center gap-200">
+            <ButtonLink href={me ? '/account' : '/sign-in'} variant="secondary">
+              {me ? 'Account' : 'Sign in'}
+            </ButtonLink>
+            {me ? <SignOutControl className="hidden md:inline-flex" variant="ghost" /> : null}
+          </div>
         </div>
       </header>
-      {/* Kept outside <header>: its backdrop-blur makes it the containing block for
-          fixed descendants, which pinned this bar to the header instead of the viewport. */}
-      <nav className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-4 gap-2 rounded-[28px] border border-white/10 bg-[rgba(12,14,18,0.92)] p-2 shadow-[0_18px_48px_rgba(0,0,0,0.38)] md:hidden">
+
+      <nav
+        aria-label="Primary"
+        className="fixed inset-x-0 bottom-0 z-nav grid min-h-tabbar grid-cols-4 border-t border-border-primary bg-surface-primary p-200 shadow-overlay md:hidden"
+      >
         {links.map((link) => {
-          const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+          const active = isActive(link.href);
 
           return (
             <Link
-              key={link.href}
+              aria-current={active ? 'page' : undefined}
               className={[
-                'rounded-[22px] px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
+                'flex items-center justify-center rounded-200 text-body-100 font-semibold uppercase tracking-caps transition-colors duration-fast',
                 active
-                  ? 'bg-[var(--accent)] text-[var(--text)]'
-                  : 'bg-transparent text-[var(--text-muted)]',
+                  ? 'bg-surface-interactive-active text-foreground-primary'
+                  : 'text-foreground-faint',
               ].join(' ')}
               href={link.href}
+              key={link.href}
             >
               {link.label}
             </Link>

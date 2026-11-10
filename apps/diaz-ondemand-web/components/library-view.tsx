@@ -1,23 +1,28 @@
 'use client';
 
-import Link from 'next/link';
 import { startTransition, useDeferredValue, useEffect, useState } from 'react';
 import {
   buildRecommendation,
   Discipline,
   getDisciplineLabel,
+  hasPlayableVideo,
   type ProgramWithContentDto,
   type ProgressDto,
 } from '@diaz/shared';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
-import { buildContinueWatching, buildCourseCardModel } from '@/lib/student-ui';
+import { buildContinueWatching, buildCourseCardModel, formatDuration } from '@/lib/student-ui';
 import { AppShell } from './app-shell';
 import { ContinueRow } from './continue-row';
 import { CourseRow } from './course-row';
 import { EmptyState } from './empty-state';
 import { PageHeader } from './page-header';
 import { SectionHeader } from './section-header';
+import { ButtonLink } from './ui/button';
+import { Card, CardActions } from './ui/card';
+import { Chip, ChipGroup } from './ui/chip';
+import { List } from './ui/list';
+import { Progress } from './ui/progress';
 
 export function LibraryView({ programs }: { programs: ProgramWithContentDto[] }) {
   const apiFetch = useApiClient();
@@ -57,30 +62,39 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   const recommendation = firstCourse
     ? buildRecommendation(filteredPrograms, firstCourse.id, progress)
     : null;
+  // The lesson the recommendation points at, so the card can carry its facts: the course
+  // and program it sits in, its runtime, its description and how far along it is.
+  const recommended = recommendation?.lessonId
+    ? filteredPrograms
+        .flatMap((program) =>
+          program.courses.flatMap((course) =>
+            course.lessons.map((lesson) => ({ program, course, lesson })),
+          ),
+        )
+        .find((entry) => entry.lesson.id === recommendation.lessonId)
+    : undefined;
+  const recommendedProgress = recommended
+    ? continueWatching.find((item) => item.lessonId === recommended.lesson.id)
+    : undefined;
 
   return (
-    <AppShell className="space-y-16">
-      <div className="space-y-6">
-        <PageHeader title="Train On Demand" />
-        <div className="flex flex-wrap gap-2">
-          {(['all', ...disciplineOrder] as const).map((discipline) => (
-            <button
-              aria-pressed={disciplineFilter === discipline}
-              key={discipline}
-              className={[
-                'rounded-full border px-4 py-2 text-xs uppercase tracking-[0.18em] transition-colors duration-200',
-                disciplineFilter === discipline
-                  ? 'border-[var(--progress)]/40 bg-[var(--progress)]/12 text-[var(--text)]'
-                  : 'border-white/10 bg-white/5 text-[var(--text-muted)]',
-              ].join(' ')}
-              onClick={() => startTransition(() => setDisciplineFilter(discipline))}
-              type="button"
-            >
-              {discipline === 'all' ? 'All disciplines' : getDisciplineLabel(discipline)}
-            </button>
-          ))}
-        </div>
-      </div>
+    <AppShell>
+      <PageHeader
+        actions={
+          <ChipGroup label="Filter by discipline">
+            {(['all', ...disciplineOrder] as const).map((discipline) => (
+              <Chip
+                key={discipline}
+                onClick={() => startTransition(() => setDisciplineFilter(discipline))}
+                pressed={disciplineFilter === discipline}
+              >
+                {discipline === 'all' ? 'All disciplines' : getDisciplineLabel(discipline)}
+              </Chip>
+            ))}
+          </ChipGroup>
+        }
+        title="Train On Demand"
+      />
 
       {programs.length === 0 ? (
         <EmptyState
@@ -91,34 +105,60 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
       ) : null}
 
       {filteredPrograms.length > 0 && recommendation?.lessonId ? (
-        <section className="space-y-4">
-          <div className="space-y-2">
-            <p className="type-kicker text-[var(--text-muted)]">Up next</p>
-            <SectionHeader title={recommendation.title ?? 'Ready to begin'} />
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link
-              className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
-              href={`/lesson/${recommendation.lessonId}`}
-            >
-              Open lesson
-            </Link>
-            {recommendation.courseId ? (
-              <Link
-                className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-                href={`/course/${recommendation.courseId}`}
-              >
-                View course
-              </Link>
-            ) : null}
-          </div>
+        <section className="flex flex-col gap-400">
+          <SectionHeader title="Up next" />
+          <Card
+            className="flex flex-col gap-600 md:flex-row md:items-end md:justify-between md:gap-800"
+            variant="emphasis"
+          >
+            <div className="flex min-w-0 flex-1 flex-col gap-200">
+              <h3 className="type-display-400">{recommendation.title ?? 'Ready to begin'}</h3>
+              {recommended ? (
+                <p className="text-body-200 text-foreground-faint">
+                  {[
+                    recommended.course.title,
+                    recommended.program.title,
+                    hasPlayableVideo(recommended.lesson)
+                      ? formatDuration(recommended.lesson.durationSeconds)
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              ) : null}
+              {recommended?.lesson.description ? (
+                <p className="max-w-reading text-body-300">{recommended.lesson.description}</p>
+              ) : null}
+              {recommendedProgress ? (
+                <Progress
+                  className="mt-300"
+                  label="Progress"
+                  value={recommendedProgress.progressPercent}
+                />
+              ) : null}
+            </div>
+            <CardActions className="shrink-0">
+              <ButtonLink href={`/lesson/${recommendation.lessonId}`} size="lg" variant="primary">
+                Open lesson
+              </ButtonLink>
+              {recommendation.courseId ? (
+                <ButtonLink
+                  href={`/course/${recommendation.courseId}`}
+                  size="lg"
+                  variant="secondary"
+                >
+                  View course
+                </ButtonLink>
+              ) : null}
+            </CardActions>
+          </Card>
         </section>
       ) : null}
 
       {featuredPrograms.length > 0 ? (
-        <section className="space-y-5">
+        <section className="flex flex-col gap-400">
           <SectionHeader title="Showcase click-through" />
-          <div className="space-y-1">
+          <List>
             {featuredPrograms.flatMap((program) =>
               program.courses.map((course) => (
                 <CourseRow
@@ -127,26 +167,26 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
                 />
               )),
             )}
-          </div>
+          </List>
         </section>
       ) : null}
 
       {trainingPrograms.length > 0 && continueWatching.length > 0 ? (
-        <section className="space-y-5">
+        <section className="flex flex-col gap-400">
           <SectionHeader
             detail={`${continueWatching.length} active lessons`}
             title="Continue watching"
           />
-          <div className="space-y-1">
+          <List>
             {continueWatching.slice(0, 8).map((item) => (
               <ContinueRow item={item} key={item.lessonId} />
             ))}
-          </div>
+          </List>
         </section>
       ) : null}
 
       {error ? (
-        <p className="text-sm text-[var(--danger)]" role="alert">
+        <p className="text-body-200 text-foreground-critical" role="alert">
           {error}
         </p>
       ) : null}
@@ -158,9 +198,9 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
 
         if (programsForDiscipline.length === 0) {
           return (
-            <section className="space-y-5" key={discipline}>
+            <section className="flex flex-col gap-400" key={discipline}>
               <SectionHeader title={getDisciplineLabel(discipline)} />
-              <p className="type-body text-[var(--text-muted)]">
+              <p className="max-w-reading text-body-300 text-foreground-faint">
                 No published programs are available for {getDisciplineLabel(discipline)} yet. Try
                 another discipline or check back after new content is published.
               </p>
@@ -169,25 +209,25 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         }
 
         return (
-          <section className="space-y-5" key={discipline}>
+          <section className="flex flex-col gap-400" key={discipline}>
             <SectionHeader
               detail={`${programsForDiscipline.reduce((count, program) => count + program.courses.length, 0)} courses`}
               title={getDisciplineLabel(discipline)}
             />
-            <div className="space-y-8">
+            <div className="flex flex-col gap-800">
               {programsForDiscipline.map((program) => {
                 const courses = program.courses.map((course) =>
                   buildCourseCardModel(program, course, progress),
                 );
 
                 return (
-                  <div className="space-y-3" key={program.id}>
+                  <div className="flex flex-col gap-300" key={program.id}>
                     <SectionHeader as="h3" detail={program.description} title={program.title} />
-                    <div className="space-y-1">
+                    <List>
                       {courses.map((course) => (
                         <CourseRow course={course} key={course.id} />
                       ))}
-                    </div>
+                    </List>
                   </div>
                 );
               })}

@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 import {
   Discipline,
@@ -12,7 +11,12 @@ import {
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
-import { PremiumBadge } from '@/components/premium-badge';
+import { SectionHeader } from '@/components/section-header';
+import { Badge } from '@/components/ui/badge';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
+import { Checkbox, Field, Input, Select } from '@/components/ui/field';
+import { List, ListRow } from '@/components/ui/list';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 
@@ -93,16 +97,13 @@ export default function AdminProgramsPage() {
   };
 
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <PageHeader
         actions={
           role === Role.ADMIN ? (
-            <Link
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-              href="/admin/members"
-            >
+            <ButtonLink href="/admin/members" variant="secondary">
               Members
-            </Link>
+            </ButtonLink>
           ) : undefined
         }
         title="Programs"
@@ -111,84 +112,69 @@ export default function AdminProgramsPage() {
       {error ? (
         <EmptyState description={error} title="Admin unavailable" />
       ) : (
-        <section className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-          <form className="surface-panel space-y-5 p-6" onSubmit={onSubmit}>
-            <h2 className="type-title-lg text-[var(--text)]">New program</h2>
-            <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={titleInputId}>
-                Program title
-              </label>
-              <input
-                id={titleInputId}
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                placeholder="New program title"
-                value={form.title}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, title: event.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={disciplineSelectId}>
-                Discipline
-              </label>
-              <select
-                id={disciplineSelectId}
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-                value={form.discipline}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    discipline: event.target.value as Discipline,
-                  }))
-                }
-              >
-                {Object.values(Discipline).map((discipline) => (
-                  <option key={discipline} value={discipline}>
-                    {getDisciplineLabel(discipline)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <label
-              className="flex items-center gap-3 text-sm text-[var(--text-muted)]"
-              htmlFor={featuredDemoId}
-            >
-              <input
-                id={featuredDemoId}
+        <section className="grid gap-600 xl:grid-cols-split">
+          <form className="flex flex-col gap-500" onSubmit={onSubmit}>
+            <Card className="flex flex-col gap-500">
+              <h2 className="type-display-500">New program</h2>
+              <Field htmlFor={titleInputId} label="Program title">
+                <Input
+                  id={titleInputId}
+                  placeholder="New program title"
+                  value={form.title}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, title: event.target.value }))
+                  }
+                />
+              </Field>
+              <Field htmlFor={disciplineSelectId} label="Discipline">
+                <Select
+                  id={disciplineSelectId}
+                  value={form.discipline}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      discipline: event.target.value as Discipline,
+                    }))
+                  }
+                >
+                  {Object.values(Discipline).map((discipline) => (
+                    <option key={discipline} value={discipline}>
+                      {getDisciplineLabel(discipline)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Checkbox
                 checked={form.isFeaturedDemo}
-                className="h-4 w-4 rounded border-white/10 bg-[var(--surface-2)]"
+                id={featuredDemoId}
+                label="Featured demo program"
                 onChange={(event) =>
                   setForm((current) => ({ ...current, isFeaturedDemo: event.target.checked }))
                 }
-                type="checkbox"
               />
-              Featured demo program
-            </label>
-            {formError ? (
-              <p
-                aria-atomic="true"
-                aria-live="assertive"
-                className="text-sm text-[var(--danger)]"
-                role="alert"
-              >
-                {formError}
-              </p>
-            ) : null}
-            <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60"
-              disabled={submitting || !form.title.trim()}
-              type="submit"
-            >
-              {submitting ? 'Creating...' : 'Create program'}
-            </button>
+              {formError ? (
+                <p
+                  aria-atomic="true"
+                  aria-live="assertive"
+                  className="text-body-200 text-foreground-critical"
+                  role="alert"
+                >
+                  {formError}
+                </p>
+              ) : null}
+              <CardActions>
+                <Button disabled={submitting || !form.title.trim()} type="submit" variant="primary">
+                  {submitting ? 'Creating...' : 'Create program'}
+                </Button>
+              </CardActions>
+            </Card>
           </form>
 
-          <div className="surface-panel space-y-4 p-6">
-            <div className="flex items-end justify-between gap-4">
-              <h2 className="type-title-lg text-[var(--text)]">{programs.length} programs</h2>
-              <PremiumBadge label="Operations view" />
-            </div>
+          <div className="flex flex-col gap-400">
+            <SectionHeader
+              detail={<Badge label="Operations view" />}
+              title={`${programs.length} programs`}
+            />
             {programs.length === 0 ? (
               <EmptyState
                 ctaHref="/admin/programs"
@@ -196,41 +182,35 @@ export default function AdminProgramsPage() {
                 title="No programs yet"
               />
             ) : (
-              <div className="space-y-3">
+              <List>
                 {programs.map((program) => (
-                  <div
-                    className="surface-panel-muted flex items-center justify-between gap-4 p-4"
-                    key={program.id}
-                  >
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-                          {program.title}
-                        </h3>
-                        <PremiumBadge label={getDisciplineLabel(program.discipline)} />
-                        {program.isFeaturedDemo ? (
-                          <PremiumBadge label="Demo" tone="accent" />
-                        ) : null}
-                        <PremiumBadge
+                  <ListRow
+                    badges={
+                      <>
+                        <Badge label={getDisciplineLabel(program.discipline)} />
+                        {program.isFeaturedDemo ? <Badge label="Demo" /> : null}
+                        <Badge
                           label={program.isPublished ? 'Published' : 'Draft'}
-                          tone={program.isPublished ? 'accent' : 'neutral'}
+                          variant={program.isPublished ? 'success' : 'neutral'}
                         />
-                      </div>
-                      <p className="text-sm text-[var(--text-muted)]">
-                        {program.courses.length} courses,{' '}
-                        {program.courses.reduce((sum, course) => sum + course.lessons.length, 0)}{' '}
-                        lessons
-                      </p>
-                    </div>
-                    <Link
-                      className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-                      href={`/admin/programs/${program.id}`}
-                    >
-                      Manage
-                    </Link>
-                  </div>
+                      </>
+                    }
+                    key={program.id}
+                    meta={`${program.courses.length} courses, ${program.courses.reduce((sum, course) => sum + course.lessons.length, 0)} lessons`}
+                    stack
+                    title={program.title}
+                    trailing={
+                      <ButtonLink
+                        href={`/admin/programs/${program.id}`}
+                        size="sm"
+                        variant="secondary"
+                      >
+                        Manage
+                      </ButtonLink>
+                    }
+                  />
                 ))}
-              </div>
+              </List>
             )}
           </div>
         </section>

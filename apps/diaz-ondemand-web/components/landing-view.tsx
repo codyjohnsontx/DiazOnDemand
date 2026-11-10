@@ -1,40 +1,32 @@
-import Link from 'next/link';
 import { AppShell } from './app-shell';
 import { PageHeader } from './page-header';
+import { ButtonLink } from './ui/button';
+import { Card, CardActions } from './ui/card';
 
 export function LandingView() {
   return (
-    <AppShell className="space-y-12">
+    <AppShell>
       <PageHeader title="Train on your schedule." />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="surface-panel space-y-6 p-8">
-          <div className="flex flex-wrap gap-3">
-            <Link
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-              href="/library"
-            >
+      <div className="grid items-start gap-600 lg:grid-cols-sidebar">
+        <Card>
+          <CardActions>
+            <ButtonLink href="/library" size="lg" variant="primary">
               Browse free content
-            </Link>
-            <Link
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-              href="/sign-in"
-            >
+            </ButtonLink>
+            <ButtonLink href="/sign-in" size="lg" variant="secondary">
               Sign in
-            </Link>
-          </div>
-        </section>
+            </ButtonLink>
+          </CardActions>
+        </Card>
 
-        <aside className="surface-panel space-y-5 p-8">
-          <h2 className="font-display text-4xl leading-none text-[var(--text)]">
-            Unlock the full library
-          </h2>
-          <Link
-            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-            href="/subscribe"
-          >
-            View premium
-          </Link>
-        </aside>
+        <Card className="flex flex-col gap-600">
+          <h2 className="type-display-500">Unlock the full library</h2>
+          <CardActions>
+            <ButtonLink href="/subscribe" variant="secondary">
+              View premium
+            </ButtonLink>
+          </CardActions>
+        </Card>
       </div>
     </AppShell>
   );

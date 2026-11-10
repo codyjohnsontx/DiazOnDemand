@@ -1,5 +1,9 @@
 import type { ReactNode } from 'react';
 
+/**
+ * The page title, on its own. A line under it appears only when it carries information
+ * the visitor would otherwise lose; never a decorative sub-line, never an eyebrow above.
+ */
 export function PageHeader({
   title,
   description,
@@ -10,14 +14,16 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-      <div className="max-w-3xl space-y-3">
-        <h1 className="type-title-xl text-[var(--text)]">{title}</h1>
+    <div className="flex flex-col gap-500 md:flex-row md:items-end md:justify-between md:gap-600">
+      <div className="flex min-w-0 flex-col gap-300">
+        <h1 className="type-display-700 break-words">{title}</h1>
         {description ? (
-          <p className="type-body max-w-2xl text-[var(--text-muted)]">{description}</p>
+          <p className="max-w-reading text-body-300 text-foreground-faint">{description}</p>
         ) : null}
       </div>
-      {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-300">{actions}</div>
+      ) : null}
     </div>
   );
 }
