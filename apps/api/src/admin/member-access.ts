@@ -81,12 +81,29 @@ export function banRecord(bannedAt: Date | null, audit: readonly AuditRow[]): Ba
   };
 }
 
-/** The newest ban on a member who is no longer banned, or null when none was lifted. */
+/**
+ * The newest ban that took away access the member then had, once they are no
+ * longer banned, or null when none was lifted. A ban on a member who had no
+ * access ended nothing, so whatever had already ended it stays the answer.
+ */
 export function liftedBan(
   bannedAt: Date | null,
-  audit: readonly AuditRow[],
+  audit: readonly (AuditRow & { tierBefore: EntitlementTier; validUntilBefore: Date | null })[],
 ): AdminRevokeRecord | null {
-  return bannedAt === null ? newest(audit.filter(startedBan)) : null;
+  if (bannedAt !== null) {
+    return null;
+  }
+
+  return newest(
+    audit.filter(
+      (entry) =>
+        startedBan(entry) &&
+        isEntitlementActive(
+          { tier: entry.tierBefore, validUntil: entry.validUntilBefore },
+          entry.createdAt,
+        ),
+    ),
+  );
 }
 
 /** The last time an admin removed a manual grant ("Remove access"). */

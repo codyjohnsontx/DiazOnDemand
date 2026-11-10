@@ -504,12 +504,16 @@ describe('liftedBan', () => {
     action: MemberAccessAction,
     createdAt: Date,
     stripeSubscriptionId: string | null,
+    tierBefore: EntitlementTier = EntitlementTier.PREMIUM,
+    validUntilBefore: Date | null = null,
   ) => ({
     action,
     createdAt,
     actorClerkUserId: `user_${action.toLowerCase()}`,
     reason: null,
     stripeSubscriptionId,
+    tierBefore,
+    validUntilBefore,
   });
 
   it('is the newest ban once the member is no longer banned', () => {
@@ -523,6 +527,41 @@ describe('liftedBan', () => {
         row(MemberAccessAction.REVOKE, daysFromNow(-1), null),
       ]),
     ).toEqual(expect.objectContaining({ createdAt: bannedAt, actorClerkUserId: 'user_ban' }));
+  });
+
+  it('skips a ban that ended no access, so an earlier refund or chargeback stays the answer', () => {
+    expect(
+      liftedBan(null, [row(MemberAccessAction.BAN, daysFromNow(-4), null, EntitlementTier.FREE)]),
+    ).toBeNull();
+    expect(
+      liftedBan(null, [
+        row(
+          MemberAccessAction.BAN,
+          daysFromNow(-4),
+          null,
+          EntitlementTier.PREMIUM,
+          daysFromNow(-5),
+        ),
+      ]),
+    ).toBeNull();
+    expect(
+      liftedBan(null, [
+        row(MemberAccessAction.REVOKE, daysFromNow(-4), 'sub_1', EntitlementTier.FREE),
+      ]),
+    ).toBeNull();
+  });
+
+  it('falls back to an older ban that did end access', () => {
+    const endedGrantAt = daysFromNow(-9);
+
+    expect(
+      liftedBan(null, [
+        row(MemberAccessAction.BAN, endedGrantAt, null, EntitlementTier.PREMIUM, daysFromNow(10)),
+        row(MemberAccessAction.UNBAN, daysFromNow(-7), null),
+        row(MemberAccessAction.BAN, daysFromNow(-4), null, EntitlementTier.FREE),
+        row(MemberAccessAction.UNBAN, daysFromNow(-2), null),
+      ])?.createdAt,
+    ).toEqual(endedGrantAt);
   });
 
   it('is null while the ban stands, or when there was never one', () => {

@@ -1110,6 +1110,21 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
+    it('keeps explaining a refund that came before the ban once the ban is lifted', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await refundedMember();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      const detail = await service.liftBan(admin, member.id, { reason: null });
+
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.access).toEqual({
+        kind: 'revoked',
+        reason: REVOKE_REASON_REFUND,
+        at: subscription.revokedAt!.toISOString(),
+      });
+    });
+
     it('is refused on a member who is not banned', async () => {
       const admin = await createAdmin();
       const { member } = await payingMember();
