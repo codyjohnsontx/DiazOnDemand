@@ -619,9 +619,11 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
   stores no email or name, so these are the identifiers to copy from the Clerk and Stripe
   dashboards.
 - A member without access is always shown why - banned by a named admin, revoked by refund or
-  chargeback, access removed by a named admin, expired, or subscription inactive, each with its
-  date. A ban is the answer whenever one stands, with the reason the admin gave; otherwise whichever
-  happened most recently.
+  chargeback, access removed by a named admin, banned and since lifted, expired, or subscription
+  inactive, each with its date. A ban is the answer whenever one stands, with the reason the admin
+  gave; otherwise whichever happened most recently. A lifted ban counts there only when it ended
+  live access; one that ended nothing is the answer only when nothing else explains it, and a grant
+  that had already lapsed when the ban landed still reads as expired on the grant's end date.
 - **Grant** writes a `MANUAL` premium entitlement with an optional end date. It has to end later
   than what the member's Stripe subscription grants, because the stored entitlement is always
   whichever access ends later: `syncEntitlementFromSubscriptions` keeps a live grant only while it
