@@ -1110,6 +1110,22 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
+    it('explains a member who never had premium as a lifted ban, not as never having access', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      await service.liftBan(admin, member.id, { reason: null });
+      const [summary] = (await service.listMembers(member.clerkUserId)).filter(
+        (row) => row.id === member.id,
+      );
+      const detail = await service.getMember(member.id);
+
+      for (const access of [summary?.access, detail.access]) {
+        expect(access).toMatchObject({ kind: 'ban-lifted', actorClerkUserId: admin.clerkUserId });
+      }
+    });
+
     it('keeps explaining a grant that had lapsed before the ban once the ban is lifted', async () => {
       const admin = await createAdmin();
       const member = await createUser();

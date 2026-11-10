@@ -221,7 +221,8 @@ export function restoreGivesAccess(subscription: SubscriptionRow, now: Date): bo
  * "No access" is never left unexplained. A ban is the answer whenever one
  * stands. Otherwise each thing that can take access away leaves a dated record
  * - a revoked subscription, a removed grant, a ban since lifted, an expiry, a
- * subscription that stopped - and the most recent of them is the answer.
+ * subscription that stopped - and the most recent of them is the answer. A
+ * lifted ban that ended nothing is the answer only when nothing else is.
  */
 export function describeMemberAccess(
   input: {
@@ -290,18 +291,17 @@ export function describeMemberAccess(
     });
   }
 
+  const banLifted = (lifted: LiftedBanRecord): MemberAccessStatus => ({
+    kind: 'ban-lifted',
+    at: lifted.createdAt.toISOString(),
+    actorClerkUserId: lifted.actorClerkUserId,
+  });
+
   for (const lifted of liftedBans) {
     const before = { tier: lifted.tierBefore, validUntil: lifted.validUntilBefore };
 
     if (isEntitlementActive(before, lifted.createdAt)) {
-      candidates.push({
-        at: lifted.createdAt,
-        status: {
-          kind: 'ban-lifted',
-          at: lifted.createdAt.toISOString(),
-          actorClerkUserId: lifted.actorClerkUserId,
-        },
-      });
+      candidates.push({ at: lifted.createdAt, status: banLifted(lifted) });
     } else if (before.tier === EntitlementTier.PREMIUM && before.validUntil !== null) {
       candidates.push({
         at: before.validUntil,
@@ -318,7 +318,8 @@ export function describeMemberAccess(
   }
 
   if (candidates.length === 0) {
-    return { kind: 'never' };
+    const lastLifted = newest(liftedBans);
+    return lastLifted ? banLifted(lastLifted) : { kind: 'never' };
   }
 
   return candidates.reduce((latest, candidate) => (candidate.at > latest.at ? candidate : latest))

@@ -509,6 +509,26 @@ describe('describeMemberAccess', () => {
     });
   });
 
+  it('says ban lifted, not never, for a member the ban found with nothing to end', () => {
+    const lastBanAt = daysFromNow(-2);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [
+            lifted(daysFromNow(-9), EntitlementTier.FREE),
+            lifted(lastBanAt, EntitlementTier.FREE),
+          ],
+        },
+        NOW,
+      ),
+    ).toEqual({ kind: 'ban-lifted', at: lastBanAt.toISOString(), actorClerkUserId: 'user_admin' });
+  });
+
   it('says a member never had access rather than leaving it blank', () => {
     expect(
       describeMemberAccess(
