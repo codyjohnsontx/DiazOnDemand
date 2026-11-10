@@ -266,9 +266,10 @@ All three need `TEST_DATABASE_URL` pointing at a migrated Postgres, and skip wit
 Two billing invariants that are easy to break by accident:
 - A member has *many* `Subscription` rows over time, never one. Cancel-then-resubscribe issues a
   new Stripe subscription id.
-- The `Entitlement` is always derived from the stored subscription rows, never written straight
-  from the Stripe event being handled. See `resolveStripeEntitlement` in
-  `apps/api/src/common/entitlement.ts`.
+- The `Entitlement` is always derived from the stored subscription rows and the member's ban
+  (`User.bannedAt`), never written straight from the Stripe event being handled. See
+  `resolveStripeEntitlement` in `apps/api/src/common/entitlement.ts` and
+  `syncEntitlementFromSubscriptions` in `apps/api/src/billing/entitlement-sync.ts`.
 
 ## Security Invariants
 

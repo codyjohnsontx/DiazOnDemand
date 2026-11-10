@@ -91,8 +91,8 @@ export default function SubscribePage() {
         setError('Stripe is not configured yet.');
       }
     } catch (checkoutError) {
-      // The page may have loaded before the revocation, so this is the first it
-      // hears of it, and the member may still have access another way.
+      // The page may have loaded before the ban, so this is the first it hears of
+      // it, and the ban may have been lifted again since.
       if (
         checkoutError instanceof ApiError &&
         checkoutError.status === 409 &&

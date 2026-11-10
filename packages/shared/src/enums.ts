@@ -31,4 +31,6 @@ export enum MemberAccessAction {
   GRANT = 'GRANT',
   REVOKE = 'REVOKE',
   RESTORE = 'RESTORE',
+  BAN = 'BAN',
+  UNBAN = 'UNBAN',
 }

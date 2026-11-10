@@ -18,31 +18,35 @@ import {
   EntitlementTier as SharedEntitlementTier,
   MemberAccessAction as SharedMemberAccessAction,
   Role,
+  type AdminBanMemberDto,
   type AdminGrantMemberAccessDto,
+  type AdminLiftBanDto,
   type AdminMemberDetail,
   type AdminMemberSummary,
   type AdminRestoreMemberAccessDto,
   type AdminRevokeMemberAccessDto,
 } from '@diaz/shared';
 import type { AuthUser } from '../common/request-with-user.js';
-import { isEntitlementActive, resolveStripeEntitlement } from '../common/entitlement.js';
+import {
+  isEntitlementActive,
+  isLiveStripeSubscription,
+  resolveStripeEntitlement,
+} from '../common/entitlement.js';
 import { syncEntitlementFromSubscriptions } from '../billing/entitlement-sync.js';
 import { withMemberAccessLock } from '../billing/member-access-lock.js';
-import {
-  needsAdminRevocation,
-  planAdminRevocation,
-  planManualRelease,
-} from '../billing/subscription-revocation.js';
+import { planManualRelease } from '../billing/subscription-revocation.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
+  banRecord,
   describeMemberAccess,
   hasLiveStripeAccess,
   isRestorable,
+  lastGrantRemoval,
+  liftedBans,
   memberAccessVersion,
   planManualGrant,
   planManualRevoke,
   restoreGivesAccess,
-  restoreOpensCheckout,
 } from './member-access.js';
 
 /** How many members one search answers with. */
@@ -68,6 +72,8 @@ const ACTION_FROM_DB: Record<MemberAccessAction, SharedMemberAccessAction> = {
   [MemberAccessAction.GRANT]: SharedMemberAccessAction.GRANT,
   [MemberAccessAction.REVOKE]: SharedMemberAccessAction.REVOKE,
   [MemberAccessAction.RESTORE]: SharedMemberAccessAction.RESTORE,
+  [MemberAccessAction.BAN]: SharedMemberAccessAction.BAN,
+  [MemberAccessAction.UNBAN]: SharedMemberAccessAction.UNBAN,
 };
 
 const TIER_FROM_DB: Record<EntitlementTier, SharedEntitlementTier> = {
@@ -87,12 +93,26 @@ function entitlementSnapshot(entitlement: Entitlement | null) {
   };
 }
 
-function lastAdminRevoke(audit: readonly MemberAccessAudit[]) {
-  return (
-    audit
-      .filter((entry) => entry.action === MemberAccessAction.REVOKE)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null
-  );
+/**
+ * What the member's subscriptions grant now, and the subscription granting it,
+ * which is the one the members screen tells an admin to cancel in Stripe.
+ */
+function stripeAccessOf(subscriptions: readonly Subscription[], now: Date) {
+  if (!hasLiveStripeAccess(subscriptions, now)) {
+    return null;
+  }
+
+  const [granting] = subscriptions
+    .filter(isLiveStripeSubscription)
+    .sort((a, b) => (b.currentPeriodEnd?.getTime() ?? 0) - (a.currentPeriodEnd?.getTime() ?? 0));
+
+  return granting
+    ? {
+        validUntil: iso(resolveStripeEntitlement(subscriptions).validUntil),
+        stripeSubscriptionId: granting.stripeSubscriptionId,
+        status: granting.status,
+      }
+    : null;
 }
 
 function mapSummary(member: MemberRow, now: Date): AdminMemberSummary {
@@ -106,7 +126,9 @@ function mapSummary(member: MemberRow, now: Date): AdminMemberSummary {
       {
         entitlement: member.entitlement,
         subscriptions: member.subscriptions,
-        lastAdminRevoke: lastAdminRevoke(member.accessAudit),
+        lastAdminRevoke: lastGrantRemoval(member.accessAudit),
+        ban: banRecord(member.bannedAt, member.accessAudit),
+        liftedBans: liftedBans(member.bannedAt, member.accessAudit),
       },
       now,
     ),
@@ -114,25 +136,22 @@ function mapSummary(member: MemberRow, now: Date): AdminMemberSummary {
 }
 
 function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
-  const afterGrantRevoke = planManualRevoke(member.entitlement, member.subscriptions, now);
-  const stripeLive = hasLiveStripeAccess(member.subscriptions, now);
+  const banned = member.bannedAt !== null;
+  const afterRemove = banned
+    ? null
+    : planManualRevoke(member.entitlement, member.subscriptions, now);
 
   return {
     ...mapSummary(member, now),
     accessVersion: memberAccessVersion(member, now),
-    canRevoke: afterGrantRevoke !== null || stripeLive,
-    accessAfterRevoke: afterGrantRevoke
+    canRemove: afterRemove !== null,
+    accessAfterRemove: afterRemove
       ? {
-          hasAccess: isEntitlementActive(afterGrantRevoke, now),
-          validUntil: iso(afterGrantRevoke.validUntil),
+          hasAccess: isEntitlementActive(afterRemove, now),
+          validUntil: iso(afterRemove.validUntil),
         }
-      : stripeLive
-        ? { hasAccess: false, validUntil: null }
-        : null,
-    revokeRequiresReason: afterGrantRevoke === null && stripeLive,
-    stripeAccess: stripeLive
-      ? { validUntil: iso(resolveStripeEntitlement(member.subscriptions).validUntil) }
       : null,
+    stripeAccess: stripeAccessOf(member.subscriptions, now),
     subscriptions: [...member.subscriptions]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((subscription) => ({
@@ -143,10 +162,9 @@ function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
         currentPeriodEnd: iso(subscription.currentPeriodEnd),
         revokedAt: iso(subscription.revokedAt),
         revokedReason: subscription.revokedReason,
-        adminRevokedAt: iso(subscription.adminRevokedAt),
         restorable: isRestorable(subscription),
-        restoreGivesAccess: restoreGivesAccess(subscription, now),
-        restoreOpensCheckout: restoreOpensCheckout(subscription, member.subscriptions),
+        // A ban outranks the subscription, so clearing a refund under one gives nothing back.
+        restoreGivesAccess: !banned && restoreGivesAccess(subscription, now),
       })),
     history: [...member.accessAudit]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -167,7 +185,7 @@ function mapDetail(member: MemberRow, now: Date): AdminMemberDetail {
 
 /**
  * The admin members screen: find a member, see their access and why they have
- * none, and grant, revoke or restore it.
+ * none, and grant or remove it, ban them or lift a ban, or restore a refund.
  *
  * Every change is one transaction with its audit row, so access never changes
  * without a record of who changed it, and a record never describes a change
@@ -210,10 +228,10 @@ export class AdminMembersService {
       include: {
         entitlement: true,
         subscriptions: true,
+        // Only what the one-line description reads: a removed grant, and who
+        // started a ban, standing or lifted.
         accessAudit: {
-          where: { action: MemberAccessAction.REVOKE },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
+          where: { action: { in: [MemberAccessAction.REVOKE, MemberAccessAction.BAN] } },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -233,6 +251,11 @@ export class AdminMembersService {
 
     await withMemberAccessLock(this.prisma.client, memberId, async (tx) => {
       const member = await this.loadConfirmedMember(tx, memberId, payload.accessVersion, now);
+
+      if (member.bannedAt) {
+        throw new ConflictException('Lift the ban before granting access.');
+      }
+
       const plan = planManualGrant({ validUntil, subscriptions: member.subscriptions }, now);
 
       if (!plan.ok) {
@@ -254,83 +277,101 @@ export class AdminMembersService {
   }
 
   /**
-   * Ends what the member can watch now: a live manual grant first, which leaves
-   * any Stripe access standing, and otherwise the Stripe access itself.
+   * "Remove access", for a member who is not paying: ends a live manual grant
+   * and leaves whatever Stripe grants. Nothing is stamped, so checkout stays
+   * open and paying is the way back. Access that comes from Stripe is ended in
+   * Stripe, not here.
    */
   async revokeAccess(actor: AuthUser, memberId: string, payload: AdminRevokeMemberAccessDto) {
     const now = new Date();
 
     await withMemberAccessLock(this.prisma.client, memberId, async (tx) => {
       const member = await this.loadConfirmedMember(tx, memberId, payload.accessVersion, now);
-      const fields = planManualRevoke(member.entitlement, member.subscriptions, now);
+      const fields = member.bannedAt
+        ? null
+        : planManualRevoke(member.entitlement, member.subscriptions, now);
 
-      if (fields) {
-        await tx.entitlement.update({ where: { userId: member.id }, data: fields });
-
-        await tx.memberAccessAudit.create({
-          data: this.auditRow(actor, member, MemberAccessAction.REVOKE, payload.reason, fields),
-        });
-        return;
+      if (!fields) {
+        throw new ConflictException(
+          member.bannedAt
+            ? 'This member is banned, so there is no access to remove.'
+            : hasLiveStripeAccess(member.subscriptions, now)
+              ? "This member's access comes from Stripe. Cancel the subscription in Stripe to end it."
+              : 'This member has no access to remove.',
+        );
       }
 
-      if (!hasLiveStripeAccess(member.subscriptions, now)) {
-        throw new ConflictException('This member has no access to revoke.');
-      }
+      await tx.entitlement.update({ where: { userId: member.id }, data: fields });
 
-      if (!payload.reason) {
-        throw new BadRequestException('Withdrawing Stripe access needs a reason.');
-      }
-
-      await this.withdrawStripeAccess(tx, actor, member, payload.reason, now);
+      await tx.memberAccessAudit.create({
+        data: this.auditRow(actor, member, MemberAccessAction.REVOKE, payload.reason, fields),
+      });
     });
 
     return this.getMember(memberId);
   }
 
   /**
-   * Revokes every subscription that could still grant access through the billing
-   * seam and re-derives the entitlement, so the outcome is one the stored rows
-   * support and no Stripe event, on any of them, can undo it. One audit row per
-   * subscription, because each row is a separate revocation an admin can restore.
+   * For abuse: no premium access whatever Stripe says, a manual grant included,
+   * and checkout refused, until an admin lifts it. Neither the subscription nor
+   * the Clerk account is touched; billing is stopped in Stripe.
    */
-  private async withdrawStripeAccess(
-    tx: Prisma.TransactionClient,
+  async banMember(actor: AuthUser, memberId: string, payload: AdminBanMemberDto) {
+    await this.setBan(actor, memberId, payload, MemberAccessAction.BAN);
+
+    return this.getMember(memberId);
+  }
+
+  /**
+   * Re-derives the entitlement from the subscriptions, so a live one gives
+   * access back at once. A manual grant the ban ended stays ended; the GRANT
+   * audit row is what to re-grant from.
+   */
+  async liftBan(actor: AuthUser, memberId: string, payload: AdminLiftBanDto) {
+    await this.setBan(actor, memberId, payload, MemberAccessAction.UNBAN);
+
+    return this.getMember(memberId);
+  }
+
+  private async setBan(
     actor: AuthUser,
-    member: MemberRow,
-    reason: string,
-    now: Date,
+    memberId: string,
+    payload: { reason: string | null; accessVersion: string },
+    action: typeof MemberAccessAction.BAN | typeof MemberAccessAction.UNBAN,
   ) {
-    const revoked = member.subscriptions.filter(needsAdminRevocation);
+    const now = new Date();
+    const ban = action === MemberAccessAction.BAN;
 
-    await tx.subscription.updateMany({
-      where: { id: { in: revoked.map((subscription) => subscription.id) } },
-      data: planAdminRevocation(now),
-    });
+    if (ban && !payload.reason?.trim()) {
+      throw new BadRequestException('A ban needs a reason.');
+    }
 
-    await syncEntitlementFromSubscriptions(tx, member.id);
+    await withMemberAccessLock(this.prisma.client, memberId, async (tx) => {
+      const member = await this.loadConfirmedMember(tx, memberId, payload.accessVersion, now);
 
-    const after = await tx.entitlement.findUnique({ where: { userId: member.id } });
+      if (ban === (member.bannedAt !== null)) {
+        throw new ConflictException(
+          ban ? 'This member is already banned.' : 'This member is not banned.',
+        );
+      }
 
-    await tx.memberAccessAudit.createMany({
-      data: revoked.map((subscription) => ({
-        ...this.auditRow(
-          actor,
-          member,
-          MemberAccessAction.REVOKE,
-          reason,
-          entitlementSnapshot(after),
-        ),
-        stripeSubscriptionId: subscription.stripeSubscriptionId,
-      })),
+      await tx.user.update({ where: { id: member.id }, data: { bannedAt: ban ? now : null } });
+      await syncEntitlementFromSubscriptions(tx, member.id);
+
+      const after = await tx.entitlement.findUnique({ where: { userId: member.id } });
+
+      await tx.memberAccessAudit.create({
+        data: this.auditRow(actor, member, action, payload.reason, entitlementSnapshot(after)),
+      });
     });
   }
 
   /**
-   * The immediate way back for a member refunded by mistake, and the only way
-   * back from an admin revocation. Clears the revocation through the billing
-   * seam and re-derives the entitlement exactly as the webhook would, so the
-   * member gets what their subscription pays for - nothing more, and nothing at
-   * all if it was also cancelled.
+   * The immediate way back for a member refunded by mistake. Clears the
+   * revocation through the billing seam and re-derives the entitlement exactly
+   * as the webhook would, so the member gets what their subscription pays for -
+   * nothing more, nothing at all if it was also cancelled, and nothing while
+   * they are banned.
    */
   async restoreAccess(actor: AuthUser, memberId: string, payload: AdminRestoreMemberAccessDto) {
     const now = new Date();
@@ -347,8 +388,7 @@ export class AdminMembersService {
 
       if (!release) {
         throw new ConflictException(
-          'Only a refund or admin revocation can be restored here. A chargeback clears only ' +
-            'when the dispute is won.',
+          'Only a refund can be restored here. A chargeback clears only when the dispute is won.',
         );
       }
 

@@ -1,6 +1,8 @@
 import { NotFoundException } from '@nestjs/common';
 import type {
+  AdminBanMemberDto,
   AdminGrantMemberAccessDto,
+  AdminLiftBanDto,
   AdminRestoreMemberAccessDto,
   AdminRevokeMemberAccessDto,
 } from '@diaz/shared';
@@ -52,6 +54,20 @@ export function membersPage(service: AdminMembersService) {
       payload: WithoutVersion<AdminRevokeMemberAccessDto>,
     ) =>
       service.revokeAccess(actor, memberId, {
+        ...payload,
+        accessVersion: await versionOf(memberId, payload.accessVersion),
+      }),
+    banMember: async (
+      actor: AuthUser,
+      memberId: string,
+      payload: WithoutVersion<AdminBanMemberDto>,
+    ) =>
+      service.banMember(actor, memberId, {
+        ...payload,
+        accessVersion: await versionOf(memberId, payload.accessVersion),
+      }),
+    liftBan: async (actor: AuthUser, memberId: string, payload: WithoutVersion<AdminLiftBanDto>) =>
+      service.liftBan(actor, memberId, {
         ...payload,
         accessVersion: await versionOf(memberId, payload.accessVersion),
       }),

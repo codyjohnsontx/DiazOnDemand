@@ -543,6 +543,8 @@ describe('WebhooksService', () => {
           // No existing entitlement: nothing manual to protect.
           findUnique: vi.fn().mockResolvedValue(options.existingEntitlement ?? null),
         },
+        // A member who is not banned, so the sync derives from the subscriptions.
+        user: { findUnique: vi.fn().mockResolvedValue({ bannedAt: null }) },
       }),
     );
 
@@ -880,6 +882,7 @@ describe('MeService', () => {
             id: 'user-1',
             clerkUserId: 'clerk-1',
             role: 'STUDENT',
+            bannedAt: null,
             entitlement,
             subscriptions,
           }),

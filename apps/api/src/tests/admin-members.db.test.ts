@@ -1,7 +1,7 @@
 /**
- * Database-backed tests for the admin members screen: every grant, revoke and
- * refund restore, run through the real service against a real Postgres, with
- * the audit row each one writes.
+ * Database-backed tests for the admin members screen: every grant, removal,
+ * ban, lifted ban and refund restore, run through the real service against a
+ * real Postgres, with the audit row each one writes.
  *
  * A mocked client cannot show the part that matters here: that the access
  * change and its audit row commit together or not at all, and that a restore
@@ -11,6 +11,7 @@
  * Same contract as `billing-lifecycle.db.test.ts`: point TEST_DATABASE_URL at a
  * migrated throwaway database, skip without it, fail on CI without it.
  */
+import { readFile } from 'node:fs/promises';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import {
   EntitlementSource,
@@ -19,11 +20,16 @@ import {
   PrismaClient,
   Role as DbRole,
 } from '@diaz/db';
-import { EntitlementTier as SharedEntitlementTier, Role } from '@diaz/shared';
+import {
+  CHECKOUT_CONFLICT_CODES,
+  EntitlementTier as SharedEntitlementTier,
+  Role,
+} from '@diaz/shared';
 import type Stripe from 'stripe';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { AdminMembersService, STALE_CONFIRMATION_MESSAGE } from '../admin/admin-members.service.js';
 import type { BillingAlerter } from '../billing/billing-alerter.js';
+import { BillingService } from '../billing/billing.service.js';
 import {
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
@@ -218,6 +224,43 @@ function auditOf(memberId: string) {
   return prismaClient!.memberAccessAudit.findMany({
     where: { memberId },
     orderBy: { createdAt: 'asc' },
+  });
+}
+
+/**
+ * Runs the migration that turned admin revocations into bans, as written, over
+ * these members only. Temporary views named after the three tables it reads and
+ * writes shadow them for this transaction - the migration names them
+ * unqualified, and the temporary schema is searched first - so the other
+ * database-backed files sharing this database are not touched.
+ */
+async function runBanBackfillFor(memberIds: readonly string[]) {
+  const sql = await readFile(
+    new URL(
+      '../../../../packages/db/prisma/migrations/20261109120001_member_ban_backfill/migration.sql',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  const ids = memberIds.map((id) => `'${id}'`).join(', ');
+
+  await prismaClient!.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      `CREATE TEMP VIEW "User" AS SELECT * FROM "public"."User" WHERE id IN (${ids})`,
+    );
+    for (const table of ['Subscription', 'Entitlement']) {
+      await tx.$executeRawUnsafe(
+        `CREATE TEMP VIEW "${table}" AS SELECT * FROM "public"."${table}" WHERE "userId" IN (${ids})`,
+      );
+    }
+    for (const statement of sql
+      .split(/;\s*$/m)
+      .filter((part) => /\S/.test(part.replace(/--.*$/gm, '')))) {
+      await tx.$executeRawUnsafe(statement);
+    }
+    await tx.$executeRawUnsafe(
+      'DROP VIEW pg_temp."User", pg_temp."Subscription", pg_temp."Entitlement"',
+    );
   });
 }
 
@@ -439,6 +482,8 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       expect(before.hasAccess).toBe(false);
       expect(before.stripeAccess).toEqual({
         validUntil: subscription.currentPeriodEnd!.toISOString(),
+        stripeSubscriptionId: subscription.stripeSubscriptionId,
+        status: 'active',
       });
 
       const after = await service.grantAccess(admin, member.id, {
@@ -541,7 +586,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
     });
   });
 
-  describe('revoke', () => {
+  describe('remove access', () => {
     it('ends a manual grant and records it', async () => {
       const admin = await createAdmin();
       const member = await createUser();
@@ -563,9 +608,26 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       ]);
       expect(entries[1]).toMatchObject({
         reason: 'Stopped paying',
+        stripeSubscriptionId: null,
         tierBefore: EntitlementTier.PREMIUM,
         tierAfter: EntitlementTier.FREE,
       });
+    });
+
+    it('leaves checkout open, so the member gets back in by paying', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
+
+      await service.revokeAccess(admin, member.id, { reason: 'Stopped paying' });
+
+      expect(await new MeService(prisma).getMeByClerkId(member.clerkUserId)).toMatchObject({
+        entitlementTier: SharedEntitlementTier.FREE,
+        checkoutBlocked: false,
+      });
+      expect((await prismaClient!.user.findUnique({ where: { id: member.id } }))?.bannedAt).toBe(
+        null,
+      );
     });
 
     it('leaves a paying member the access their subscription pays for', async () => {
@@ -578,6 +640,14 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         data: { tier: EntitlementTier.PREMIUM, validUntil: null, source: EntitlementSource.MANUAL },
       });
 
+      expect(await service.getMember(member.id)).toMatchObject({
+        canRemove: true,
+        accessAfterRemove: {
+          hasAccess: true,
+          validUntil: subscription.currentPeriodEnd!.toISOString(),
+        },
+      });
+
       const detail = await service.revokeAccess(admin, member.id, { reason: null });
 
       expect(detail.hasAccess).toBe(true);
@@ -588,7 +658,33 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
-    it('is refused when there is no access to revoke, and records nothing', async () => {
+    it('is not offered for Stripe access, and the screen names the subscription to cancel', async () => {
+      const { member, subscription } = await payingMember();
+
+      expect(await service.getMember(member.id)).toMatchObject({
+        canRemove: false,
+        accessAfterRemove: null,
+        stripeAccess: {
+          validUntil: subscription.currentPeriodEnd!.toISOString(),
+          stripeSubscriptionId: subscription.stripeSubscriptionId,
+          status: 'active',
+        },
+      });
+    });
+
+    it('is refused for Stripe access, which is ended in Stripe, and changes nothing', async () => {
+      const admin = await createAdmin();
+      const { member } = await payingMember();
+
+      await expect(
+        service.revokeAccess(admin, member.id, { reason: 'Not paying' }),
+      ).rejects.toThrow('Cancel the subscription in Stripe');
+
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
+      expect(await auditOf(member.id)).toEqual([]);
+    });
+
+    it('is refused when there is no access to remove, and records nothing', async () => {
       const admin = await createAdmin();
       const member = await createUser();
 
@@ -600,51 +696,44 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
     });
   });
 
-  describe('withdrawing Stripe access', () => {
-    it('offers the action and says it needs a reason', async () => {
-      const { member, subscription } = await payingMember();
-
-      expect(await service.getMember(member.id)).toMatchObject({
-        canRevoke: true,
-        revokeRequiresReason: true,
-        accessAfterRevoke: { hasAccess: false, validUntil: null },
-        stripeAccess: { validUntil: subscription.currentPeriodEnd!.toISOString() },
-      });
-    });
-
-    it('revokes through the seam, derives FREE and records who and why', async () => {
+  describe('ban', () => {
+    it('ends access, records who and why, and leaves the subscription alone', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await payingMember();
 
-      const detail = await service.revokeAccess(admin, member.id, {
-        reason: 'Untraceable chargeback dp_123',
+      const detail = await service.banMember(admin, member.id, {
+        reason: 'Shared their login with a whole team',
       });
 
       expect(detail.hasAccess).toBe(false);
-      expect(detail.access).toMatchObject({
-        kind: 'admin-revoked',
+      expect(detail.access).toEqual({
+        kind: 'banned',
+        at: expect.any(String),
         actorClerkUserId: admin.clerkUserId,
+        reason: 'Shared their login with a whole team',
       });
-      expect(detail.canRevoke).toBe(false);
-      expect(detail.subscriptions[0]).toMatchObject({
-        adminRevokedAt: expect.any(String),
-        revokedAt: null,
-        revokedReason: null,
-        restorable: true,
-        restoreGivesAccess: true,
-      });
+      expect(detail).toMatchObject({ canRemove: false, accessAfterRemove: null });
       expect(await entitlementOf(member.id)).toMatchObject({
         tier: EntitlementTier.FREE,
         validUntil: null,
-        source: EntitlementSource.STRIPE,
       });
+      const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
+      expect(row).toMatchObject({
+        status: 'active',
+        revokedAt: null,
+        revokedReason: null,
+        adminRevokedAt: null,
+      });
+      expect((await prismaClient!.user.findUnique({ where: { id: member.id } }))?.bannedAt).toEqual(
+        new Date(detail.access.kind === 'banned' ? detail.access.at : ''),
+      );
 
       const [entry] = await auditOf(member.id);
       expect(entry).toMatchObject({
         actorId: admin.id,
-        action: MemberAccessAction.REVOKE,
-        reason: 'Untraceable chargeback dp_123',
-        stripeSubscriptionId: subscription.stripeSubscriptionId,
+        action: MemberAccessAction.BAN,
+        reason: 'Shared their login with a whole team',
+        stripeSubscriptionId: null,
         tierBefore: EntitlementTier.PREMIUM,
         validUntilBefore: subscription.currentPeriodEnd,
         tierAfter: EntitlementTier.FREE,
@@ -652,105 +741,113 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
-    it('tells the member they have no subscription rather than a live one', async () => {
+    it('tells the member they have no subscription and that checkout is blocked', async () => {
       const admin = await createAdmin();
       const { member } = await payingMember();
 
-      await service.revokeAccess(admin, member.id, { reason: 'Banned' });
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
 
       expect(await new MeService(prisma).getMeByClerkId(member.clerkUserId)).toMatchObject({
+        entitlementTier: SharedEntitlementTier.FREE,
         subscriptionStatus: null,
         currentPeriodEnd: null,
         checkoutBlocked: true,
       });
     });
 
-    it('stops telling the member checkout is blocked once restored', async () => {
-      const admin = await createAdmin();
-      const { member, subscription } = await payingMember();
-
-      await service.revokeAccess(admin, member.id, { reason: 'Wrong member' });
-      await service.restoreAccess(admin, member.id, {
-        subscriptionId: subscription.id,
-        reason: null,
-      });
-
-      expect(await new MeService(prisma).getMeByClerkId(member.clerkUserId)).toMatchObject({
-        checkoutBlocked: false,
-      });
-    });
-
     it('is refused without a reason, and changes and records nothing', async () => {
       const admin = await createAdmin();
-      const { member, subscription } = await payingMember();
+      const { member } = await payingMember();
 
-      await expect(service.revokeAccess(admin, member.id, { reason: null })).rejects.toBeInstanceOf(
+      await expect(service.banMember(admin, member.id, { reason: '  ' })).rejects.toBeInstanceOf(
         BadRequestException,
       );
 
       expect(await auditOf(member.id)).toEqual([]);
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
-      const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
-      expect(row).toMatchObject({ adminRevokedAt: null });
-    });
-
-    it('takes a member with a grant and a subscription down one step at a time', async () => {
-      const admin = await createAdmin();
-      const { member, subscription } = await payingMember();
-      await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
-
-      const afterGrant = await service.revokeAccess(admin, member.id, { reason: null });
-
-      expect(afterGrant.access).toEqual({
-        kind: 'stripe',
-        validUntil: subscription.currentPeriodEnd!.toISOString(),
-      });
-      expect(afterGrant.revokeRequiresReason).toBe(true);
-
-      const afterStripe = await service.revokeAccess(admin, member.id, { reason: 'Banned' });
-
-      expect(afterStripe.hasAccess).toBe(false);
-    });
-
-    it('revokes every live subscription, with one audit row each', async () => {
-      const admin = await createAdmin();
-      const { member, subscription } = await payingMember();
-      const second = await createSubscription(member.id, { currentPeriodEnd: daysFromNow(25) });
-
-      await service.revokeAccess(admin, member.id, { reason: 'Double subscription' });
-
-      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
-      expect((await auditOf(member.id)).map((entry) => entry.stripeSubscriptionId).sort()).toEqual(
-        [subscription.stripeSubscriptionId, second.stripeSubscriptionId].sort(),
+      expect((await prismaClient!.user.findUnique({ where: { id: member.id } }))?.bannedAt).toBe(
+        null,
       );
     });
 
-    it('rolls back the revocation when the audit row cannot be written', async () => {
+    it('is refused on a member who is already banned', async () => {
+      const admin = await createAdmin();
+      const { member } = await payingMember();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      await expect(service.banMember(admin, member.id, { reason: 'Abuse again' })).rejects.toThrow(
+        'already banned',
+      );
+      expect(await auditOf(member.id)).toHaveLength(1);
+    });
+
+    it('ends a live manual grant too, and lifting the ban does not bring it back', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.grantAccess(admin, member.id, { validUntil: null, reason: 'Paid cash' });
+
+      const banned = await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      expect(banned.hasAccess).toBe(false);
+
+      const lifted = await service.liftBan(admin, member.id, { reason: null });
+
+      expect(lifted.hasAccess).toBe(false);
+      expect(lifted.access.kind).not.toBe('banned');
+      expect(lifted.canRemove).toBe(false);
+    });
+
+    it('refuses a grant while banned, and records nothing', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      await expect(
+        service.grantAccess(admin, member.id, { validUntil: null, reason: null }),
+      ).rejects.toThrow('Lift the ban before granting access.');
+
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+      expect((await auditOf(member.id)).map((entry) => entry.action)).toEqual([
+        MemberAccessAction.BAN,
+      ]);
+    });
+
+    it('refuses Remove access while banned', async () => {
+      const admin = await createAdmin();
+      const { member } = await payingMember();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      await expect(service.revokeAccess(admin, member.id, { reason: null })).rejects.toThrow(
+        'This member is banned',
+      );
+    });
+
+    it('rolls back the ban when the audit row cannot be written', async () => {
       const ghost: AuthUser = {
         id: '00000000-0000-0000-0000-000000000000',
         clerkUserId: `${PREFIX}ghost`,
         role: Role.ADMIN,
         entitlementTier: SharedEntitlementTier.FREE,
       };
-      const { member, subscription } = await payingMember();
+      const { member } = await payingMember();
 
-      await expect(service.revokeAccess(ghost, member.id, { reason: 'Nope' })).rejects.toThrow();
+      await expect(service.banMember(ghost, member.id, { reason: 'Nope' })).rejects.toThrow();
 
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
-      const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
-      expect(row).toMatchObject({ adminRevokedAt: null });
+      expect((await prismaClient!.user.findUnique({ where: { id: member.id } }))?.bannedAt).toBe(
+        null,
+      );
     });
 
-    it('stays withdrawn through a genuine paid renewal', async () => {
+    it('stays banned through a genuine paid renewal', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await payingMember();
-      await service.revokeAccess(admin, member.id, { reason: 'Untraceable refund' });
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
 
       await deliverSubscriptionEvent(member, subscription, daysFromNow(50));
 
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
-      const row = await prismaClient!.subscription.findUnique({ where: { id: subscription.id } });
-      expect(row?.adminRevokedAt).toBeInstanceOf(Date);
+      expect((await service.getMember(member.id)).access.kind).toBe('banned');
     });
 
     describe('on a member with an older subscription that is not live', () => {
@@ -759,7 +856,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         const admin = await createAdmin();
         const { member, subscription: paying } = await payingMember();
         const sibling = await createSubscription(member.id, older);
-        await service.revokeAccess(admin, member.id, { reason: 'Banned for conduct' });
+        await service.banMember(admin, member.id, { reason: 'Banned for conduct' });
         return { admin, member, paying, sibling };
       }
 
@@ -767,33 +864,10 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         expect((await entitlementOf(memberId))?.tier).toBe(EntitlementTier.FREE);
         const detail = await service.getMember(memberId);
         expect(detail.hasAccess).toBe(false);
-        expect(detail.access.kind).toBe('admin-revoked');
+        expect(detail.access.kind).toBe('banned');
       }
 
-      it('promises a new subscription only once nothing live would refuse it', async () => {
-        const { admin, member, paying, sibling } = await banned({ status: 'unpaid' });
-        const restoreOpensCheckout = async (id: string) =>
-          (await service.getMember(member.id)).subscriptions.find((row) => row.id === id)
-            ?.restoreOpensCheckout;
-
-        expect(await restoreOpensCheckout(paying.id)).toBe(false);
-
-        await service.restoreAccess(admin, member.id, {
-          subscriptionId: paying.id,
-          reason: 'Ban lifted',
-        });
-
-        expect(await restoreOpensCheckout(sibling.id)).toBe(false);
-
-        await prismaClient!.subscription.update({
-          where: { id: paying.id },
-          data: { status: 'canceled' },
-        });
-
-        expect(await restoreOpensCheckout(sibling.id)).toBe(true);
-      });
-
-      it('stays withdrawn when a refunded subscription genuinely renews', async () => {
+      it('stays banned when a refunded subscription genuinely renews', async () => {
         const { member, sibling } = await banned({
           revokedAt: daysFromNow(-5),
           revokedReason: REVOKE_REASON_REFUND,
@@ -806,7 +880,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         expect(row?.revokedAt).toBeNull();
       });
 
-      it('stays withdrawn when a charged-back subscription wins its dispute', async () => {
+      it('stays banned when a charged-back subscription wins its dispute', async () => {
         const { member, sibling } = await banned({
           revokedAt: daysFromNow(-5),
           revokedReason: REVOKE_REASON_CHARGEBACK,
@@ -819,7 +893,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         expect(row?.revokedAt).toBeNull();
       });
 
-      it('stays withdrawn when Stripe recovers an unpaid subscription', async () => {
+      it('stays banned when Stripe recovers an unpaid subscription', async () => {
         const { member, sibling } = await banned({ status: 'unpaid' });
 
         await deliverSubscriptionEvent(member, sibling, stripeDate(30));
@@ -827,68 +901,32 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         await expectStillBanned(member.id);
       });
 
-      it('records one revocation per row, each restored on its own', async () => {
-        const { admin, member, paying, sibling } = await banned({ status: 'unpaid' });
-
-        const revoked = (await auditOf(member.id)).map((entry) => entry.stripeSubscriptionId);
-        expect(revoked.sort()).toEqual(
-          [paying.stripeSubscriptionId, sibling.stripeSubscriptionId].sort(),
-        );
-
-        const afterSibling = await service.restoreAccess(admin, member.id, {
-          subscriptionId: sibling.id,
-          reason: 'Not this one',
+      it('says a restored refund gives nothing back while the ban stands', async () => {
+        const { admin, member, sibling } = await banned({
+          revokedAt: daysFromNow(-5),
+          revokedReason: REVOKE_REASON_REFUND,
         });
-        expect(afterSibling.hasAccess).toBe(false);
 
-        const afterPaying = await service.restoreAccess(admin, member.id, {
-          subscriptionId: paying.id,
-          reason: 'Revoked the wrong member',
+        const before = await service.getMember(member.id);
+        expect(before.subscriptions.find((row) => row.id === sibling.id)).toMatchObject({
+          restorable: true,
+          restoreGivesAccess: false,
         });
-        expect(afterPaying.hasAccess).toBe(true);
-      });
-
-      it('leaves a row Stripe can never bring back alone', async () => {
-        const { admin, member, paying, sibling } = await banned({ status: 'canceled' });
-
-        const row = await prismaClient!.subscription.findUnique({ where: { id: sibling.id } });
-        expect(row?.adminRevokedAt).toBeNull();
-        expect((await auditOf(member.id)).map((entry) => entry.stripeSubscriptionId)).toEqual([
-          paying.stripeSubscriptionId,
-        ]);
 
         const restored = await service.restoreAccess(admin, member.id, {
-          subscriptionId: paying.id,
-          reason: 'Revoked the wrong member',
-        });
-        expect(restored.subscriptions.some((entry) => entry.adminRevokedAt)).toBe(false);
-      });
-
-      it('does not re-record a row the revocation already covers', async () => {
-        const { admin, member, paying, sibling } = await banned({ status: 'unpaid' });
-        const stamped = await prismaClient!.subscription.findUnique({ where: { id: sibling.id } });
-        await service.restoreAccess(admin, member.id, {
-          subscriptionId: paying.id,
-          reason: 'Revoked the wrong member',
+          subscriptionId: sibling.id,
+          reason: 'Refunded by mistake',
         });
 
-        await service.revokeAccess(admin, member.id, { reason: 'Banned after all' });
-
-        const reasons = (await auditOf(member.id))
-          .filter((entry) => entry.action === MemberAccessAction.REVOKE)
-          .map((entry) => entry.reason);
-        expect(reasons.filter((reason) => reason === 'Banned after all')).toHaveLength(1);
-        const row = await prismaClient!.subscription.findUnique({ where: { id: sibling.id } });
-        expect(row?.adminRevokedAt).toEqual(stamped?.adminRevokedAt);
+        expect(restored.hasAccess).toBe(false);
+        await expectStillBanned(member.id);
       });
     });
 
-    it('covers a subscription Stripe opens after the revocation', async () => {
+    it('covers a subscription Stripe opens after the ban, without stamping it', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await payingMember();
-      const revoked = await service.revokeAccess(admin, member.id, {
-        reason: 'Banned for conduct',
-      });
+      await service.banMember(admin, member.id, { reason: 'Banned for conduct' });
       sequence += 1;
       const late = {
         stripeSubscriptionId: `sub_${PREFIX}${sequence}`,
@@ -901,16 +939,13 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       const row = await prismaClient!.subscription.findUnique({
         where: { stripeSubscriptionId: late.stripeSubscriptionId },
       });
-      expect(row?.adminRevokedAt?.toISOString()).toBe(revoked.subscriptions[0]?.adminRevokedAt);
+      expect(row?.adminRevokedAt).toBeNull();
 
-      const restored = await service.restoreAccess(admin, member.id, {
-        subscriptionId: row!.id,
-        reason: 'Revoked the wrong member',
-      });
-      expect(restored.hasAccess).toBe(true);
+      const lifted = await service.liftBan(admin, member.id, { reason: 'Wrong member' });
+      expect(lifted.hasAccess).toBe(true);
     });
 
-    describe('a subscription that joins the revocation', () => {
+    describe('a subscription opened after the ban', () => {
       const collectingAlerter = () => {
         const alerts: string[] = [];
         const alerter: BillingAlerter = {
@@ -921,22 +956,20 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         return { alerts, alerter };
       };
 
-      async function revokedWithLateSubscription() {
+      async function bannedWithLateSubscription() {
         const admin = await createAdmin();
         const { member, subscription } = await payingMember();
-        const revoked = await service.revokeAccess(admin, member.id, {
-          reason: 'Banned for conduct',
-        });
+        await service.banMember(admin, member.id, { reason: 'Banned for conduct' });
         sequence += 1;
         const late = {
           stripeSubscriptionId: `sub_${PREFIX}${sequence}`,
           stripeCustomerId: subscription.stripeCustomerId,
         };
-        return { admin, member, subscription, revoked, late };
+        return { admin, member, subscription, late };
       }
 
-      it('tells staff once and leaves the revocation as it was', async () => {
-        const { member, revoked, late } = await revokedWithLateSubscription();
+      it('tells staff once and leaves the ban as it was', async () => {
+        const { member, late } = await bannedWithLateSubscription();
         const { alerts, alerter } = collectingAlerter();
         const eventId = `evt_${PREFIX}joined-${sequence}`;
         const created = 'customer.subscription.created';
@@ -947,18 +980,18 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
 
         expect(alerts).toHaveLength(1);
         expect(alerts[0]).toContain(late.stripeSubscriptionId);
-        expect(alerts[0]).toContain('live paid subscription');
+        expect(alerts[0]).toContain('banned member has a live paid subscription');
         expect(alerts[0]).toContain('Refund or cancel');
         expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
         const row = await prismaClient!.subscription.findUnique({
           where: { stripeSubscriptionId: late.stripeSubscriptionId },
         });
         expect(row?.status).toBe('active');
-        expect(row?.adminRevokedAt?.toISOString()).toBe(revoked.subscriptions[0]?.adminRevokedAt);
+        expect((await service.getMember(member.id)).access.kind).toBe('banned');
       });
 
       it('waits for a card that needs 3D Secure to actually go live', async () => {
-        const { member, late } = await revokedWithLateSubscription();
+        const { member, late } = await bannedWithLateSubscription();
         const { alerts, alerter } = collectingAlerter();
 
         await deliverSubscriptionEvent(
@@ -975,7 +1008,7 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
 
       it('still tells staff when the delivery that created the row is retried', async () => {
-        const { member, late } = await revokedWithLateSubscription();
+        const { member, late } = await bannedWithLateSubscription();
         const { alerts, alerter } = collectingAlerter();
         let channelDown = true;
         const flaky: BillingAlerter = {
@@ -1000,8 +1033,8 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         expect(alerts[0]).toContain('live paid subscription');
       });
 
-      it('stays quiet on a subscription the admin withdrew themselves', async () => {
-        const { member, subscription } = await revokedWithLateSubscription();
+      it('stays quiet on a subscription the admin saw when they banned the member', async () => {
+        const { member, subscription } = await bannedWithLateSubscription();
         const { alerts, alerter } = collectingAlerter();
 
         await deliverSubscriptionEvent(member, subscription, stripeDate(50), undefined, {
@@ -1011,25 +1044,131 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         expect(alerts).toHaveLength(0);
       });
     });
+  });
 
-    it('can be undone from the same screen, and records that too', async () => {
+  describe('lift ban', () => {
+    it('gives Stripe access back at once, and records it', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await payingMember();
-      await service.revokeAccess(admin, member.id, { reason: 'Wrong member' });
+      await service.banMember(admin, member.id, { reason: 'Wrong member' });
 
-      const detail = await service.restoreAccess(admin, member.id, {
-        subscriptionId: subscription.id,
-        reason: 'Revoked the wrong member',
+      const detail = await service.liftBan(admin, member.id, {
+        reason: 'Banned the wrong member',
       });
 
       expect(detail.access).toEqual({
         kind: 'stripe',
         validUntil: subscription.currentPeriodEnd!.toISOString(),
       });
-      expect((await auditOf(member.id)).map((entry) => entry.action)).toEqual([
-        MemberAccessAction.REVOKE,
-        MemberAccessAction.RESTORE,
+      expect(await new MeService(prisma).getMeByClerkId(member.clerkUserId)).toMatchObject({
+        checkoutBlocked: false,
+        subscriptionStatus: 'active',
+      });
+
+      const entries = await auditOf(member.id);
+      expect(entries.map((entry) => entry.action)).toEqual([
+        MemberAccessAction.BAN,
+        MemberAccessAction.UNBAN,
       ]);
+      expect(entries[1]).toMatchObject({
+        reason: 'Banned the wrong member',
+        tierBefore: EntitlementTier.FREE,
+        tierAfter: EntitlementTier.PREMIUM,
+        validUntilAfter: subscription.currentPeriodEnd,
+      });
+    });
+
+    it('leaves a member with no subscription without access, and free to subscribe', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      const detail = await service.liftBan(admin, member.id, { reason: null });
+
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.stripeAccess).toBeNull();
+      expect(await new MeService(prisma).getMeByClerkId(member.clerkUserId)).toMatchObject({
+        checkoutBlocked: false,
+      });
+    });
+
+    it('explains a manual grant the ban ended as a lifted ban, not as never having access', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      await service.liftBan(admin, member.id, { reason: null });
+      const [summary] = (await service.listMembers(member.clerkUserId)).filter(
+        (row) => row.id === member.id,
+      );
+
+      expect(summary?.hasAccess).toBe(false);
+      expect(summary?.access).toMatchObject({
+        kind: 'ban-lifted',
+        actorClerkUserId: admin.clerkUserId,
+      });
+    });
+
+    it('explains a member who never had premium as a lifted ban, not as never having access', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      await service.liftBan(admin, member.id, { reason: null });
+      const [summary] = (await service.listMembers(member.clerkUserId)).filter(
+        (row) => row.id === member.id,
+      );
+      const detail = await service.getMember(member.id);
+
+      for (const access of [summary?.access, detail.access]) {
+        expect(access).toMatchObject({ kind: 'ban-lifted', actorClerkUserId: admin.clerkUserId });
+      }
+    });
+
+    it('keeps explaining a grant that had lapsed before the ban once the ban is lifted', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      const expiredAt = daysFromNow(-30);
+      await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: {
+          tier: EntitlementTier.PREMIUM,
+          validUntil: expiredAt,
+          source: EntitlementSource.MANUAL,
+        },
+      });
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      const detail = await service.liftBan(admin, member.id, { reason: null });
+
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.access).toEqual({ kind: 'expired', at: expiredAt.toISOString() });
+    });
+
+    it('keeps explaining a refund that came before the ban once the ban is lifted', async () => {
+      const admin = await createAdmin();
+      const { member, subscription } = await refundedMember();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      const detail = await service.liftBan(admin, member.id, { reason: null });
+
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.access).toEqual({
+        kind: 'revoked',
+        reason: REVOKE_REASON_REFUND,
+        at: subscription.revokedAt!.toISOString(),
+      });
+    });
+
+    it('is refused on a member who is not banned', async () => {
+      const admin = await createAdmin();
+      const { member } = await payingMember();
+
+      await expect(service.liftBan(admin, member.id, { reason: null })).rejects.toThrow(
+        'not banned',
+      );
+      expect(await auditOf(member.id)).toEqual([]);
     });
   });
 
@@ -1190,13 +1329,17 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       };
     }
 
-    it('a revoke and a new subscription: the new subscription joins the revocation', async () => {
+    it('a ban and a new subscription: the new subscription grants nothing and checkout stays refused', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await payingMember();
       const late = newSubscriptionFor(subscription);
 
+      // The ban has written the member row and re-derived FREE but not committed
+      // when Stripe opens a subscription from a checkout already in flight. The
+      // webhook has to wait for the ban and then read it, or it derives PREMIUM
+      // from the new row against the member as they were before.
       await raceAdminChangeAgainstWebhook(
-        (members) => members.revokeAccess(admin, member.id, { reason: 'Banned for conduct' }),
+        (members) => members.banMember(admin, member.id, { reason: 'Banned for conduct' }),
         (racer) =>
           deliverSubscriptionEvent(member, late, stripeDate(30), 'customer.subscription.created', {
             prismaService: racer,
@@ -1206,8 +1349,18 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       const row = await prismaClient!.subscription.findUnique({
         where: { stripeSubscriptionId: late.stripeSubscriptionId },
       });
-      expect(row?.adminRevokedAt).not.toBeNull();
+      expect(row?.status).toBe('active');
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
+
+      // Checkout refuses before it reaches Stripe, so the client is never called.
+      process.env.STRIPE_PRICE_ID_MONTHLY ??= 'price_test';
+      process.env.WEB_APP_URL ??= 'http://localhost:3000';
+      const checkout = new BillingService(prisma);
+      Reflect.set(checkout, 'stripe', {});
+      await expect(checkout.createCheckoutSession(member.clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: CHECKOUT_CONFLICT_CODES.accessRevoked },
+      });
     });
 
     it('a grant and a subscription event: the event leaves the grant in place', async () => {
@@ -1230,41 +1383,38 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
-    it('a restore and a new subscription: the new one does not copy the cleared revocation', async () => {
+    it('a lifted ban and a new subscription: the new one grants access', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await payingMember();
-      await service.revokeAccess(admin, member.id, { reason: 'Banned for conduct' });
+      await service.banMember(admin, member.id, { reason: 'Banned for conduct' });
+      await prismaClient!.subscription.update({
+        where: { id: subscription.id },
+        data: { status: 'canceled' },
+      });
       const late = newSubscriptionFor(subscription);
 
       await raceAdminChangeAgainstWebhook(
-        (members) =>
-          members.restoreAccess(admin, member.id, {
-            subscriptionId: subscription.id,
-            reason: 'Revoked the wrong member',
-          }),
+        (members) => members.liftBan(admin, member.id, { reason: 'Banned the wrong member' }),
         (racer) =>
           deliverSubscriptionEvent(member, late, stripeDate(30), 'customer.subscription.created', {
             prismaService: racer,
           }),
       );
 
-      const rows = await prismaClient!.subscription.findMany({ where: { userId: member.id } });
-      expect(rows).toHaveLength(2);
-      expect(rows.map((row) => row.adminRevokedAt)).toEqual([null, null]);
       expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.PREMIUM);
     });
   });
 
   describe('a confirmation that went stale before Confirm was pressed', () => {
-    it('refuses a revoke confirmed before another admin ended the grant, and keeps Stripe access', async () => {
+    it('refuses a Remove access confirmed before another admin ended the grant, and keeps Stripe access', async () => {
       const admin = await createAdmin();
       const other = await createAdmin();
       const { member } = await payingMember();
       await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
 
-      // The page says "End this manual grant?", with an optional reason.
+      // The page says "End the access an admin granted?", with an optional reason.
       const seen = await service.getMember(member.id);
-      expect(seen.revokeRequiresReason).toBe(false);
+      expect(seen.canRemove).toBe(true);
 
       await service.revokeAccess(other, member.id, { reason: null });
 
@@ -1279,9 +1429,44 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
         tier: EntitlementTier.PREMIUM,
         source: EntitlementSource.STRIPE,
       });
-      const rows = await prismaClient!.subscription.findMany({ where: { userId: member.id } });
-      expect(rows.map((row) => row.adminRevokedAt)).toEqual([null]);
       expect(await auditOf(member.id)).toHaveLength(2);
+    });
+
+    it('refuses a Remove access confirmed before another admin banned the member', async () => {
+      const admin = await createAdmin();
+      const other = await createAdmin();
+      const member = await createUser();
+      await service.grantAccess(admin, member.id, { validUntil: null, reason: null });
+      const seen = await service.getMember(member.id);
+
+      await service.banMember(other, member.id, { reason: 'Abuse' });
+
+      await expect(
+        service.revokeAccess(admin, member.id, {
+          reason: 'Stopped paying',
+          accessVersion: seen.accessVersion,
+        }),
+      ).rejects.toThrow(STALE_CONFIRMATION_MESSAGE);
+      expect((await auditOf(member.id)).map((entry) => entry.action)).toEqual([
+        MemberAccessAction.GRANT,
+        MemberAccessAction.BAN,
+      ]);
+    });
+
+    it('refuses a Lift ban confirmed against a ban that was since lifted and replaced', async () => {
+      const admin = await createAdmin();
+      const other = await createAdmin();
+      const { member } = await payingMember();
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+      const seen = await service.getMember(member.id);
+
+      await service.liftBan(other, member.id, { reason: 'Wrong member' });
+      await service.banMember(other, member.id, { reason: 'Right member after all' });
+
+      await expect(
+        service.liftBan(admin, member.id, { reason: null, accessVersion: seen.accessVersion }),
+      ).rejects.toThrow(STALE_CONFIRMATION_MESSAGE);
+      expect((await entitlementOf(member.id))?.tier).toBe(EntitlementTier.FREE);
     });
 
     it('refuses a change confirmed before a Stripe event changed what it does', async () => {
@@ -1323,11 +1508,95 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       await deliverSubscriptionEvent(member, subscription, periodEnd);
 
       await expect(
-        service.revokeAccess(admin, member.id, {
+        service.banMember(admin, member.id, {
           reason: 'Banned for conduct',
           accessVersion: seen.accessVersion,
         }),
       ).resolves.toMatchObject({ hasAccess: false });
+    });
+  });
+
+  describe('the migration that turned admin revocations into bans', () => {
+    async function stamp(subscriptionId: string, adminRevokedAt: Date) {
+      return prismaClient!.subscription.update({
+        where: { id: subscriptionId },
+        data: { adminRevokedAt },
+      });
+    }
+
+    async function bannedAtOf(memberId: string) {
+      return (await prismaClient!.user.findUniqueOrThrow({ where: { id: memberId } })).bannedAt;
+    }
+
+    it('bans a member whose revocation is in force, from the first one, on FREE', async () => {
+      const member = await createUser();
+      const firstRevoked = daysFromNow(-5);
+      await stamp((await createSubscription(member.id)).id, firstRevoked);
+      await stamp(
+        (await createSubscription(member.id, { status: 'canceled' })).id,
+        daysFromNow(-3),
+      );
+      await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: {
+          tier: EntitlementTier.PREMIUM,
+          validUntil: daysFromNow(-8),
+          source: EntitlementSource.MANUAL,
+        },
+      });
+
+      await runBanBackfillFor([member.id]);
+
+      expect(await bannedAtOf(member.id)).toEqual(firstRevoked);
+      expect(await entitlementOf(member.id)).toMatchObject({
+        tier: EntitlementTier.FREE,
+        validUntil: null,
+        source: EntitlementSource.MANUAL,
+      });
+    });
+
+    it('leaves a member an admin re-granted access to unbanned, with their grant', async () => {
+      const member = await createUser();
+      const subscription = await stamp((await createSubscription(member.id)).id, daysFromNow(-5));
+      const grant = await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: { tier: EntitlementTier.PREMIUM, validUntil: null, source: EntitlementSource.MANUAL },
+      });
+
+      await runBanBackfillFor([member.id]);
+
+      expect(await bannedAtOf(member.id)).toBeNull();
+      expect(await entitlementOf(member.id)).toEqual(grant);
+      expect(
+        (await prismaClient!.subscription.findUniqueOrThrow({ where: { id: subscription.id } }))
+          .adminRevokedAt,
+      ).toEqual(subscription.adminRevokedAt);
+    });
+
+    it('leaves a member whose live subscription an admin restored unbanned, still paid', async () => {
+      const member = await createUser();
+      const stamped = await stamp(
+        (await createSubscription(member.id, { status: 'unpaid' })).id,
+        daysFromNow(-5),
+      );
+      const restored = await createSubscription(member.id);
+      const paid = await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: {
+          tier: EntitlementTier.PREMIUM,
+          validUntil: restored.currentPeriodEnd,
+          source: EntitlementSource.STRIPE,
+        },
+      });
+
+      await runBanBackfillFor([member.id]);
+
+      expect(await bannedAtOf(member.id)).toBeNull();
+      expect(await entitlementOf(member.id)).toEqual(paid);
+      expect(
+        (await prismaClient!.subscription.findUniqueOrThrow({ where: { id: stamped.id } }))
+          .adminRevokedAt,
+      ).toEqual(stamped.adminRevokedAt);
     });
   });
 

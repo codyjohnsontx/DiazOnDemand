@@ -88,10 +88,14 @@ export default function AdminMembersPage() {
                 <ListRow
                   badges={
                     <>
-                      <Badge
-                        label={member.hasAccess ? 'Premium' : 'No access'}
-                        variant={member.hasAccess ? 'premium' : 'neutral'}
-                      />
+                      {member.access.kind === 'banned' ? (
+                        <Badge label="Banned" variant="critical" />
+                      ) : (
+                        <Badge
+                          label={member.hasAccess ? 'Premium' : 'No access'}
+                          variant={member.hasAccess ? 'premium' : 'neutral'}
+                        />
+                      )}
                       {member.role === 'STUDENT' ? null : <Badge label={member.role} />}
                     </>
                   }

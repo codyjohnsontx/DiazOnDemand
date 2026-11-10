@@ -1,6 +1,6 @@
 /**
  * The access rules behind the admin members screen: what an admin may grant,
- * revoke and restore, and how a member's missing access is explained.
+ * remove, ban and restore, and how a member's missing access is explained.
  *
  * `admin-members.db.test.ts` is the database-backed half: the same transitions
  * run through the real service, with the audit rows they write.
@@ -8,18 +8,20 @@
 import { BadRequestException, ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants.js';
 import { Reflector } from '@nestjs/core';
-import { EntitlementSource, EntitlementTier } from '@diaz/db';
+import { EntitlementSource, EntitlementTier, MemberAccessAction } from '@diaz/db';
 import { Role } from '@diaz/shared';
 import { describe, expect, it } from 'vitest';
 import { AdminController } from '../admin/admin.controller.js';
 import {
+  banRecord,
   describeMemberAccess,
   hasLiveStripeAccess,
+  lastGrantRemoval,
+  liftedBans,
   memberAccessVersion,
   planManualGrant,
   planManualRevoke,
   restoreGivesAccess,
-  restoreOpensCheckout,
 } from '../admin/member-access.js';
 import { AuthGuard } from '../auth/auth.guard.js';
 import { ROLES_KEY } from '../auth/roles.decorator.js';
@@ -29,11 +31,7 @@ import {
   NO_REVOCATION,
   REVOKE_REASON_CHARGEBACK,
   REVOKE_REASON_REFUND,
-  planAdminRevocation,
-  planDisputeWonRelease,
   planManualRelease,
-  planRevocation,
-  releasesRevocation,
 } from '../billing/subscription-revocation.js';
 import { isLiveStripeSubscription, manualGrantOutlastsStripe } from '../common/entitlement.js';
 
@@ -47,7 +45,6 @@ function subscription(overrides: Partial<Parameters<typeof restoreGivesAccess>[0
     currentPeriodEnd: daysFromNow(20),
     revokedAt: null,
     revokedReason: null,
-    adminRevokedAt: null,
     lastEventAt: daysFromNow(-10),
     updatedAt: daysFromNow(-10),
     ...overrides,
@@ -66,83 +63,29 @@ const refunded = (at = daysFromNow(-2)) =>
   subscription({ revokedAt: at, revokedReason: REVOKE_REASON_REFUND });
 
 describe('planManualRelease', () => {
-  const notAdminRevoked = { adminRevokedAt: null };
-
   it('clears a refund revocation', () => {
-    expect(
-      planManualRelease({
-        ...notAdminRevoked,
-        revokedAt: NOW,
-        revokedReason: REVOKE_REASON_REFUND,
-      }),
-    ).toEqual(NO_REVOCATION);
-  });
-
-  it('clears an admin revocation, which nothing else can', () => {
-    expect(planManualRelease({ ...NO_REVOCATION, adminRevokedAt: NOW })).toEqual({
-      adminRevokedAt: null,
-    });
-  });
-
-  it('clears the admin revocation first and leaves what Stripe reported', () => {
-    expect(
-      planManualRelease({
-        adminRevokedAt: NOW,
-        revokedAt: NOW,
-        revokedReason: REVOKE_REASON_REFUND,
-      }),
-    ).toEqual({ adminRevokedAt: null });
+    expect(planManualRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_REFUND })).toEqual(
+      NO_REVOCATION,
+    );
   });
 
   it('never clears a chargeback, which only a won dispute releases', () => {
     expect(
-      planManualRelease({
-        ...notAdminRevoked,
-        revokedAt: NOW,
-        revokedReason: REVOKE_REASON_CHARGEBACK,
-      }),
+      planManualRelease({ revokedAt: NOW, revokedReason: REVOKE_REASON_CHARGEBACK }),
     ).toBeNull();
   });
 
   it('has nothing to clear on a row that was never revoked', () => {
-    expect(planManualRelease({ ...NO_REVOCATION, ...notAdminRevoked })).toBeNull();
+    expect(planManualRelease(NO_REVOCATION)).toBeNull();
   });
 });
 
-describe('an admin revocation', () => {
-  it('is written to its own field and leaves what Stripe reported alone', () => {
-    expect(planAdminRevocation(NOW)).toEqual({ adminRevokedAt: NOW });
-  });
+describe('the retired admin revocation column', () => {
+  it('no longer stops a subscription granting access; a ban on the member does that', () => {
+    const stamped = { ...subscription(), adminRevokedAt: NOW };
 
-  it('stops a subscription granting access until an admin clears it', () => {
-    expect(isLiveStripeSubscription(subscription({ adminRevokedAt: NOW }))).toBe(false);
-    expect(hasLiveStripeAccess([subscription({ adminRevokedAt: NOW })], NOW)).toBe(false);
-  });
-
-  it('lets a refund or chargeback be recorded beside it', () => {
-    const adminRevoked = subscription({ adminRevokedAt: NOW });
-
-    expect(planRevocation(adminRevoked, REVOKE_REASON_REFUND, daysFromNow(1))).toEqual({
-      revokedAt: daysFromNow(1),
-      revokedReason: REVOKE_REASON_REFUND,
-    });
-    expect(planRevocation(adminRevoked, REVOKE_REASON_CHARGEBACK, daysFromNow(1))).toEqual({
-      revokedAt: daysFromNow(1),
-      revokedReason: REVOKE_REASON_CHARGEBACK,
-    });
-  });
-
-  it('has nothing for a renewal or a won dispute to release on its own', () => {
-    const adminRevoked = subscription({ adminRevokedAt: NOW });
-
-    expect(
-      releasesRevocation(adminRevoked, {
-        status: 'active',
-        currentPeriodEnd: daysFromNow(50),
-        stripeCreatedAt: daysFromNow(1),
-      }),
-    ).toBe(false);
-    expect(planDisputeWonRelease(adminRevoked)).toBeNull();
+    expect(isLiveStripeSubscription(stamped)).toBe(true);
+    expect(hasLiveStripeAccess([stamped], NOW)).toBe(true);
   });
 });
 
@@ -286,48 +229,6 @@ describe('planManualRevoke', () => {
   });
 });
 
-describe('restoreOpensCheckout', () => {
-  const banned = (status = 'active') => subscription({ status, adminRevokedAt: NOW });
-
-  it('is true for the last admin revocation when nothing would be live afterwards', () => {
-    const row = banned('canceled');
-
-    expect(restoreOpensCheckout(row, [row])).toBe(true);
-  });
-
-  it('is false while the member holds a live subscription, which checkout refuses as a duplicate', () => {
-    const unpaid = banned('unpaid');
-
-    expect(restoreOpensCheckout(unpaid, [unpaid, subscription()])).toBe(false);
-  });
-
-  it('is false when the restore itself leaves a live row, even with its paid period over', () => {
-    const row = subscription({ currentPeriodEnd: daysFromNow(-1), adminRevokedAt: NOW });
-
-    expect(restoreGivesAccess(row, NOW)).toBe(false);
-    expect(restoreOpensCheckout(row, [row])).toBe(false);
-  });
-
-  it('is true over a refund, which keeps the row from counting as live', () => {
-    const row = { ...refunded(), adminRevokedAt: NOW };
-
-    expect(restoreOpensCheckout(row, [row])).toBe(true);
-  });
-
-  it('is false while another subscription keeps an admin revocation', () => {
-    const row = banned('canceled');
-
-    expect(restoreOpensCheckout(row, [row, banned('unpaid')])).toBe(false);
-  });
-
-  it('is false for a row no admin revoked', () => {
-    const row = refunded();
-
-    expect(restoreOpensCheckout(row, [row])).toBe(false);
-    expect(restoreOpensCheckout(row, [row, banned('canceled')])).toBe(false);
-  });
-});
-
 describe('restoreGivesAccess', () => {
   it('is true for a refunded subscription that is still paid up', () => {
     expect(restoreGivesAccess(refunded(), NOW)).toBe(true);
@@ -363,24 +264,6 @@ describe('restoreGivesAccess', () => {
       ),
     ).toBe(false);
   });
-
-  it('is true for an admin revocation on a subscription that is still paid up', () => {
-    expect(restoreGivesAccess(subscription({ adminRevokedAt: NOW }), NOW)).toBe(true);
-  });
-
-  it('is false for an admin revocation over a refund or a chargeback', () => {
-    expect(restoreGivesAccess({ ...refunded(), adminRevokedAt: NOW }, NOW)).toBe(false);
-    expect(
-      restoreGivesAccess(
-        subscription({
-          adminRevokedAt: NOW,
-          revokedAt: NOW,
-          revokedReason: REVOKE_REASON_CHARGEBACK,
-        }),
-        NOW,
-      ),
-    ).toBe(false);
-  });
 });
 
 describe('describeMemberAccess', () => {
@@ -393,6 +276,8 @@ describe('describeMemberAccess', () => {
           entitlement: entitlement(EntitlementTier.PREMIUM, daysFromNow(5)),
           subscriptions: [],
           lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -410,6 +295,8 @@ describe('describeMemberAccess', () => {
           ),
           subscriptions: [subscription()],
           lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -421,7 +308,13 @@ describe('describeMemberAccess', () => {
 
     expect(
       describeMemberAccess(
-        { entitlement: free, subscriptions: [refunded(at)], lastAdminRevoke: null },
+        {
+          entitlement: free,
+          subscriptions: [refunded(at)],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [],
+        },
         NOW,
       ),
     ).toEqual({ kind: 'revoked', reason: REVOKE_REASON_REFUND, at: at.toISOString() });
@@ -436,6 +329,8 @@ describe('describeMemberAccess', () => {
           entitlement: entitlement(EntitlementTier.FREE, null),
           subscriptions: [],
           lastAdminRevoke: { createdAt: at, actorClerkUserId: 'user_admin' },
+          ban: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -451,25 +346,34 @@ describe('describeMemberAccess', () => {
           entitlement: entitlement(EntitlementTier.PREMIUM, at),
           subscriptions: [],
           lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [],
         },
         NOW,
       ),
     ).toEqual({ kind: 'expired', at: at.toISOString() });
   });
 
-  it('names the admin who withdrew Stripe access, not the status left on the row', () => {
-    const at = daysFromNow(-1);
+  it('answers with the ban whenever one stands, ahead of anything more recent', () => {
+    const at = daysFromNow(-5);
 
     expect(
       describeMemberAccess(
         {
           entitlement: free,
-          subscriptions: [subscription({ adminRevokedAt: at })],
-          lastAdminRevoke: { createdAt: at, actorClerkUserId: 'user_admin' },
+          subscriptions: [subscription(), refunded(daysFromNow(-1))],
+          lastAdminRevoke: { createdAt: daysFromNow(-1), actorClerkUserId: 'user_other' },
+          ban: { at, actorClerkUserId: 'user_admin', reason: 'Shared their login' },
+          liftedBans: [],
         },
         NOW,
       ),
-    ).toEqual({ kind: 'admin-revoked', at: at.toISOString(), actorClerkUserId: 'user_admin' });
+    ).toEqual({
+      kind: 'banned',
+      at: at.toISOString(),
+      actorClerkUserId: 'user_admin',
+      reason: 'Shared their login',
+    });
   });
 
   it('reports a cancelled subscription', () => {
@@ -481,6 +385,8 @@ describe('describeMemberAccess', () => {
           entitlement: free,
           subscriptions: [subscription({ status: 'canceled', lastEventAt: at })],
           lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -497,6 +403,8 @@ describe('describeMemberAccess', () => {
           entitlement: entitlement(EntitlementTier.FREE, null),
           subscriptions: [refunded(refundAt)],
           lastAdminRevoke: { createdAt: revokeAt, actorClerkUserId: 'user_admin' },
+          ban: null,
+          liftedBans: [],
         },
         NOW,
       ).kind,
@@ -508,16 +416,235 @@ describe('describeMemberAccess', () => {
           entitlement: entitlement(EntitlementTier.FREE, null),
           subscriptions: [refunded(daysFromNow(-1))],
           lastAdminRevoke: { createdAt: daysFromNow(-10), actorClerkUserId: 'user_admin' },
+          ban: null,
+          liftedBans: [],
         },
         NOW,
       ).kind,
     ).toBe('revoked');
   });
 
+  const lifted = (
+    createdAt: Date,
+    tierBefore: EntitlementTier,
+    validUntilBefore: Date | null = null,
+  ) => ({ createdAt, actorClerkUserId: 'user_admin', tierBefore, validUntilBefore });
+
+  it('dates a lifted ban that ended a manual grant rather than saying there was never access', () => {
+    const bannedAt = daysFromNow(-3);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [lifted(bannedAt, EntitlementTier.PREMIUM, daysFromNow(10))],
+        },
+        NOW,
+      ),
+    ).toEqual({ kind: 'ban-lifted', at: bannedAt.toISOString(), actorClerkUserId: 'user_admin' });
+  });
+
+  it('keeps a refund before the ban as the answer when the ban ended no access', () => {
+    const refundedAt = daysFromNow(-6);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [refunded(refundedAt)],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [lifted(daysFromNow(-4), EntitlementTier.FREE)],
+        },
+        NOW,
+      ),
+    ).toEqual({
+      kind: 'revoked',
+      reason: REVOKE_REASON_REFUND,
+      at: refundedAt.toISOString(),
+    });
+  });
+
+  it('restores the expiry of a grant that had lapsed before the ban overwrote it', () => {
+    const expiredAt = daysFromNow(-30);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [lifted(daysFromNow(-4), EntitlementTier.PREMIUM, expiredAt)],
+        },
+        NOW,
+      ),
+    ).toEqual({ kind: 'expired', at: expiredAt.toISOString() });
+  });
+
+  it('still explains an older ban that ended a grant behind a newer one that ended nothing', () => {
+    const endedGrantAt = daysFromNow(-9);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [
+            lifted(endedGrantAt, EntitlementTier.PREMIUM, null),
+            lifted(daysFromNow(-4), EntitlementTier.FREE),
+          ],
+        },
+        NOW,
+      ),
+    ).toEqual({
+      kind: 'ban-lifted',
+      at: endedGrantAt.toISOString(),
+      actorClerkUserId: 'user_admin',
+    });
+  });
+
+  it('says ban lifted, not never, for a member the ban found with nothing to end', () => {
+    const lastBanAt = daysFromNow(-2);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [
+            lifted(daysFromNow(-9), EntitlementTier.FREE),
+            lifted(lastBanAt, EntitlementTier.FREE),
+          ],
+        },
+        NOW,
+      ),
+    ).toEqual({ kind: 'ban-lifted', at: lastBanAt.toISOString(), actorClerkUserId: 'user_admin' });
+  });
+
   it('says a member never had access rather than leaving it blank', () => {
     expect(
-      describeMemberAccess({ entitlement: null, subscriptions: [], lastAdminRevoke: null }, NOW),
+      describeMemberAccess(
+        { entitlement: null, subscriptions: [], lastAdminRevoke: null, ban: null, liftedBans: [] },
+        NOW,
+      ),
     ).toEqual({ kind: 'never' });
+  });
+});
+
+describe('banRecord', () => {
+  const row = (
+    action: MemberAccessAction,
+    createdAt: Date,
+    extra: { reason?: string | null; stripeSubscriptionId?: string | null } = {},
+  ) => ({
+    action,
+    createdAt,
+    actorClerkUserId: `user_${action.toLowerCase()}`,
+    reason: extra.reason ?? null,
+    stripeSubscriptionId: extra.stripeSubscriptionId ?? null,
+  });
+
+  it('is null for a member who is not banned, whatever the history says', () => {
+    expect(banRecord(null, [row(MemberAccessAction.BAN, daysFromNow(-3))])).toBeNull();
+  });
+
+  it('takes who and why from the newest ban', () => {
+    const bannedAt = daysFromNow(-1);
+
+    expect(
+      banRecord(bannedAt, [
+        row(MemberAccessAction.BAN, daysFromNow(-9), { reason: 'First time' }),
+        row(MemberAccessAction.UNBAN, daysFromNow(-5)),
+        row(MemberAccessAction.BAN, bannedAt, { reason: 'Second time' }),
+        row(MemberAccessAction.REVOKE, NOW, { reason: 'A removed grant' }),
+      ]),
+    ).toEqual({ at: bannedAt, actorClerkUserId: 'user_ban', reason: 'Second time' });
+  });
+
+  it('reads a ban the migration made from the revocation of Stripe access behind it', () => {
+    const bannedAt = daysFromNow(-4);
+
+    expect(
+      banRecord(bannedAt, [
+        row(MemberAccessAction.REVOKE, bannedAt, {
+          reason: 'Untraceable chargeback',
+          stripeSubscriptionId: 'sub_1',
+        }),
+      ]),
+    ).toEqual({ at: bannedAt, actorClerkUserId: 'user_revoke', reason: 'Untraceable chargeback' });
+  });
+
+  it('still answers when no audit row survives', () => {
+    expect(banRecord(NOW, [])).toEqual({ at: NOW, actorClerkUserId: null, reason: null });
+  });
+});
+
+describe('liftedBans', () => {
+  const row = (
+    action: MemberAccessAction,
+    createdAt: Date,
+    stripeSubscriptionId: string | null,
+  ) => ({
+    action,
+    createdAt,
+    actorClerkUserId: `user_${action.toLowerCase()}`,
+    reason: null,
+    stripeSubscriptionId,
+    tierBefore: EntitlementTier.PREMIUM,
+    validUntilBefore: null,
+  });
+
+  it('is every ban, legacy Stripe revocations included, once the member is no longer banned', () => {
+    const legacyAt = daysFromNow(-9);
+    const bannedAt = daysFromNow(-4);
+
+    expect(
+      liftedBans(null, [
+        row(MemberAccessAction.REVOKE, legacyAt, 'sub_1'),
+        row(MemberAccessAction.BAN, bannedAt, null),
+        row(MemberAccessAction.UNBAN, daysFromNow(-2), null),
+        row(MemberAccessAction.REVOKE, daysFromNow(-1), null),
+      ]).map((entry) => entry.createdAt),
+    ).toEqual([legacyAt, bannedAt]);
+  });
+
+  it('is empty while the ban stands, or when there was never one', () => {
+    expect(liftedBans(NOW, [row(MemberAccessAction.BAN, NOW, null)])).toEqual([]);
+    expect(liftedBans(null, [row(MemberAccessAction.REVOKE, NOW, null)])).toEqual([]);
+  });
+});
+
+describe('lastGrantRemoval', () => {
+  it('counts only a REVOKE that ended a manual grant', () => {
+    const removedAt = daysFromNow(-6);
+    const entry = (
+      action: MemberAccessAction,
+      createdAt: Date,
+      stripeSubscriptionId: string | null,
+    ) => ({
+      action,
+      createdAt,
+      actorClerkUserId: 'user_admin',
+      reason: null,
+      stripeSubscriptionId,
+    });
+
+    expect(
+      lastGrantRemoval([
+        entry(MemberAccessAction.REVOKE, removedAt, null),
+        entry(MemberAccessAction.REVOKE, daysFromNow(-2), 'sub_1'),
+        entry(MemberAccessAction.BAN, daysFromNow(-1), null),
+      ])?.createdAt,
+    ).toEqual(removedAt);
+    expect(lastGrantRemoval([entry(MemberAccessAction.REVOKE, NOW, 'sub_1')])).toBeNull();
   });
 });
 
@@ -527,6 +654,8 @@ describe('who can reach the members screen', () => {
     'getMember',
     'grantMemberAccess',
     'revokeMemberAccess',
+    'banMember',
+    'liftMemberBan',
     'restoreMemberAccess',
   ] as const;
 
@@ -575,6 +704,7 @@ describe('who can reach the members screen', () => {
 
 describe('memberAccessVersion', () => {
   const stored = (overrides: Partial<ReturnType<typeof subscription>> = {}) => ({
+    bannedAt: null as Date | null,
     entitlement: { ...entitlement(EntitlementTier.PREMIUM, null), updatedAt: daysFromNow(-1) },
     subscriptions: [
       { id: 'a', ...subscription(overrides) },
@@ -602,7 +732,6 @@ describe('memberAccessVersion', () => {
       stored({ status: 'past_due' }),
       stored({ currentPeriodEnd: daysFromNow(50) }),
       stored({ revokedAt: NOW, revokedReason: REVOKE_REASON_REFUND }),
-      stored({ adminRevokedAt: NOW }),
       { ...stored(), entitlement: null },
       { ...stored(), subscriptions: stored().subscriptions.slice(1) },
     ]) {
@@ -610,10 +739,18 @@ describe('memberAccessVersion', () => {
     }
   });
 
+  it('changes when the member is banned or the ban is lifted, which no access row records', () => {
+    const banned = memberAccessVersion({ ...stored(), bannedAt: NOW }, NOW);
+
+    expect(banned).not.toBe(memberAccessVersion(stored(), NOW));
+    expect(memberAccessVersion({ ...stored(), bannedAt: daysFromNow(-1) }, NOW)).not.toBe(banned);
+  });
+
   it('changes when time alone changes what a confirmation would do', () => {
-    // A grant that lapses between page load and Confirm turns "end this grant"
-    // into "withdraw Stripe access" without touching a row.
+    // A grant that lapses between page load and Confirm leaves "End the access
+    // an admin granted?" with no grant to end, without touching a row.
     const member = {
+      bannedAt: null,
       entitlement: { ...entitlement(EntitlementTier.PREMIUM, daysFromNow(1)), updatedAt: NOW },
       subscriptions: [{ id: 'a', ...subscription() }],
     };
@@ -632,8 +769,10 @@ describe('member access request bodies', () => {
         controller.grantMemberAccess(actor, 'member', { validUntil: 'soon', accessVersion: 'v' }),
       () => controller.revokeMemberAccess(actor, 'member', { reason: null }),
       () => controller.restoreMemberAccess(actor, 'member', { accessVersion: 'v' }),
+      () => controller.banMember(actor, 'member', { reason: '   ', accessVersion: 'v' }),
+      () => controller.liftMemberBan(actor, 'member', { reason: null }),
     ];
-    const fields = ['validUntil', 'accessVersion', 'subscriptionId'];
+    const fields = ['validUntil', 'accessVersion', 'subscriptionId', 'reason', 'accessVersion'];
 
     cases.forEach((call, index) => {
       expect(call).toThrow(BadRequestException);

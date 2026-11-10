@@ -72,7 +72,6 @@ type SubscriptionLike = {
   status: string;
   currentPeriodEnd: Date | null;
   revokedAt: Date | null;
-  adminRevokedAt?: Date | null;
 };
 
 /**
@@ -85,13 +84,8 @@ type SubscriptionLike = {
 export function isLiveStripeSubscription(subscription: {
   status: string;
   revokedAt: Date | null;
-  adminRevokedAt?: Date | null;
 }): boolean {
-  return (
-    subscription.revokedAt === null &&
-    !subscription.adminRevokedAt &&
-    STRIPE_ACTIVE_STATUSES.has(subscription.status)
-  );
+  return subscription.revokedAt === null && STRIPE_ACTIVE_STATUSES.has(subscription.status);
 }
 
 /**

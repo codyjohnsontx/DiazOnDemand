@@ -1,12 +1,22 @@
-import { EntitlementSource, type Prisma } from '@diaz/db';
+import { EntitlementSource, EntitlementTier, type Prisma } from '@diaz/db';
 import {
   isEntitlementActive,
   manualGrantOutlastsStripe,
   resolveStripeEntitlement,
 } from '../common/entitlement.js';
 
-/** The two models the sync reads and writes; a transaction client has both. */
-export type EntitlementSyncClient = Pick<Prisma.TransactionClient, 'entitlement' | 'subscription'>;
+/** The models the sync reads and writes; a transaction client has all three. */
+export type EntitlementSyncClient = Pick<
+  Prisma.TransactionClient,
+  'entitlement' | 'subscription' | 'user'
+>;
+
+/** What a banned member's entitlement is, whatever their subscriptions say. */
+const BANNED_ENTITLEMENT = {
+  tier: EntitlementTier.FREE,
+  validUntil: null,
+  source: EntitlementSource.MANUAL,
+};
 
 /**
  * Rewrites a member's entitlement from their stored subscriptions. Always
@@ -31,11 +41,28 @@ export type EntitlementSyncClient = Pick<Prisma.TransactionClient, 'entitlement'
  * The cost is that once Stripe takes over, the grant's end date is gone from the
  * row: a refund before that date ends access, and the GRANT audit row is what is
  * left to re-grant from.
+ *
+ * A ban outranks all of it: a banned member is FREE whatever their rows say, a
+ * live manual grant included. Reading the ban here, inside the member's access
+ * lock, is what keeps a subscription that arrives during or after a ban from
+ * granting anything, without copying the ban onto the new row.
  */
 export async function syncEntitlementFromSubscriptions(
   db: EntitlementSyncClient,
   userId: string,
-): Promise<'kept-manual-grant' | 'derived'> {
+): Promise<'kept-manual-grant' | 'derived' | 'banned'> {
+  const member = await db.user.findUnique({ where: { id: userId }, select: { bannedAt: true } });
+
+  if (member?.bannedAt) {
+    await db.entitlement.upsert({
+      where: { userId },
+      update: BANNED_ENTITLEMENT,
+      create: { userId, ...BANNED_ENTITLEMENT },
+    });
+
+    return 'banned';
+  }
+
   const existing = await db.entitlement.findUnique({ where: { userId } });
   const subscriptions = await db.subscription.findMany({ where: { userId } });
   const stripe = resolveStripeEntitlement(subscriptions);
