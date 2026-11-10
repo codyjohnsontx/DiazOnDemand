@@ -81,29 +81,22 @@ export function banRecord(bannedAt: Date | null, audit: readonly AuditRow[]): Ba
   };
 }
 
-/**
- * The newest ban that took away access the member then had, once they are no
- * longer banned, or null when none was lifted. A ban on a member who had no
- * access ended nothing, so whatever had already ended it stays the answer.
- */
-export function liftedBan(
-  bannedAt: Date | null,
-  audit: readonly (AuditRow & { tierBefore: EntitlementTier; validUntilBefore: Date | null })[],
-): AdminRevokeRecord | null {
-  if (bannedAt !== null) {
-    return null;
-  }
+export type LiftedBanRecord = AdminRevokeRecord & {
+  tierBefore: EntitlementTier;
+  validUntilBefore: Date | null;
+};
 
-  return newest(
-    audit.filter(
-      (entry) =>
-        startedBan(entry) &&
-        isEntitlementActive(
-          { tier: entry.tierBefore, validUntil: entry.validUntilBefore },
-          entry.createdAt,
-        ),
-    ),
-  );
+/**
+ * Every ban on a member who is no longer banned, each with the entitlement it
+ * replaced, or none while a ban stands. A ban overwrites the entitlement, so
+ * its row is the only record left of the access it ended or of a grant that
+ * had already lapsed.
+ */
+export function liftedBans(
+  bannedAt: Date | null,
+  audit: readonly (AuditRow & Pick<LiftedBanRecord, 'tierBefore' | 'validUntilBefore'>)[],
+): LiftedBanRecord[] {
+  return bannedAt === null ? audit.filter(startedBan) : [];
 }
 
 /** The last time an admin removed a manual grant ("Remove access"). */
@@ -236,11 +229,11 @@ export function describeMemberAccess(
     subscriptions: readonly SubscriptionRow[];
     lastAdminRevoke: AdminRevokeRecord | null;
     ban: BanRecord | null;
-    liftedBan: AdminRevokeRecord | null;
+    liftedBans: readonly LiftedBanRecord[];
   },
   now: Date,
 ): MemberAccessStatus {
-  const { entitlement, subscriptions, lastAdminRevoke, ban, liftedBan } = input;
+  const { entitlement, subscriptions, lastAdminRevoke, ban, liftedBans } = input;
 
   if (ban) {
     return {
@@ -297,15 +290,24 @@ export function describeMemberAccess(
     });
   }
 
-  if (liftedBan) {
-    candidates.push({
-      at: liftedBan.createdAt,
-      status: {
-        kind: 'ban-lifted',
-        at: liftedBan.createdAt.toISOString(),
-        actorClerkUserId: liftedBan.actorClerkUserId,
-      },
-    });
+  for (const lifted of liftedBans) {
+    const before = { tier: lifted.tierBefore, validUntil: lifted.validUntilBefore };
+
+    if (isEntitlementActive(before, lifted.createdAt)) {
+      candidates.push({
+        at: lifted.createdAt,
+        status: {
+          kind: 'ban-lifted',
+          at: lifted.createdAt.toISOString(),
+          actorClerkUserId: lifted.actorClerkUserId,
+        },
+      });
+    } else if (before.tier === EntitlementTier.PREMIUM && before.validUntil !== null) {
+      candidates.push({
+        at: before.validUntil,
+        status: { kind: 'expired', at: before.validUntil.toISOString() },
+      });
+    }
   }
 
   if (entitlement?.tier === EntitlementTier.PREMIUM && entitlement.validUntil !== null) {

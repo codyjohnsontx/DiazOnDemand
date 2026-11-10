@@ -1110,6 +1110,26 @@ describe.skipIf(!prismaClient)('admin members screen (database-backed)', () => {
       });
     });
 
+    it('keeps explaining a grant that had lapsed before the ban once the ban is lifted', async () => {
+      const admin = await createAdmin();
+      const member = await createUser();
+      const expiredAt = daysFromNow(-30);
+      await prismaClient!.entitlement.update({
+        where: { userId: member.id },
+        data: {
+          tier: EntitlementTier.PREMIUM,
+          validUntil: expiredAt,
+          source: EntitlementSource.MANUAL,
+        },
+      });
+      await service.banMember(admin, member.id, { reason: 'Abuse' });
+
+      const detail = await service.liftBan(admin, member.id, { reason: null });
+
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.access).toEqual({ kind: 'expired', at: expiredAt.toISOString() });
+    });
+
     it('keeps explaining a refund that came before the ban once the ban is lifted', async () => {
       const admin = await createAdmin();
       const { member, subscription } = await refundedMember();

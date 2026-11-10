@@ -17,7 +17,7 @@ import {
   describeMemberAccess,
   hasLiveStripeAccess,
   lastGrantRemoval,
-  liftedBan,
+  liftedBans,
   memberAccessVersion,
   planManualGrant,
   planManualRevoke,
@@ -277,7 +277,7 @@ describe('describeMemberAccess', () => {
           subscriptions: [],
           lastAdminRevoke: null,
           ban: null,
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -296,7 +296,7 @@ describe('describeMemberAccess', () => {
           subscriptions: [subscription()],
           lastAdminRevoke: null,
           ban: null,
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -313,7 +313,7 @@ describe('describeMemberAccess', () => {
           subscriptions: [refunded(at)],
           lastAdminRevoke: null,
           ban: null,
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -330,7 +330,7 @@ describe('describeMemberAccess', () => {
           subscriptions: [],
           lastAdminRevoke: { createdAt: at, actorClerkUserId: 'user_admin' },
           ban: null,
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -347,7 +347,7 @@ describe('describeMemberAccess', () => {
           subscriptions: [],
           lastAdminRevoke: null,
           ban: null,
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -364,7 +364,7 @@ describe('describeMemberAccess', () => {
           subscriptions: [subscription(), refunded(daysFromNow(-1))],
           lastAdminRevoke: { createdAt: daysFromNow(-1), actorClerkUserId: 'user_other' },
           ban: { at, actorClerkUserId: 'user_admin', reason: 'Shared their login' },
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -386,7 +386,7 @@ describe('describeMemberAccess', () => {
           subscriptions: [subscription({ status: 'canceled', lastEventAt: at })],
           lastAdminRevoke: null,
           ban: null,
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ),
@@ -404,7 +404,7 @@ describe('describeMemberAccess', () => {
           subscriptions: [refunded(refundAt)],
           lastAdminRevoke: { createdAt: revokeAt, actorClerkUserId: 'user_admin' },
           ban: null,
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ).kind,
@@ -417,12 +417,18 @@ describe('describeMemberAccess', () => {
           subscriptions: [refunded(daysFromNow(-1))],
           lastAdminRevoke: { createdAt: daysFromNow(-10), actorClerkUserId: 'user_admin' },
           ban: null,
-          liftedBan: null,
+          liftedBans: [],
         },
         NOW,
       ).kind,
     ).toBe('revoked');
   });
+
+  const lifted = (
+    createdAt: Date,
+    tierBefore: EntitlementTier,
+    validUntilBefore: Date | null = null,
+  ) => ({ createdAt, actorClerkUserId: 'user_admin', tierBefore, validUntilBefore });
 
   it('dates a lifted ban that ended a manual grant rather than saying there was never access', () => {
     const bannedAt = daysFromNow(-3);
@@ -434,17 +440,79 @@ describe('describeMemberAccess', () => {
           subscriptions: [],
           lastAdminRevoke: null,
           ban: null,
-          liftedBan: { createdAt: bannedAt, actorClerkUserId: 'user_admin' },
+          liftedBans: [lifted(bannedAt, EntitlementTier.PREMIUM, daysFromNow(10))],
         },
         NOW,
       ),
     ).toEqual({ kind: 'ban-lifted', at: bannedAt.toISOString(), actorClerkUserId: 'user_admin' });
   });
 
+  it('keeps a refund before the ban as the answer when the ban ended no access', () => {
+    const refundedAt = daysFromNow(-6);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [refunded(refundedAt)],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [lifted(daysFromNow(-4), EntitlementTier.FREE)],
+        },
+        NOW,
+      ),
+    ).toEqual({
+      kind: 'revoked',
+      reason: REVOKE_REASON_REFUND,
+      at: refundedAt.toISOString(),
+    });
+  });
+
+  it('restores the expiry of a grant that had lapsed before the ban overwrote it', () => {
+    const expiredAt = daysFromNow(-30);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [lifted(daysFromNow(-4), EntitlementTier.PREMIUM, expiredAt)],
+        },
+        NOW,
+      ),
+    ).toEqual({ kind: 'expired', at: expiredAt.toISOString() });
+  });
+
+  it('still explains an older ban that ended a grant behind a newer one that ended nothing', () => {
+    const endedGrantAt = daysFromNow(-9);
+
+    expect(
+      describeMemberAccess(
+        {
+          entitlement: free,
+          subscriptions: [],
+          lastAdminRevoke: null,
+          ban: null,
+          liftedBans: [
+            lifted(endedGrantAt, EntitlementTier.PREMIUM, null),
+            lifted(daysFromNow(-4), EntitlementTier.FREE),
+          ],
+        },
+        NOW,
+      ),
+    ).toEqual({
+      kind: 'ban-lifted',
+      at: endedGrantAt.toISOString(),
+      actorClerkUserId: 'user_admin',
+    });
+  });
+
   it('says a member never had access rather than leaving it blank', () => {
     expect(
       describeMemberAccess(
-        { entitlement: null, subscriptions: [], lastAdminRevoke: null, ban: null, liftedBan: null },
+        { entitlement: null, subscriptions: [], lastAdminRevoke: null, ban: null, liftedBans: [] },
         NOW,
       ),
     ).toEqual({ kind: 'never' });
@@ -499,74 +567,38 @@ describe('banRecord', () => {
   });
 });
 
-describe('liftedBan', () => {
+describe('liftedBans', () => {
   const row = (
     action: MemberAccessAction,
     createdAt: Date,
     stripeSubscriptionId: string | null,
-    tierBefore: EntitlementTier = EntitlementTier.PREMIUM,
-    validUntilBefore: Date | null = null,
   ) => ({
     action,
     createdAt,
     actorClerkUserId: `user_${action.toLowerCase()}`,
     reason: null,
     stripeSubscriptionId,
-    tierBefore,
-    validUntilBefore,
+    tierBefore: EntitlementTier.PREMIUM,
+    validUntilBefore: null,
   });
 
-  it('is the newest ban once the member is no longer banned', () => {
+  it('is every ban, legacy Stripe revocations included, once the member is no longer banned', () => {
+    const legacyAt = daysFromNow(-9);
     const bannedAt = daysFromNow(-4);
 
     expect(
-      liftedBan(null, [
-        row(MemberAccessAction.REVOKE, daysFromNow(-9), 'sub_1'),
+      liftedBans(null, [
+        row(MemberAccessAction.REVOKE, legacyAt, 'sub_1'),
         row(MemberAccessAction.BAN, bannedAt, null),
         row(MemberAccessAction.UNBAN, daysFromNow(-2), null),
         row(MemberAccessAction.REVOKE, daysFromNow(-1), null),
-      ]),
-    ).toEqual(expect.objectContaining({ createdAt: bannedAt, actorClerkUserId: 'user_ban' }));
+      ]).map((entry) => entry.createdAt),
+    ).toEqual([legacyAt, bannedAt]);
   });
 
-  it('skips a ban that ended no access, so an earlier refund or chargeback stays the answer', () => {
-    expect(
-      liftedBan(null, [row(MemberAccessAction.BAN, daysFromNow(-4), null, EntitlementTier.FREE)]),
-    ).toBeNull();
-    expect(
-      liftedBan(null, [
-        row(
-          MemberAccessAction.BAN,
-          daysFromNow(-4),
-          null,
-          EntitlementTier.PREMIUM,
-          daysFromNow(-5),
-        ),
-      ]),
-    ).toBeNull();
-    expect(
-      liftedBan(null, [
-        row(MemberAccessAction.REVOKE, daysFromNow(-4), 'sub_1', EntitlementTier.FREE),
-      ]),
-    ).toBeNull();
-  });
-
-  it('falls back to an older ban that did end access', () => {
-    const endedGrantAt = daysFromNow(-9);
-
-    expect(
-      liftedBan(null, [
-        row(MemberAccessAction.BAN, endedGrantAt, null, EntitlementTier.PREMIUM, daysFromNow(10)),
-        row(MemberAccessAction.UNBAN, daysFromNow(-7), null),
-        row(MemberAccessAction.BAN, daysFromNow(-4), null, EntitlementTier.FREE),
-        row(MemberAccessAction.UNBAN, daysFromNow(-2), null),
-      ])?.createdAt,
-    ).toEqual(endedGrantAt);
-  });
-
-  it('is null while the ban stands, or when there was never one', () => {
-    expect(liftedBan(NOW, [row(MemberAccessAction.BAN, NOW, null)])).toBeNull();
-    expect(liftedBan(null, [row(MemberAccessAction.REVOKE, NOW, null)])).toBeNull();
+  it('is empty while the ban stands, or when there was never one', () => {
+    expect(liftedBans(NOW, [row(MemberAccessAction.BAN, NOW, null)])).toEqual([]);
+    expect(liftedBans(null, [row(MemberAccessAction.REVOKE, NOW, null)])).toEqual([]);
   });
 });
 
