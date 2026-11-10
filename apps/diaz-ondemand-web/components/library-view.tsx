@@ -64,9 +64,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   );
   const firstProgram = filteredPrograms.find((program) => program.courses.length > 0) ?? null;
   const firstCourse = firstProgram?.courses[0] ?? null;
-  // A visitor who has started nothing is led to the showcase track, whose lessons play;
-  // a member with progress of their own keeps the recommendation built from it.
-  const showcaseUpNext = findShowcaseUpNext(programs, progress);
+  const showcaseUpNext = findShowcaseUpNext(programs, progress, deferredDiscipline);
   const recommendation = showcaseUpNext
     ? {
         lessonId: showcaseUpNext.lesson.id,
@@ -90,7 +88,9 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
           .find((entry) => entry.lesson.id === recommendation.lessonId)
       : undefined);
   const recommendedProgress = recommended
-    ? continueWatching.find((item) => item.lessonId === recommended.lesson.id)
+    ? buildContinueWatching([recommended.program], progress).find(
+        (item) => item.lessonId === recommended.lesson.id && item.progressPercent < 100,
+      )
     : undefined;
 
   return (
@@ -120,7 +120,7 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
         />
       ) : null}
 
-      {filteredPrograms.length > 0 && recommendation?.lessonId ? (
+      {recommendation?.lessonId ? (
         <section className="flex flex-col gap-400">
           <SectionHeader title="Up next" />
           <Card

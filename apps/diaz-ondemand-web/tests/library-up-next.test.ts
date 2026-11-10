@@ -22,6 +22,9 @@ const ids = {
   trainingCourse: '00000000-0000-4000-8000-000000001100',
   trainingLesson1: '00000000-0000-4000-8000-000000001201',
   trainingLesson2: '00000000-0000-4000-8000-000000001202',
+  bjjProgram: '00000000-0000-4000-8000-000000002000',
+  bjjCourse: '00000000-0000-4000-8000-000000002100',
+  bjjLesson1: '00000000-0000-4000-8000-000000002201',
   user: '00000000-0000-4000-8000-000000000099',
 };
 
@@ -113,7 +116,7 @@ describe('findShowcaseUpNext', () => {
   it('leads a visitor with no progress to the first playable free showcase lesson', () => {
     // Signed out, the progress request answers 401 and the view holds an empty list;
     // signed in with nothing started, the list is empty too. Both read the same.
-    const entry = findShowcaseUpNext(catalogue, []);
+    const entry = findShowcaseUpNext(catalogue, [], 'all');
 
     expect(entry?.lesson.id).toBe(ids.showcaseLesson1);
     expect(entry?.lesson.title).toBe('Verbal Boundary and Ready Stance');
@@ -124,7 +127,7 @@ describe('findShowcaseUpNext', () => {
   it('leaves a member with progress of their own on their own recommendation', () => {
     const progress = [progressOn(ids.trainingLesson1)];
 
-    expect(findShowcaseUpNext(catalogue, progress)).toBeNull();
+    expect(findShowcaseUpNext(catalogue, progress, 'all')).toBeNull();
 
     // What the card falls through to, unchanged: the lesson they were in the middle of.
     const own = buildRecommendation([training], ids.trainingCourse, progress);
@@ -136,7 +139,7 @@ describe('findShowcaseUpNext', () => {
     const untouched = [progressOn(ids.trainingLesson1, { lastPositionSeconds: 0 })];
 
     expect(hasStartedAnyLesson(untouched)).toBe(false);
-    expect(findShowcaseUpNext(catalogue, untouched)?.lesson.id).toBe(ids.showcaseLesson1);
+    expect(findShowcaseUpNext(catalogue, untouched, 'all')?.lesson.id).toBe(ids.showcaseLesson1);
   });
 
   it('skips a showcase lesson that does not play or is not free', () => {
@@ -155,7 +158,7 @@ describe('findShowcaseUpNext', () => {
       ],
     };
 
-    expect(findShowcaseUpNext([partlyPlayable, training], [])?.lesson.id).toBe(
+    expect(findShowcaseUpNext([partlyPlayable, training], [], 'all')?.lesson.id).toBe(
       '00000000-0000-4000-8000-000000008203',
     );
   });
@@ -173,7 +176,72 @@ describe('findShowcaseUpNext', () => {
       })),
     };
 
-    expect(findShowcaseUpNext([unfilmedShowcase, training], [])).toBeNull();
-    expect(findShowcaseUpNext([training], [])).toBeNull();
+    expect(findShowcaseUpNext([unfilmedShowcase, training], [], 'all')).toBeNull();
+    expect(findShowcaseUpNext([training], [], 'all')).toBeNull();
+  });
+
+  it('keeps a member whose only progress is on the showcase track in that track', () => {
+    // Resumes the showcase lesson they left part way through.
+    const started = [progressOn(ids.showcaseLesson1, { lastPositionSeconds: 30 })];
+    expect(findShowcaseUpNext(catalogue, started, 'all')?.lesson.id).toBe(ids.showcaseLesson1);
+
+    // Advances to the next showcase lesson once that one is complete.
+    const finishedFirst = [progressOn(ids.showcaseLesson1, { completed: true })];
+    expect(findShowcaseUpNext(catalogue, finishedFirst, 'all')?.lesson.id).toBe(
+      ids.showcaseLesson2,
+    );
+
+    // Resumes a started later lesson ahead of an untouched earlier one.
+    const startedSecond = [progressOn(ids.showcaseLesson2, { lastPositionSeconds: 45 })];
+    expect(findShowcaseUpNext(catalogue, startedSecond, 'all')?.lesson.id).toBe(
+      ids.showcaseLesson2,
+    );
+  });
+
+  it('hands back to the training recommendation once every showcase lesson is done', () => {
+    const allDone = [
+      progressOn(ids.showcaseLesson1, { completed: true }),
+      progressOn(ids.showcaseLesson2, { completed: true }),
+    ];
+
+    expect(findShowcaseUpNext(catalogue, allDone, 'all')).toBeNull();
+  });
+});
+
+describe('findShowcaseUpNext under a discipline filter', () => {
+  const bjj = program(
+    ids.bjjProgram,
+    ids.bjjCourse,
+    [lesson(ids.bjjLesson1, ids.bjjCourse, { title: 'Closed Guard Posture' })],
+    { discipline: Discipline.BJJ, orderIndex: 2 },
+  );
+  const withBjj = [...catalogue, bjj];
+
+  it('leads with the showcase track under the discipline it belongs to', () => {
+    expect(findShowcaseUpNext(withBjj, [], Discipline.HAGANAH)?.lesson.id).toBe(
+      ids.showcaseLesson1,
+    );
+  });
+
+  it('answers null under another discipline, so that discipline recommends its own lesson', () => {
+    expect(findShowcaseUpNext(withBjj, [], Discipline.BJJ)).toBeNull();
+
+    const own = buildRecommendation([bjj], ids.bjjCourse, []);
+    expect(own.lessonId).toBe(ids.bjjLesson1);
+  });
+
+  it('still leads with the showcase track when its discipline has no training programs', () => {
+    expect(findShowcaseUpNext([showcase, bjj], [], Discipline.HAGANAH)?.lesson.id).toBe(
+      ids.showcaseLesson1,
+    );
+  });
+
+  it('counts only training progress inside the discipline in view', () => {
+    const bjjProgress = [progressOn(ids.bjjLesson1)];
+
+    expect(findShowcaseUpNext(withBjj, bjjProgress, Discipline.HAGANAH)?.lesson.id).toBe(
+      ids.showcaseLesson1,
+    );
+    expect(findShowcaseUpNext(withBjj, bjjProgress, 'all')).toBeNull();
   });
 });
