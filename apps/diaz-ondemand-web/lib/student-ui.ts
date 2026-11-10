@@ -13,12 +13,14 @@ export {
   type LessonQueueItem,
 } from '@diaz/shared';
 
-import type { ProgramWithContentDto, ProgressDto } from '@diaz/shared';
+import type { Discipline, ProgramWithContentDto, ProgressDto } from '@diaz/shared';
 import {
+  AccessLevel,
   buildCourseProgress,
   formatDuration,
   getDisciplineLabel,
   getLessonProgressPercent,
+  hasPlayableVideo,
 } from '@diaz/shared';
 
 export type CourseCardModel = {
@@ -125,4 +127,87 @@ export function buildContinueWatching(programs: ProgramWithContentDto[], progres
       } satisfies ContinueWatchingItem;
     })
     .filter((entry): entry is ContinueWatchingItem => entry !== null);
+}
+
+export type LibraryLessonEntry = {
+  program: ProgramWithContentDto;
+  course: ProgramWithContentDto['courses'][number];
+  lesson: ProgramWithContentDto['courses'][number]['lessons'][number];
+};
+
+/**
+ * Whether any of these records shows something watched. A record with nothing
+ * watched (position 0, not complete) counts as nothing started, which is the
+ * same reading `buildContinueWatching` gives it.
+ */
+export function hasStartedAnyLesson(progress: ProgressDto[]) {
+  return progress.some((entry) => entry.completed || entry.lastPositionSeconds > 0);
+}
+
+function lessonIdsOf(programs: ProgramWithContentDto[]) {
+  return new Set(
+    programs.flatMap((program) =>
+      program.courses.flatMap((course) => course.lessons.map((lesson) => lesson.id)),
+    ),
+  );
+}
+
+/**
+ * The lesson the Library's Up next card leads with while the visitor has
+ * started none of the training programs in view: a signed-out visitor, or a
+ * member whose only progress is on the showcase track. It follows the
+ * discipline filter, so it only answers under All disciplines or a discipline
+ * a featured demo program belongs to.
+ *
+ * Among the free lessons of those featured programs that actually play, in
+ * catalogue order, it resumes the first one started and unfinished, otherwise
+ * advances to the first one not completed, so "Open lesson" lands on a video
+ * rather than on a not-yet-filmed training lesson.
+ *
+ * Answers null for a member with training progress in view, who keeps the
+ * training recommendation built from it, and null when no such showcase lesson
+ * is left, so the card falls back to that same recommendation.
+ */
+export function findShowcaseUpNext(
+  programs: ProgramWithContentDto[],
+  progress: ProgressDto[],
+  discipline: Discipline | 'all',
+): LibraryLessonEntry | null {
+  const inView = programs.filter(
+    (program) => discipline === 'all' || program.discipline === discipline,
+  );
+  const trainingLessonIds = lessonIdsOf(inView.filter((program) => !program.isFeaturedDemo));
+
+  if (hasStartedAnyLesson(progress.filter((entry) => trainingLessonIds.has(entry.lessonId)))) {
+    return null;
+  }
+
+  const byOrder = <T extends { orderIndex: number }>(items: T[]) =>
+    [...items].sort((left, right) => left.orderIndex - right.orderIndex);
+  const progressByLesson = new Map(progress.map((entry) => [entry.lessonId, entry]));
+
+  const candidates = byOrder(inView.filter((program) => program.isFeaturedDemo)).flatMap(
+    (program) =>
+      byOrder(program.courses).flatMap((course) =>
+        byOrder(course.lessons)
+          .filter(
+            (lesson) =>
+              lesson.isPublished &&
+              lesson.accessLevel === AccessLevel.FREE &&
+              hasPlayableVideo(lesson),
+          )
+          .map((lesson) => ({ program, course, lesson })),
+      ),
+  );
+  const unfinished = candidates.filter(
+    (entry) => !progressByLesson.get(entry.lesson.id)?.completed,
+  );
+
+  return (
+    unfinished.find(
+      (entry) => (progressByLesson.get(entry.lesson.id)?.lastPositionSeconds ?? 0) > 0,
+    ) ??
+    unfinished[0] ??
+    null
+  );
 }
