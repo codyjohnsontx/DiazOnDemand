@@ -3,42 +3,142 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+    Design tokens. The only block in the web app that holds raw design values; everything
+    else is built from these names, through the Tailwind theme in tailwind.config.ts.
+    Naming follows Helios: <category>-<role>-<variant>, with numeric scales for type, spacing
+    and radius so a larger number always means larger. `--font-display` and `--font-body` are
+    set by next/font in app/layout.tsx. The values that third-party widgets need as
+    literals are mirrored in lib/design-tokens.ts, and tests/design-tokens.test.ts keeps the
+    two in step.
+  */
   :root {
-    --bg: #08090b;
-    --surface: #12151a;
-    --surface-2: #1b1f26;
-    --surface-3: #232934;
-    --text: #f3f0e8;
-    --text-muted: #9aa3af;
-    --line: rgba(255, 255, 255, 0.08);
-    --accent: #c44a2d;
-    --accent-strong: #e0643f;
-    --progress: #35e0a1;
-    --premium: #f2c14e;
-    --danger: #e36d6d;
+    /* Color: surface */
+    --color-surface-page: #08090b;
+    --color-surface-primary: #12151a;
+    --color-surface-raised: #1b1f26;
+    --color-surface-interactive-hover: #232934;
+    --color-surface-interactive-active: #2b323e;
+    --color-surface-success-faint: #0f2a21;
+    --color-surface-premium-faint: #2a2414;
+    --color-surface-critical-faint: #2c1717;
+    --color-surface-accent: #c44a2d;
+    --color-surface-accent-hover: #d6552f;
+    --color-surface-accent-active: #a93f26;
+
+    /* Color: border */
+    --color-border-primary: #262b33;
+    --color-border-strong: #3a414c;
+    --color-border-success: #1f5a45;
+    --color-border-premium: #5a4a1f;
+    --color-border-critical: #5a2a2a;
+
+    /* Color: foreground */
+    --color-foreground-primary: #f3f0e8;
+    --color-foreground-faint: #9aa3af;
+    --color-foreground-disabled: #5f6873;
+    --color-foreground-on-accent: #fbf7f2;
+    --color-foreground-accent: #e0643f;
+    --color-foreground-success: #35e0a1;
+    --color-foreground-premium: #f2c14e;
+    --color-foreground-critical: #e36d6d;
+
+    /* Color: focus */
+    --color-focus-ring: #e0643f;
+
+    /* Type scale (size / line-height) */
+    --type-display-700-size: clamp(2.5rem, 2rem + 2.5vw, 3.5rem);
+    --type-display-700-line: 1;
+    --type-display-500-size: 1.875rem;
+    --type-display-500-line: 1.05;
+    --type-display-400-size: 1.375rem;
+    --type-display-400-line: 1.15;
+    --type-display-300-size: 1.125rem;
+    --type-display-300-line: 1.2;
+    --type-body-300-size: 1rem;
+    --type-body-300-line: 1.5;
+    --type-body-200-size: 0.875rem;
+    --type-body-200-line: 1.5;
+    --type-body-100-size: 0.75rem;
+    --type-body-100-line: 1.4;
+    --font-weight-regular: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --letter-spacing-display: 0.01em;
+    --letter-spacing-body: 0;
+    --letter-spacing-caps: 0.06em;
+
+    /* Spacing scale (4px base) */
+    --space-050: 0.125rem;
+    --space-100: 0.25rem;
+    --space-200: 0.5rem;
+    --space-300: 0.75rem;
+    --space-400: 1rem;
+    --space-500: 1.25rem;
+    --space-600: 1.5rem;
+    --space-800: 2rem;
+    --space-1000: 2.5rem;
+    --space-1200: 3rem;
+    --space-1600: 4rem;
+
+    /* Radius scale */
+    --radius-100: 0.25rem;
+    --radius-200: 0.375rem;
+    --radius-300: 0.625rem;
+    --radius-400: 0.875rem;
+
+    /* Elevation: one level, for the one thing that floats over the page */
+    --elevation-overlay: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.45);
+
+    /* Sizes */
+    --border-width: 1px;
+    --focus-ring-width: 2px;
+    --focus-ring-offset: 2px;
+    --control-height-sm: 2rem;
+    --control-height-md: 2.25rem;
+    --control-height-lg: 2.75rem;
+    --icon-size: 1rem;
+    --logo-size: 2rem;
+    --progress-height: 0.375rem;
+    --container-width: 72rem;
+    --reading-width: 42rem;
+    --sidebar-width: 22.5rem;
+    --nav-height: 3.5rem;
+    --tabbar-height: 3.75rem;
+    --tabbar-clearance: calc(var(--tabbar-height) + var(--space-1000));
+    --z-nav: 10;
+
+    /* Motion */
+    --duration-fast: 120ms;
+    --easing-standard: ease-out;
+
+    /* Opacity */
+    --opacity-disabled: 0.5;
+
+    /* Breakpoint: tablet 48rem (768px), Tailwind's `md`. CSS cannot read a custom
+       property in a media query condition, so it lives in the Tailwind default. */
   }
 
   html {
     color-scheme: dark;
+    background: var(--color-surface-page);
   }
 
   body {
     min-height: 100vh;
-    background:
-      radial-gradient(circle at top, rgba(228, 100, 63, 0.14), transparent 28%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 16%), var(--bg);
-    color: var(--text);
-    font-family: var(--font-body), 'Helvetica Neue', sans-serif;
+    background: var(--color-surface-page);
+    color: var(--color-foreground-primary);
+    font-family: var(--font-body), 'Helvetica Neue', Arial, sans-serif;
+    font-size: var(--type-body-300-size);
+    line-height: var(--type-body-300-line);
+    letter-spacing: var(--letter-spacing-body);
     text-rendering: optimizeLegibility;
-  }
-
-  * {
-    border-color: var(--line);
+    -webkit-font-smoothing: antialiased;
   }
 
   ::selection {
-    background: rgba(228, 100, 63, 0.35);
-    color: var(--text);
+    background: var(--color-surface-accent);
+    color: var(--color-foreground-on-accent);
   }
 
   a {
@@ -51,108 +151,35 @@
   textarea,
   select {
     font: inherit;
+    color: inherit;
   }
 
   :focus-visible {
-    outline: 2px solid rgba(53, 224, 161, 0.95);
-    outline-offset: 2px;
+    outline: var(--focus-ring-width) solid var(--color-focus-ring);
+    outline-offset: var(--focus-ring-offset);
   }
 }
 
 @layer components {
-  .font-display {
-    font-family: var(--font-display), 'Arial Narrow', sans-serif;
-    font-weight: 500;
-    letter-spacing: 0.01em;
+  /* Typography roles: Oswald for every heading and the wordmark. */
+  .type-display-700 {
+    @apply font-display text-display-700 font-medium;
   }
 
+  .type-display-500 {
+    @apply font-display text-display-500 font-medium;
+  }
+
+  .type-display-400 {
+    @apply font-display text-display-400 font-medium;
+  }
+
+  .type-display-300 {
+    @apply font-display text-display-300 font-medium;
+  }
+
+  /* A label over a bare value or a form field. Never a label over a heading. */
   .type-kicker {
-    @apply text-xs font-semibold uppercase;
-
-    letter-spacing: 0.22em;
-  }
-
-  .type-title-xl {
-    @apply font-display text-5xl leading-[0.92] sm:text-6xl;
-  }
-
-  .type-title-lg {
-    @apply font-display text-3xl leading-[0.96] sm:text-4xl;
-  }
-
-  .type-body {
-    @apply text-base leading-7;
-  }
-
-  .type-meta {
-    @apply text-sm leading-6;
-  }
-
-  .student-shell {
-    @apply mx-auto w-full max-w-[1480px] px-4 sm:px-6 lg:px-10;
-  }
-
-  .surface-panel {
-    @apply rounded-[28px] border border-white/10;
-    background: color-mix(in srgb, var(--surface) 90%, transparent);
-    box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
-  }
-
-  .surface-panel-muted {
-    @apply rounded-[24px] border border-white/10;
-    background: color-mix(in srgb, var(--surface-2) 75%, transparent);
-  }
-
-  .nav-link {
-    @apply relative rounded-full px-4 py-2 text-sm font-semibold uppercase tracking-[0.16em] transition-colors duration-200;
-    color: var(--text-muted);
-  }
-
-  .nav-link::after {
-    content: '';
-    @apply absolute inset-x-4 bottom-1 h-px origin-left scale-x-0 transition-transform duration-300;
-    background: var(--progress);
-  }
-
-  .nav-link:hover {
-    color: var(--text);
-  }
-
-  .nav-link-active {
-    @apply bg-white/5;
-    color: var(--text);
-  }
-
-  .nav-link-active::after {
-    @apply scale-x-100;
-  }
-
-  .page-enter {
-    animation: page-enter 420ms ease-out both;
-  }
-
-  .poster-grid {
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-    background-size: 22px 22px;
-  }
-}
-
-@layer utilities {
-  .text-muted {
-    color: var(--text-muted);
-  }
-}
-
-@keyframes page-enter {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
+    @apply text-body-100 font-semibold uppercase tracking-caps text-foreground-faint;
   }
 }

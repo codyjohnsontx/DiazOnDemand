@@ -9,7 +9,6 @@ export {
   getDisciplineLabel,
   getAccessLabel,
   getLessonProgressPercent,
-  getPosterIndex,
   type CourseProgressModel,
   type LessonQueueItem,
 } from '@diaz/shared';
@@ -20,7 +19,6 @@ import {
   formatDuration,
   getDisciplineLabel,
   getLessonProgressPercent,
-  getPosterIndex,
 } from '@diaz/shared';
 
 export type CourseCardModel = {
@@ -36,7 +34,6 @@ export type CourseCardModel = {
   accessLabel: string;
   progressPercent: number | null;
   nextLessonTitle: string | null;
-  posterIndex: number;
 };
 
 export type ContinueWatchingItem = {
@@ -45,7 +42,6 @@ export type ContinueWatchingItem = {
   courseTitle: string;
   programTitle: string;
   progressPercent: number;
-  posterIndex: number;
 };
 
 export function buildCourseCardModel(
@@ -80,7 +76,6 @@ export function buildCourseCardModel(
     accessLabel,
     progressPercent: courseProgress.percent > 0 ? courseProgress.percent : null,
     nextLessonTitle,
-    posterIndex: getPosterIndex(`${program.id}:${course.id}:${course.title}`),
   } satisfies CourseCardModel;
 }
 
@@ -127,9 +122,6 @@ export function buildContinueWatching(programs: ProgramWithContentDto[], progres
         courseTitle: match.courseTitle,
         programTitle: match.programTitle,
         progressPercent: getLessonProgressPercent(match.lesson, entry),
-        posterIndex: getPosterIndex(
-          `${match.programTitle}:${match.courseTitle}:${match.lesson.title}`,
-        ),
       } satisfies ContinueWatchingItem;
     })
     .filter((entry): entry is ContinueWatchingItem => entry !== null);

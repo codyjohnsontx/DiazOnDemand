@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type {
@@ -36,7 +35,10 @@ import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { LessonVideoStateBadge } from '@/components/lesson-video-state';
 import { LessonVideoUpload } from '@/components/lesson-video-upload';
-import { PremiumBadge } from '@/components/premium-badge';
+import { Badge } from '@/components/ui/badge';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
+import { Field, Input, Select, Textarea } from '@/components/ui/field';
 import { useApiClient } from '@/lib/api-client';
 
 // What forces the clear is stated flatly, because it holds either way: nothing
@@ -379,11 +381,9 @@ export default function AdminLessonDetailPage() {
   if (lessonContext === undefined) {
     return (
       <AppShell>
-        <div className="surface-panel p-8">
-          <p className="font-display text-2xl leading-tight text-[var(--text-muted)]">
-            Loading lesson...
-          </p>
-        </div>
+        <Card>
+          <p className="type-display-400 text-foreground-faint">Loading lesson...</p>
+        </Card>
       </AppShell>
     );
   }
@@ -431,57 +431,56 @@ export default function AdminLessonDetailPage() {
   const levelOptions = getCurriculumLevelKeys(form.curriculum.discipline);
 
   return (
-    <AppShell className="space-y-8">
-      <form className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]" onSubmit={onSave}>
-        <section className="surface-panel space-y-5 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <h1 className="font-display text-4xl leading-none text-[var(--text)]">
-              {lesson.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-2">
-              {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
-              {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
+    <AppShell>
+      <form className="grid gap-600 xl:grid-cols-split" onSubmit={onSave}>
+        <Card className="flex flex-col gap-500">
+          <div className="flex flex-col gap-300">
+            <h1 className="type-display-500">{lesson.title}</h1>
+            <div className="flex flex-wrap items-center gap-200">
+              {program ? <Badge label={getDisciplineLabel(program.discipline)} /> : null}
+              {program?.isFeaturedDemo ? <Badge label="Demo" /> : null}
               <LessonVideoStateBadge lesson={lesson} />
-              <PremiumBadge
+              <Badge
                 label={lesson.isPublished ? 'Published' : 'Draft'}
-                tone={lesson.isPublished ? 'accent' : 'neutral'}
+                variant={lesson.isPublished ? 'success' : 'neutral'}
               />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="type-kicker text-[var(--text-muted)]" htmlFor={titleInputId}>
-              Lesson title
-            </label>
-            <input
+          <Field htmlFor={titleInputId} label="Lesson title">
+            <Input
               id={titleInputId}
-              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               value={form.title}
               onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
             />
-          </div>
-          <div className="space-y-2">
-            <label className="type-kicker text-[var(--text-muted)]" htmlFor={descriptionInputId}>
-              Lesson description
-            </label>
-            <textarea
+          </Field>
+          <Field htmlFor={descriptionInputId} label="Lesson description">
+            <Textarea
               id={descriptionInputId}
-              className="min-h-[180px] w-full rounded-[24px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               rows={6}
               value={form.description}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, description: event.target.value }))
               }
             />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={accessLevelInputId}>
-                Access level
-              </label>
-              <select
+          </Field>
+          <div className="grid gap-400 md:grid-cols-split">
+            <Field
+              error={
+                willClearMuxPlaybackId
+                  ? 'Saving will clear the Mux playback ID. A public-policy Mux asset cannot back ' +
+                    'premium content, and nothing on the lesson records which policy this asset ' +
+                    'carries, so the ID is cleared rather than kept. If the asset is public-policy, ' +
+                    'that ID plays for anyone holding it - and if this lesson was ever published while ' +
+                    'it was free, everyone who browsed the catalogue holds it and it cannot be ' +
+                    'recalled. A premium lesson needs a signed-only Mux asset.'
+                  : undefined
+              }
+              htmlFor={accessLevelInputId}
+              label="Access level"
+            >
+              <Select
                 id={accessLevelInputId}
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 value={form.accessLevel}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, accessLevel: event.target.value as AccessLevel }))
@@ -489,38 +488,21 @@ export default function AdminLessonDetailPage() {
               >
                 <option value="FREE">Free lesson</option>
                 <option value="PAID">Premium lesson</option>
-              </select>
-              {willClearMuxPlaybackId ? (
-                <p className="type-meta text-[var(--danger)]">
-                  Saving will clear the Mux playback ID. A public-policy Mux asset cannot back
-                  premium content, and nothing on the lesson records which policy this asset
-                  carries, so the ID is cleared rather than kept. If the asset is public-policy,
-                  that ID plays for anyone holding it - and if this lesson was ever published while
-                  it was free, everyone who browsed the catalogue holds it and it cannot be
-                  recalled. A premium lesson needs a signed-only Mux asset.
-                </p>
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <label
-                className="type-kicker text-[var(--text-muted)]"
-                htmlFor={durationSecondsInputId}
-              >
-                Duration seconds
-              </label>
-              <input
+              </Select>
+            </Field>
+            <Field htmlFor={durationSecondsInputId} label="Duration seconds">
+              <Input
                 id={durationSecondsInputId}
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 placeholder="Duration seconds"
                 value={form.durationSeconds}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, durationSeconds: event.target.value }))
                 }
               />
-            </div>
+            </Field>
           </div>
-          <div className="space-y-3">
-            <p className="type-kicker text-[var(--text-muted)]">Lesson video</p>
+          <div className="flex flex-col gap-300">
+            <p className="type-kicker">Lesson video</p>
             {/*
               Against the saved row, not the form: the upload binds to the
               lesson as stored, and the API refuses a lesson still holding a
@@ -542,19 +524,15 @@ export default function AdminLessonDetailPage() {
                 }
               />
             ) : (
-              <p className="type-meta text-[var(--text-muted)]">
+              <p className="text-body-200 text-foreground-faint">
                 This lesson uses a YouTube video. To upload a video to Mux instead, set Video source
                 to Mux playback and save, then the upload control appears here.
               </p>
             )}
           </div>
-          <div className="space-y-2">
-            <label className="type-kicker text-[var(--text-muted)]" htmlFor={videoProviderInputId}>
-              Video source
-            </label>
-            <select
+          <Field htmlFor={videoProviderInputId} label="Video source">
+            <Select
               id={videoProviderInputId}
-              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
               value={form.videoProvider}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, videoProvider: event.target.value as VideoProvider }))
@@ -563,120 +541,94 @@ export default function AdminLessonDetailPage() {
               <option value={VideoProvider.NONE}>No video source</option>
               <option value={VideoProvider.MUX}>Mux playback</option>
               <option value={VideoProvider.YOUTUBE}>YouTube demo video</option>
-            </select>
-          </div>
+            </Select>
+          </Field>
           {showMuxAssetIdField ? (
-            <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={muxAssetInputId}>
-                Mux asset ID
-              </label>
-              <input
+            <Field
+              help="Filled in by an upload above, or paste the ID of an asset that already exists in Mux. Either way the Mux webhook fills in the playback ID and duration once the asset finishes encoding."
+              htmlFor={muxAssetInputId}
+              label="Mux asset ID"
+            >
+              <Input
                 id={muxAssetInputId}
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 placeholder="Mux asset ID"
                 value={form.muxAssetId}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, muxAssetId: event.target.value }))
                 }
               />
-              <p className="type-meta text-[var(--text-muted)]">
-                Filled in by an upload above, or paste the ID of an asset that already exists in
-                Mux. Either way the Mux webhook fills in the playback ID and duration once the asset
-                finishes encoding.
-              </p>
-            </div>
+            </Field>
           ) : null}
           {form.videoProvider === VideoProvider.MUX ? (
-            <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={muxPlaybackInputId}>
-                Mux playback ID
-              </label>
-              <input
+            <Field
+              error={
+                showMuxPlaybackIdHint
+                  ? 'This playback ID will not play. A published lesson with it shows the not-filmed state.'
+                  : undefined
+              }
+              htmlFor={muxPlaybackInputId}
+              label="Mux playback ID"
+            >
+              <Input
                 id={muxPlaybackInputId}
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 placeholder="Mux playback ID"
                 value={form.muxPlaybackId}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, muxPlaybackId: event.target.value }))
                 }
               />
-              {showMuxPlaybackIdHint ? (
-                <p className="type-meta text-[var(--danger)]">
-                  This playback ID will not play. A published lesson with it shows the not-filmed
-                  state.
-                </p>
-              ) : null}
-            </div>
+            </Field>
           ) : null}
           {form.videoProvider === VideoProvider.YOUTUBE ? (
-            <div className="space-y-2">
-              <label className="type-kicker text-[var(--text-muted)]" htmlFor={youtubeVideoInputId}>
-                YouTube video ID
-              </label>
-              <input
+            <Field
+              error={
+                showYoutubeVideoIdHint
+                  ? 'This video ID will not play. A published lesson with it shows the not-filmed state.'
+                  : undefined
+              }
+              help={
+                showPaidYoutubeExposureNote
+                  ? "Premium does not protect a YouTube video. This ID is the video's permanent address and premium playback embeds that same public ID. If this lesson was ever published while it was free, everyone who browsed the catalogue holds this ID and it cannot be recalled. Only YouTube Studio can restrict the video."
+                  : undefined
+              }
+              htmlFor={youtubeVideoInputId}
+              label="YouTube video ID"
+            >
+              <Input
                 id={youtubeVideoInputId}
-                className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                 placeholder="YouTube video ID"
                 value={form.youtubeVideoId}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, youtubeVideoId: event.target.value }))
                 }
               />
-              {showYoutubeVideoIdHint ? (
-                <p className="type-meta text-[var(--danger)]">
-                  This video ID will not play. A published lesson with it shows the not-filmed
-                  state.
-                </p>
-              ) : null}
-              {showPaidYoutubeExposureNote ? (
-                <p className="type-meta text-[var(--text-muted)]">
-                  Premium does not protect a YouTube video. This ID is the video&apos;s permanent
-                  address and premium playback embeds that same public ID. If this lesson was ever
-                  published while it was free, everyone who browsed the catalogue holds this ID and
-                  it cannot be recalled. Only YouTube Studio can restrict the video.
-                </p>
-              ) : null}
-            </div>
+            </Field>
           ) : null}
-          <div className="flex flex-wrap gap-3">
-            <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={saving}
-              type="submit"
-            >
+          <CardActions>
+            <Button disabled={saving} type="submit" variant="primary">
               {saving ? 'Saving...' : 'Save lesson'}
-            </button>
-            <button
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-              onClick={togglePublish}
-              type="button"
-            >
+            </Button>
+            <Button onClick={togglePublish} variant="secondary">
               {lesson.isPublished ? 'Move to draft' : 'Publish lesson'}
-            </button>
-            <Link
-              className="inline-flex items-center rounded-full border border-white/10 bg-transparent px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] transition-colors duration-200 hover:border-white/20 hover:text-[var(--text)]"
-              href={`/lesson/${lesson.id}`}
-            >
+            </Button>
+            <ButtonLink href={`/lesson/${lesson.id}`} variant="ghost">
               Preview lesson
-            </Link>
-          </div>
-          {status ? <p className="text-sm text-[var(--progress)]">{status}</p> : null}
-        </section>
+            </ButtonLink>
+          </CardActions>
+          {status ? (
+            <p aria-live="polite" className="text-body-200 text-foreground-success">
+              {status}
+            </p>
+          ) : null}
+        </Card>
 
-        <section className="space-y-5">
-          <div className="surface-panel space-y-5 p-6">
-            <h2 className="type-title-lg text-[var(--text)]">Guided path</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label
-                  className="type-kicker text-[var(--text-muted)]"
-                  htmlFor={curriculumDisciplineInputId}
-                >
-                  Curriculum discipline
-                </label>
-                <select
+        <section className="flex flex-col gap-500">
+          <Card className="flex flex-col gap-500">
+            <h2 className="type-display-500">Guided path</h2>
+            <div className="grid gap-400 md:grid-cols-split">
+              <Field htmlFor={curriculumDisciplineInputId} label="Curriculum discipline">
+                <Select
                   id={curriculumDisciplineInputId}
-                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.discipline}
                   onChange={(event) =>
                     setForm((prev) => ({
@@ -692,18 +644,11 @@ export default function AdminLessonDetailPage() {
                       {getDisciplineLabel(discipline)}
                     </option>
                   ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label
-                  className="type-kicker text-[var(--text-muted)]"
-                  htmlFor={curriculumPhaseInputId}
-                >
-                  Curriculum phase
-                </label>
-                <select
+                </Select>
+              </Field>
+              <Field htmlFor={curriculumPhaseInputId} label="Curriculum phase">
+                <Select
                   id={curriculumPhaseInputId}
-                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.phase}
                   onChange={(event) =>
                     setForm((prev) => ({
@@ -725,18 +670,11 @@ export default function AdminLessonDetailPage() {
                       {getCurriculumPhaseLabel(form.curriculum.discipline, phase)}
                     </option>
                   ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label
-                  className="type-kicker text-[var(--text-muted)]"
-                  htmlFor={curriculumTrackInputId}
-                >
-                  Curriculum track
-                </label>
-                <select
+                </Select>
+              </Field>
+              <Field htmlFor={curriculumTrackInputId} label="Curriculum track">
+                <Select
                   id={curriculumTrackInputId}
-                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.track}
                   onChange={(event) =>
                     setForm((prev) => ({
@@ -750,18 +688,11 @@ export default function AdminLessonDetailPage() {
                       {getCurriculumTrackLabel({ ...form.curriculum, track })}
                     </option>
                   ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label
-                  className="type-kicker text-[var(--text-muted)]"
-                  htmlFor={curriculumSkillInputId}
-                >
-                  Curriculum skill
-                </label>
-                <select
+                </Select>
+              </Field>
+              <Field htmlFor={curriculumSkillInputId} label="Curriculum skill">
+                <Select
                   id={curriculumSkillInputId}
-                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.skill ?? ''}
                   onChange={(event) =>
                     setForm((prev) => ({
@@ -776,18 +707,11 @@ export default function AdminLessonDetailPage() {
                       {getCurriculumSkillLabel({ ...form.curriculum, skill }) ?? skill}
                     </option>
                   ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label
-                  className="type-kicker text-[var(--text-muted)]"
-                  htmlFor={curriculumLevelInputId}
-                >
-                  Curriculum level
-                </label>
-                <select
+                </Select>
+              </Field>
+              <Field htmlFor={curriculumLevelInputId} label="Curriculum level">
+                <Select
                   id={curriculumLevelInputId}
-                  className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
                   value={form.curriculum.level}
                   onChange={(event) =>
                     setForm((prev) => ({
@@ -804,23 +728,21 @@ export default function AdminLessonDetailPage() {
                       {level}
                     </option>
                   ))}
-                </select>
-              </div>
+                </Select>
+              </Field>
             </div>
-          </div>
+          </Card>
 
-          <div className="surface-panel-muted space-y-3 p-5">
-            <p className="type-kicker text-[var(--text-muted)]">Generated tags</p>
-            <div className="flex flex-wrap gap-2">
-              <PremiumBadge label={`discipline:${form.curriculum.discipline}`} />
-              <PremiumBadge label={`phase:${form.curriculum.phase}`} />
-              <PremiumBadge label={`track:${form.curriculum.track}`} />
-              {form.curriculum.skill ? (
-                <PremiumBadge label={`skill:${form.curriculum.skill}`} />
-              ) : null}
-              <PremiumBadge label={`level:${form.curriculum.level}`} />
+          <Card className="flex flex-col gap-300" variant="raised">
+            <p className="type-kicker">Generated tags</p>
+            <div className="flex flex-wrap gap-200">
+              <Badge label={`discipline:${form.curriculum.discipline}`} />
+              <Badge label={`phase:${form.curriculum.phase}`} />
+              <Badge label={`track:${form.curriculum.track}`} />
+              {form.curriculum.skill ? <Badge label={`skill:${form.curriculum.skill}`} /> : null}
+              <Badge label={`level:${form.curriculum.level}`} />
             </div>
-          </div>
+          </Card>
         </section>
       </form>
     </AppShell>

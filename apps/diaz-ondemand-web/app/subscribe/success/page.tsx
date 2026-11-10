@@ -1,7 +1,8 @@
 import type { MeDto } from '@diaz/shared';
-import Link from 'next/link';
 import { AppShell } from '@/components/app-shell';
 import { PageHeader } from '@/components/page-header';
+import { ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
 import { apiFetchServer } from '@/lib/api-server';
 import { ApiError } from '@/lib/api-shared';
 import { clerkEnabled, devUserId } from '@/lib/config';
@@ -29,7 +30,7 @@ export default async function SubscribeSuccessPage() {
   const processing = !premiumActive && !accountLookupFailed;
 
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <PageHeader
         description={
           premiumActive
@@ -46,22 +47,16 @@ export default async function SubscribeSuccessPage() {
               : 'Account check unavailable'
         }
       />
-      <div className="surface-panel space-y-6 p-8">
-        <div className="flex flex-wrap gap-3">
-          <Link
-            className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-            href="/library"
-          >
+      <Card>
+        <CardActions>
+          <ButtonLink href="/library" variant="primary">
             Open library
-          </Link>
-          <Link
-            className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-            href="/account"
-          >
+          </ButtonLink>
+          <ButtonLink href="/account" variant="secondary">
             Open account
-          </Link>
-        </div>
-      </div>
+          </ButtonLink>
+        </CardActions>
+      </Card>
     </AppShell>
   );
 }

@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { CourseDto, Discipline, ProgramWithContentDto, ProgressDto } from '@diaz/shared';
 import {
@@ -21,9 +20,12 @@ import {
 import { AppShell } from './app-shell';
 import { EmptyState } from './empty-state';
 import { LessonRow } from './lesson-row';
-import { PosterSurface } from './poster-surface';
-import { PremiumBadge } from './premium-badge';
-import { ProgressBar } from './progress-bar';
+import { SectionHeader } from './section-header';
+import { Badge } from './ui/badge';
+import { ButtonLink } from './ui/button';
+import { Card, CardActions } from './ui/card';
+import { List } from './ui/list';
+import { Progress } from './ui/progress';
 
 export function CourseDetailView({
   course,
@@ -82,11 +84,6 @@ export function CourseDetailView({
     ),
   ];
   const nextLesson = queue.find((item) => item.isCurrent || item.isNext) ?? queue[0] ?? null;
-  const monogram = course.title
-    .split(' ')
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('');
 
   if (!course.lessons || course.lessons.length === 0) {
     return (
@@ -96,104 +93,91 @@ export function CourseDetailView({
     );
   }
 
+  const accessLabel = getAccessLabel(course.lessons);
+  const headerMeta = [
+    programDiscipline ? getDisciplineLabel(programDiscipline) : null,
+    firstCurriculum
+      ? getCurriculumPhaseLabel(firstCurriculum.discipline, firstCurriculum.phase)
+      : null,
+    `${course.lessons.length} lessons`,
+    totalDuration,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const remaining = Math.max(courseProgress.totalLessons - courseProgress.completedLessons, 0);
+
   return (
-    <AppShell className="space-y-10">
-      <div className="grid gap-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(360px,1.1fr)]">
-        <section className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-3">
-              {programDiscipline ? (
-                <PremiumBadge label={getDisciplineLabel(programDiscipline)} />
-              ) : null}
-              {isFeaturedDemo ? <PremiumBadge label="Featured demo" tone="accent" /> : null}
-              <PremiumBadge label={getAccessLabel(course.lessons)} tone="premium" />
-              {firstCurriculum ? (
-                <PremiumBadge
-                  label={getCurriculumPhaseLabel(firstCurriculum.discipline, firstCurriculum.phase)}
-                />
-              ) : null}
+    <AppShell>
+      <div className="grid gap-800 xl:grid-cols-split">
+        <section className="flex flex-col gap-600">
+          <div className="flex flex-col gap-400">
+            <div className="flex flex-wrap items-center gap-200">
+              <Badge
+                label={accessLabel}
+                variant={accessLabel === 'Free course' ? 'neutral' : 'premium'}
+              />
+              {isFeaturedDemo ? <Badge label="Featured demo" /> : null}
             </div>
-            <div className="space-y-3">
-              <h1 className="type-title-lg text-[var(--text)] sm:text-[3.25rem]">{course.title}</h1>
+            <div className="flex flex-col gap-300">
+              <h1 className="type-display-700">{course.title}</h1>
+              <p className="text-body-200 text-foreground-faint">{headerMeta}</p>
               {course.description ? (
-                <p className="type-body max-w-2xl text-[var(--text-muted)]">{course.description}</p>
+                <p className="max-w-reading text-body-300 text-foreground-faint">
+                  {course.description}
+                </p>
               ) : null}
             </div>
           </div>
 
-          <div className="surface-panel space-y-5 p-6">
-            <ProgressBar label="Progress" value={courseProgress.percent} />
-
-            <PosterSurface className="min-h-[420px]" monogram={monogram} seed={course.orderIndex}>
-              <div className="flex h-full flex-col justify-end">
-                <div className="space-y-2 rounded-t-[28px] border-t border-white/10 bg-[linear-gradient(180deg,rgba(8,9,11,0.18),rgba(8,9,11,0.92)_18%,rgba(8,9,11,0.98)_100%)] p-6">
-                  <p className="type-kicker text-white/60">Up next</p>
-                  <h2 className="font-display text-[2rem] leading-[0.98] text-[var(--text)]">
-                    {nextLesson?.title ?? recommendation.title ?? 'Ready to begin'}
-                  </h2>
-                </div>
-              </div>
-            </PosterSurface>
-
-            <div className="flex flex-wrap items-center gap-3">
-              {primaryLessonId ? (
-                <Link
-                  className="inline-flex items-center rounded-full bg-white px-6 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-white/90"
-                  href={`/lesson/${primaryLessonId}`}
-                >
-                  {primaryCtaLabel}
-                </Link>
-              ) : null}
-              {recommendation.lessonId ? (
-                <Link
-                  className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-                  href={`/lesson/${recommendation.lessonId}`}
-                >
-                  Open recommendation
-                </Link>
-              ) : null}
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="surface-panel-muted p-4">
-                <p className="type-kicker text-[var(--text-muted)]">Completed</p>
-                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
-                  {courseProgress.completedLessons}
+          <section className="flex flex-col gap-400">
+            <SectionHeader title="Up next" />
+            <Card className="flex flex-col gap-600" variant="emphasis">
+              <div className="flex flex-col gap-200">
+                <h3 className="type-display-400">
+                  {nextLesson?.title ?? recommendation.title ?? 'Ready to begin'}
+                </h3>
+                <p className="text-body-200 text-foreground-faint">
+                  {`${courseProgress.completedLessons} completed · ${remaining} remaining`}
                 </p>
+                <Progress className="mt-300" label="Progress" value={courseProgress.percent} />
               </div>
-              <div className="surface-panel-muted p-4">
-                <p className="type-kicker text-[var(--text-muted)]">Remaining</p>
-                <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
-                  {Math.max(courseProgress.totalLessons - courseProgress.completedLessons, 0)}
-                </p>
-              </div>
-              <div className="surface-panel-muted p-4">
-                <p className="type-kicker text-[var(--text-muted)]">Runtime</p>
-                <p className="mt-3 text-base text-[var(--text)]">
-                  {totalDuration || `${course.lessons.length} lessons`}
-                </p>
-              </div>
-            </div>
-          </div>
+              <CardActions>
+                {primaryLessonId ? (
+                  <ButtonLink href={`/lesson/${primaryLessonId}`} size="lg" variant="primary">
+                    {primaryCtaLabel}
+                  </ButtonLink>
+                ) : null}
+                {recommendation.lessonId ? (
+                  <ButtonLink
+                    href={`/lesson/${recommendation.lessonId}`}
+                    size="lg"
+                    variant="secondary"
+                  >
+                    Open recommendation
+                  </ButtonLink>
+                ) : null}
+              </CardActions>
+            </Card>
+          </section>
 
           {curriculumLabels.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-200">
               {curriculumLabels.slice(0, 4).map((label) => (
-                <PremiumBadge key={label} label={label} />
+                <Badge key={label} label={label} />
               ))}
             </div>
           ) : null}
 
           {progressError ? (
-            <div className="surface-panel-muted p-4 text-sm text-[var(--danger)]">
+            <p className="text-body-200 text-foreground-critical" role="alert">
               {progressError}
-            </div>
+            </p>
           ) : null}
         </section>
 
-        <section className="space-y-6">
-          <h2 className="type-title-lg text-[var(--text)]">Lesson breakdown</h2>
-          <div className="surface-panel space-y-2 p-4">
+        <section className="flex flex-col gap-400">
+          <SectionHeader title="Lesson breakdown" />
+          <List>
             {queue.map((lesson) => (
               <LessonRow
                 accessLabel={lesson.accessLabel}
@@ -208,7 +192,7 @@ export function CourseDetailView({
                 title={lesson.title}
               />
             ))}
-          </div>
+          </List>
         </section>
       </div>
     </AppShell>

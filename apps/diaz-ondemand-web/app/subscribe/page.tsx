@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { CheckoutSessionDto, MeDto } from '@diaz/shared';
@@ -12,6 +11,8 @@ import {
 import { AppShell } from '@/components/app-shell';
 import { useAuthToken } from '@/components/auth-provider';
 import { PageHeader } from '@/components/page-header';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 import { clerkEnabled } from '@/lib/config';
@@ -110,55 +111,56 @@ export default function SubscribePage() {
   };
 
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <PageHeader title="Go Premium" />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="surface-panel space-y-8 p-8">
-          <ul className="space-y-5">
+      <div className="grid items-start gap-600 lg:grid-cols-sidebar">
+        <Card>
+          <ul className="flex flex-col gap-500">
             <li>
-              <h2 className="font-display text-xl text-[var(--text)]">Unlock paid lessons</h2>
+              <h2 className="type-display-400">Unlock paid lessons</h2>
             </li>
             <li>
-              <h2 className="font-display text-xl text-[var(--text)]">Track your progress</h2>
+              <h2 className="type-display-400">Track your progress</h2>
             </li>
             <li>
-              <h2 className="font-display text-xl text-[var(--text)]">Train anywhere</h2>
+              <h2 className="type-display-400">Train anywhere</h2>
             </li>
           </ul>
-        </section>
+        </Card>
 
-        <aside className="surface-panel space-y-6 p-8">
-          <h2 className="font-display text-4xl leading-none text-[var(--text)]">
-            Monthly premium access
-          </h2>
+        <Card className="flex flex-col gap-600" variant="emphasis">
+          <h2 className="type-display-500">Monthly premium access</h2>
 
           {offer === 'blocked' ? (
-            <p className="text-sm leading-7 text-[var(--text-muted)]">{CHECKOUT_BLOCKED_MESSAGE}</p>
+            <p className="text-body-200 text-foreground-faint">{CHECKOUT_BLOCKED_MESSAGE}</p>
           ) : offer === 'has-access' ? (
             <>
-              <p className="text-sm leading-7 text-[var(--text-muted)]">
+              <p className="text-body-200 text-foreground-faint">
                 You already have premium access.
               </p>
-              <Link
-                className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-                href="/library"
-              >
+              <ButtonLink className="w-full" href="/library" size="lg" variant="primary">
                 Open library
-              </Link>
+              </ButtonLink>
             </>
           ) : (
-            <button
-              className="inline-flex w-full items-center justify-center rounded-full bg-[var(--accent)] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-70"
+            <Button
+              className="w-full"
               disabled={loading}
               onClick={checkout}
+              size="lg"
+              variant="primary"
             >
               {loading ? 'Starting checkout...' : 'Start subscription'}
-            </button>
+            </Button>
           )}
 
-          {error ? <p className="text-sm leading-7 text-[var(--danger)]">{error}</p> : null}
-        </aside>
+          {error ? (
+            <p className="text-body-200 text-foreground-critical" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </Card>
       </div>
     </AppShell>
   );
