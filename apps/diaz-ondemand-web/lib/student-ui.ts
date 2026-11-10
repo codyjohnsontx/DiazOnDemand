@@ -15,10 +15,12 @@ export {
 
 import type { ProgramWithContentDto, ProgressDto } from '@diaz/shared';
 import {
+  AccessLevel,
   buildCourseProgress,
   formatDuration,
   getDisciplineLabel,
   getLessonProgressPercent,
+  hasPlayableVideo,
 } from '@diaz/shared';
 
 export type CourseCardModel = {
@@ -125,4 +127,60 @@ export function buildContinueWatching(programs: ProgramWithContentDto[], progres
       } satisfies ContinueWatchingItem;
     })
     .filter((entry): entry is ContinueWatchingItem => entry !== null);
+}
+
+export type LibraryLessonEntry = {
+  program: ProgramWithContentDto;
+  course: ProgramWithContentDto['courses'][number];
+  lesson: ProgramWithContentDto['courses'][number]['lessons'][number];
+};
+
+/**
+ * Whether the visitor has started anything. A record with nothing watched
+ * (position 0, not complete) counts as nothing started, which is the same
+ * reading `buildContinueWatching` gives it.
+ */
+export function hasStartedAnyLesson(progress: ProgressDto[]) {
+  return progress.some((entry) => entry.completed || entry.lastPositionSeconds > 0);
+}
+
+/**
+ * The lesson the Library's Up next card leads with for a visitor who has
+ * started nothing: a signed-out visitor, or a member with no progress of their
+ * own. It is the first free lesson of the featured demo programs that
+ * actually plays, in catalogue order, so "Open lesson" lands on a video rather
+ * than on a not-yet-filmed training lesson.
+ *
+ * Answers null for a member with progress of their own, who keeps the
+ * recommendation built from that progress, and null when no featured program
+ * carries a playable free lesson, so the card falls back to the same
+ * recommendation rather than hiding.
+ */
+export function findShowcaseUpNext(
+  programs: ProgramWithContentDto[],
+  progress: ProgressDto[],
+): LibraryLessonEntry | null {
+  if (hasStartedAnyLesson(progress)) {
+    return null;
+  }
+
+  const byOrder = <T extends { orderIndex: number }>(items: T[]) =>
+    [...items].sort((left, right) => left.orderIndex - right.orderIndex);
+
+  for (const program of byOrder(programs.filter((program) => program.isFeaturedDemo))) {
+    for (const course of byOrder(program.courses)) {
+      const lesson = byOrder(course.lessons).find(
+        (candidate) =>
+          candidate.isPublished &&
+          candidate.accessLevel === AccessLevel.FREE &&
+          hasPlayableVideo(candidate),
+      );
+
+      if (lesson) {
+        return { program, course, lesson };
+      }
+    }
+  }
+
+  return null;
 }

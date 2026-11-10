@@ -11,7 +11,12 @@ import {
 } from '@diaz/shared';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
-import { buildContinueWatching, buildCourseCardModel, formatDuration } from '@/lib/student-ui';
+import {
+  buildContinueWatching,
+  buildCourseCardModel,
+  findShowcaseUpNext,
+  formatDuration,
+} from '@/lib/student-ui';
 import { AppShell } from './app-shell';
 import { ContinueRow } from './continue-row';
 import { CourseRow } from './course-row';
@@ -59,20 +64,31 @@ export function LibraryView({ programs }: { programs: ProgramWithContentDto[] })
   );
   const firstProgram = filteredPrograms.find((program) => program.courses.length > 0) ?? null;
   const firstCourse = firstProgram?.courses[0] ?? null;
-  const recommendation = firstCourse
-    ? buildRecommendation(filteredPrograms, firstCourse.id, progress)
-    : null;
+  // A visitor who has started nothing is led to the showcase track, whose lessons play;
+  // a member with progress of their own keeps the recommendation built from it.
+  const showcaseUpNext = findShowcaseUpNext(programs, progress);
+  const recommendation = showcaseUpNext
+    ? {
+        lessonId: showcaseUpNext.lesson.id,
+        courseId: showcaseUpNext.course.id,
+        title: showcaseUpNext.lesson.title,
+      }
+    : firstCourse
+      ? buildRecommendation(filteredPrograms, firstCourse.id, progress)
+      : null;
   // The lesson the recommendation points at, so the card can carry its facts: the course
   // and program it sits in, its runtime, its description and how far along it is.
-  const recommended = recommendation?.lessonId
-    ? filteredPrograms
-        .flatMap((program) =>
-          program.courses.flatMap((course) =>
-            course.lessons.map((lesson) => ({ program, course, lesson })),
-          ),
-        )
-        .find((entry) => entry.lesson.id === recommendation.lessonId)
-    : undefined;
+  const recommended =
+    showcaseUpNext ??
+    (recommendation?.lessonId
+      ? filteredPrograms
+          .flatMap((program) =>
+            program.courses.flatMap((course) =>
+              course.lessons.map((lesson) => ({ program, course, lesson })),
+            ),
+          )
+          .find((entry) => entry.lesson.id === recommendation.lessonId)
+      : undefined);
   const recommendedProgress = recommended
     ? continueWatching.find((item) => item.lessonId === recommended.lesson.id)
     : undefined;
