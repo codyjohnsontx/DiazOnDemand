@@ -30,3 +30,12 @@ export enum JournalOutcome {
   WORKED = 'WORKED',
   DID_NOT_WORK = 'DID_NOT_WORK',
 }
+
+/** What an admin did to a member's access from the admin members screen. */
+export enum MemberAccessAction {
+  GRANT = 'GRANT',
+  REVOKE = 'REVOKE',
+  RESTORE = 'RESTORE',
+  BAN = 'BAN',
+  UNBAN = 'UNBAN',
+}

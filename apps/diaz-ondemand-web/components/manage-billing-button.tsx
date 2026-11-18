@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { BillingPortalSessionDto } from '@diaz/shared';
+import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/lib/api-client';
 
 /**
@@ -37,17 +38,12 @@ export function ManageBillingButton() {
   };
 
   return (
-    <div className="flex shrink-0 flex-col items-end gap-2">
-      <button
-        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-70"
-        disabled={loading}
-        onClick={openPortal}
-        type="button"
-      >
+    <div className="flex shrink-0 flex-col items-end gap-200">
+      <Button disabled={loading} onClick={openPortal} variant="secondary">
         {loading ? 'Opening...' : 'Manage billing'}
-      </button>
+      </Button>
       {error ? (
-        <p className="text-sm leading-7 text-[var(--danger)]" role="alert">
+        <p className="text-body-200 text-foreground-critical" role="alert">
           {error}
         </p>
       ) : null}

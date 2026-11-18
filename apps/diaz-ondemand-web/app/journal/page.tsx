@@ -7,13 +7,10 @@ import { EmptyState } from '@/components/empty-state';
 import { JournalEntryCard } from '@/components/journal-entry-card';
 import { JournalEntryForm } from '@/components/journal-entry-form';
 import { PageHeader } from '@/components/page-header';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
-
-const SECONDARY_BUTTON =
-  'inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10 disabled:opacity-60';
-const PRIMARY_BUTTON =
-  'inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)] disabled:opacity-60';
 
 export default function JournalPage() {
   const apiFetch = useApiClient();
@@ -103,7 +100,7 @@ export default function JournalPage() {
     <p
       aria-atomic="true"
       aria-live="assertive"
-      className="text-sm text-[var(--danger)]"
+      className="text-body-200 text-foreground-critical"
       role="alert"
     >
       {error}
@@ -111,22 +108,19 @@ export default function JournalPage() {
   ) : null;
 
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <PageHeader title="Journal" />
 
       {showAdultGate ? (
-        <section className="surface-panel space-y-6 p-6 sm:p-8">
-          <h2 className="type-title-lg text-[var(--text)]">Are you 18 or older?</h2>
+        <Card className="flex flex-col gap-600" variant="emphasis">
+          <h2 className="type-display-500">Are you 18 or older?</h2>
           {errorMessage}
-          <button
-            className={PRIMARY_BUTTON}
-            disabled={busy}
-            onClick={() => void confirmAdult()}
-            type="button"
-          >
-            {busy ? 'Saving...' : "Yes, I'm 18 or older"}
-          </button>
-        </section>
+          <div>
+            <Button disabled={busy} onClick={() => void confirmAdult()} variant="primary">
+              {busy ? 'Saving...' : "Yes, I'm 18 or older"}
+            </Button>
+          </div>
+        </Card>
       ) : null}
 
       {!overview.canWrite ? (
@@ -140,30 +134,28 @@ export default function JournalPage() {
       {showAdultGate ? null : (
         <section
           className={
-            showForm ? 'grid items-start gap-6 xl:grid-cols-[1fr_1fr]' : 'mx-auto max-w-3xl'
+            showForm ? 'grid items-start gap-600 xl:grid-cols-split' : 'flex flex-col gap-600'
           }
         >
           {showForm ? (
-            <div className="surface-panel space-y-5 p-5 sm:p-6">
-              <h2 className="type-title-lg text-[var(--text)]">New entry</h2>
+            <Card className="flex flex-col gap-600" variant="emphasis">
+              <h2 className="type-display-500">New entry</h2>
               <JournalEntryForm
                 onSubmit={(payload) => save('/journal', 'POST', payload)}
                 submitLabel="Save entry"
               />
               {editingId ? null : errorMessage}
-            </div>
+            </Card>
           ) : null}
 
           {overview.entries.length > 0 ? (
-            <div className="space-y-4">
-              <h2 className="type-title-lg text-[var(--text)]">Your entries</h2>
+            <div className="flex flex-col gap-400">
+              <h2 className="type-display-500">Your entries</h2>
               {showForm ? null : errorMessage}
               {overview.entries.map((entry) =>
                 showForm && editingId === entry.id ? (
-                  <div className="surface-panel-muted space-y-5 p-5" key={entry.id}>
-                    <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-                      Edit entry
-                    </h3>
+                  <Card className="flex flex-col gap-500" key={entry.id} padding="compact">
+                    <h3 className="type-display-400">Edit entry</h3>
                     <JournalEntryForm
                       entry={entry}
                       onCancel={() => {
@@ -182,58 +174,51 @@ export default function JournalPage() {
                       submitLabel="Save changes"
                     />
                     {errorMessage}
-                  </div>
+                  </Card>
                 ) : (
                   <JournalEntryCard
                     actions={
                       deletingId === entry.id ? (
                         <>
-                          <span className="type-meta text-[var(--text)]">
+                          <span className="self-center text-body-200 text-foreground-primary">
                             Delete this entry permanently?
                           </span>
-                          <button
-                            className={`${SECONDARY_BUTTON} text-[var(--danger)]`}
+                          <Button
+                            className="text-foreground-critical"
                             disabled={busy}
                             onClick={() => void remove(entry)}
-                            type="button"
+                            size="sm"
                           >
                             Delete
-                          </button>
-                          <button
-                            className={SECONDARY_BUTTON}
-                            disabled={busy}
-                            onClick={() => setDeletingId(null)}
-                            type="button"
-                          >
+                          </Button>
+                          <Button disabled={busy} onClick={() => setDeletingId(null)} size="sm">
                             Keep
-                          </button>
+                          </Button>
                         </>
                       ) : (
                         <>
                           {showForm ? (
-                            <button
-                              className={SECONDARY_BUTTON}
+                            <Button
                               onClick={() => {
                                 setDeletingId(null);
                                 setEditingId(entry.id);
                                 setError(null);
                               }}
-                              type="button"
+                              size="sm"
                             >
                               Edit
-                            </button>
+                            </Button>
                           ) : null}
-                          <button
-                            className={SECONDARY_BUTTON}
+                          <Button
                             onClick={() => {
                               setEditingId(null);
                               setDeletingId(entry.id);
                               setError(null);
                             }}
-                            type="button"
+                            size="sm"
                           >
                             Delete
-                          </button>
+                          </Button>
                         </>
                       )
                     }

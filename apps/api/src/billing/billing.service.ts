@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EntitlementTier, Role } from '@diaz/db';
-import { CHECKOUT_CONFLICT_CODES } from '@diaz/shared';
+import { CHECKOUT_BLOCKED_MESSAGE, CHECKOUT_CONFLICT_CODES } from '@diaz/shared';
 import Stripe from 'stripe';
 import { isLiveStripeSubscription } from '../common/entitlement.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -43,6 +43,15 @@ export class BillingService {
     const webAppUrl = normalizeWebAppUrl(process.env.WEB_APP_URL);
 
     const user = await this.upsertMember(clerkUserId);
+
+    // Paying again is not a way back from a ban; only an admin lifting it is.
+    if (user.bannedAt) {
+      this.logger.warn('Refused checkout for a banned member');
+      throw new ConflictException({
+        code: CHECKOUT_CONFLICT_CODES.accessRevoked,
+        message: CHECKOUT_BLOCKED_MESSAGE,
+      });
+    }
 
     const subscriptions = await this.prisma.client.subscription.findMany({
       where: { userId: user.id },

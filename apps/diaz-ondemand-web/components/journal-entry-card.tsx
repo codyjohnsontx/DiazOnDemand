@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { JournalOutcome, getDisciplineLabel, getJournalTrackLabel } from '@diaz/shared';
 import type { JournalEntryDto } from '@diaz/shared';
-import { PremiumBadge } from '@/components/premium-badge';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardActions } from '@/components/ui/card';
 import { formatSessionDate } from '@/lib/journal';
 
 export function JournalEntryCard({
@@ -12,8 +13,12 @@ export function JournalEntryCard({
   actions?: ReactNode;
 }) {
   const groups = [
-    { label: 'Worked', outcome: JournalOutcome.WORKED, tone: 'text-[var(--progress)]' },
-    { label: "Didn't work", outcome: JournalOutcome.DID_NOT_WORK, tone: 'text-[var(--danger)]' },
+    { label: 'Worked', outcome: JournalOutcome.WORKED, tone: 'text-foreground-success' },
+    {
+      label: "Didn't work",
+      outcome: JournalOutcome.DID_NOT_WORK,
+      tone: 'text-foreground-critical',
+    },
   ]
     .map((group) => ({
       ...group,
@@ -22,19 +27,17 @@ export function JournalEntryCard({
     .filter((group) => group.tracks.length > 0);
 
   return (
-    <article className="surface-panel-muted space-y-4 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-          {formatSessionDate(entry.sessionDate)}
-        </h3>
-        <PremiumBadge label={getDisciplineLabel(entry.discipline)} />
+    <Card className="flex flex-col gap-500" padding="compact">
+      <div className="flex flex-wrap items-center justify-between gap-200">
+        <h3 className="type-display-400">{formatSessionDate(entry.sessionDate)}</h3>
+        <Badge label={getDisciplineLabel(entry.discipline)} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-400 md:grid-cols-split">
         {groups.map((group) => (
-          <div className="space-y-1" key={group.outcome}>
+          <div className="flex flex-col gap-100" key={group.outcome}>
             <p className={`type-kicker ${group.tone}`}>{group.label}</p>
-            <ul className="type-meta text-[var(--text)]">
+            <ul className="text-body-200 text-foreground-primary">
               {group.tracks.map((item) => (
                 <li key={item.track}>{getJournalTrackLabel(entry.discipline, item.track)}</li>
               ))}
@@ -44,12 +47,12 @@ export function JournalEntryCard({
       </div>
 
       {entry.note ? (
-        <p className="type-meta whitespace-pre-wrap break-words text-[var(--text-muted)]">
+        <p className="whitespace-pre-wrap break-words text-body-200 text-foreground-faint">
           {entry.note}
         </p>
       ) : null}
 
-      {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
-    </article>
+      {actions ? <CardActions>{actions}</CardActions> : null}
+    </Card>
   );
 }

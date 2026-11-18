@@ -21,10 +21,15 @@ import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { LessonRow } from '@/components/lesson-row';
 import { LockedStateCard } from '@/components/locked-state-card';
-import { PremiumBadge } from '@/components/premium-badge';
-import { ProgressBar } from '@/components/progress-bar';
+import { SectionHeader } from '@/components/section-header';
+import { Badge } from '@/components/ui/badge';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
+import { List } from '@/components/ui/list';
+import { Progress } from '@/components/ui/progress';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
+import { tokenLiteral } from '@/lib/design-tokens';
 import {
   buildCourseProgress,
   buildLessonQueue,
@@ -356,11 +361,9 @@ export default function LessonPage() {
   if (!lesson) {
     return (
       <AppShell>
-        <div className="surface-panel p-8">
-          <p className="font-display text-2xl leading-tight text-[var(--text-muted)]">
-            Loading lesson...
-          </p>
-        </div>
+        <Card>
+          <p className="type-display-400 text-foreground-faint">Loading lesson...</p>
+        </Card>
       </AppShell>
     );
   }
@@ -387,44 +390,49 @@ export default function LessonPage() {
       ? video.embedUrl
       : null;
 
+  const lessonMeta = [
+    program ? getDisciplineLabel(program.discipline) : null,
+    program?.title,
+    course?.title,
+    lesson.curriculum
+      ? getCurriculumPhaseLabel(lesson.curriculum.discipline, lesson.curriculum.phase)
+      : null,
+    curriculumLabel,
+    durationLabel,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
-    <AppShell className="space-y-8">
-      <div className="grid gap-8 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
-        <section className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <PremiumBadge
+    <AppShell>
+      <div className="grid gap-800 xl:grid-cols-split">
+        <section className="flex flex-col gap-600">
+          <div className="flex flex-col gap-400">
+            <div className="flex flex-wrap items-center gap-200">
+              <Badge
                 label={lesson.accessLevel === 'PAID' ? 'Premium lesson' : 'Free lesson'}
-                tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'}
+                variant={lesson.accessLevel === 'PAID' ? 'premium' : 'neutral'}
               />
-              {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
-              {program?.isFeaturedDemo ? <PremiumBadge label="Demo video" tone="accent" /> : null}
-              {program ? <PremiumBadge label={program.title} /> : null}
-              {course ? <PremiumBadge label={course.title} /> : null}
-              {lesson.curriculum ? (
-                <PremiumBadge
-                  label={getCurriculumPhaseLabel(
-                    lesson.curriculum.discipline,
-                    lesson.curriculum.phase,
-                  )}
-                />
-              ) : null}
-              {curriculumLabel ? <PremiumBadge label={curriculumLabel} /> : null}
-              {durationLabel ? <PremiumBadge label={durationLabel} /> : null}
+              {program?.isFeaturedDemo ? <Badge label="Demo video" /> : null}
             </div>
-            <div className="space-y-3">
-              <h1 className="type-title-xl max-w-4xl text-[var(--text)]">{lesson.title}</h1>
+            <div className="flex flex-col gap-300">
+              <h1 className="type-display-700">{lesson.title}</h1>
+              {lessonMeta ? (
+                <p className="text-body-200 text-foreground-faint">{lessonMeta}</p>
+              ) : null}
               {lesson.description ? (
-                <p className="type-body max-w-3xl text-[var(--text-muted)]">{lesson.description}</p>
+                <p className="max-w-reading text-body-300 text-foreground-faint">
+                  {lesson.description}
+                </p>
               ) : null}
             </div>
           </div>
 
-          <div className="surface-panel overflow-hidden">
+          <Card padding="none">
             {video.provider === VideoProvider.MUX && (video.muxPlaybackId || video.playbackUrl) ? (
               <MuxPlayer
                 ref={playerRef as never}
-                accentColor="#35e0a1"
+                accentColor={tokenLiteral['color-surface-accent']}
                 className="aspect-video w-full"
                 metadata={{ video_id: lesson.id, video_title: lesson.title }}
                 // `playbackId` and `src` are alternatives, and `playbackId`
@@ -466,7 +474,7 @@ export default function LessonPage() {
                 }}
               />
             ) : video.provider === VideoProvider.YOUTUBE && trustedYoutubeEmbedUrl ? (
-              <div className="aspect-video w-full bg-black">
+              <div className="aspect-video w-full bg-surface-page">
                 <iframe
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
@@ -477,7 +485,7 @@ export default function LessonPage() {
                 />
               </div>
             ) : (
-              <div className="flex aspect-video items-end bg-[linear-gradient(135deg,#1f242d_0%,#0f1217_55%,#08090b_100%)] p-6 sm:p-8">
+              <div className="flex aspect-video items-end bg-surface-raised p-600">
                 {/*
                   The no-source state is what a member sees on a lesson that
                   has not been filmed, and it is the state the API now resolves
@@ -487,13 +495,13 @@ export default function LessonPage() {
                   valid Mux playback ID in admin", which is an instruction to
                   staff and reads to everyone else as something broken.
                 */}
-                <div className="space-y-3">
-                  <h2 className="font-display text-4xl leading-none text-[var(--text)]">
+                <div className="flex flex-col gap-300">
+                  <h2 className="type-display-500">
                     {video.provider === VideoProvider.YOUTUBE
                       ? 'YouTube embed unavailable'
                       : 'This lesson has not been filmed'}
                   </h2>
-                  <p className="max-w-xl text-sm leading-7 text-[var(--text-muted)]">
+                  <p className="max-w-reading text-body-200 text-foreground-faint">
                     {video.provider === VideoProvider.YOUTUBE
                       ? 'The configured YouTube embed URL is not trusted. Update the lesson video settings in admin to restore playback.'
                       : 'It is listed here so you can see what the curriculum covers. It will play as soon as Diaz has recorded it.'}
@@ -501,17 +509,17 @@ export default function LessonPage() {
                 </div>
               </div>
             )}
-          </div>
+          </Card>
 
           {playbackError ? (
-            <div className="surface-panel-muted p-4 text-sm leading-7 text-[var(--danger)]">
+            <p className="text-body-200 text-foreground-critical" role="alert">
               {playbackError}
-            </div>
+            </p>
           ) : null}
 
-          <div className="surface-panel space-y-5 p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-[var(--text-muted)]">
+          <Card className="flex flex-col gap-500">
+            <div className="flex flex-wrap items-center justify-between gap-300">
+              <p className="text-body-200 text-foreground-faint">
                 {getPlaybackStatusMessage({
                   provider: video.provider,
                   currentCompleted,
@@ -519,94 +527,78 @@ export default function LessonPage() {
                   saveState,
                 })}
               </p>
-              <div className="flex flex-wrap items-center gap-3">
+              <CardActions>
                 {video.provider === VideoProvider.YOUTUBE ? (
-                  <button
-                    className="inline-flex items-center rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-                    onClick={() => void markLessonComplete()}
-                    type="button"
-                  >
+                  <Button onClick={() => void markLessonComplete()} variant="primary">
                     {currentCompleted ? 'Completed' : 'Mark lesson complete'}
-                  </button>
+                  </Button>
                 ) : null}
-                <button
-                  className={[
-                    'inline-flex items-center rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
-                    isFavorite
-                      ? 'border-[var(--premium)]/40 bg-[var(--premium)]/12 text-[var(--text)]'
-                      : 'border-white/10 bg-white/5 text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--text)]',
-                  ].join(' ')}
+                <Button
+                  aria-pressed={isFavorite}
                   onClick={() => void toggleFavorite()}
-                  type="button"
+                  variant="secondary"
                 >
                   {isFavorite ? 'Saved to favorites' : 'Save to favorites'}
-                </button>
-              </div>
+                </Button>
+              </CardActions>
             </div>
-            <ProgressBar label="Lesson progress" value={currentProgressPercent} />
+            <Progress label="Lesson progress" value={currentProgressPercent} />
             {courseProgress ? (
-              <ProgressBar label="Course progress" value={courseProgress.percent} />
+              <Progress label="Course progress" value={courseProgress.percent} />
             ) : null}
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-300 md:grid-cols-split">
               {previousLesson ? (
                 <Link
-                  className="surface-panel-muted flex items-center justify-between gap-3 p-4 transition-colors duration-200 hover:bg-[var(--surface-3)]"
+                  className="flex items-center justify-between gap-300 rounded-300 border border-border-strong bg-surface-raised p-400 transition-colors duration-fast hover:bg-surface-interactive-hover"
                   href={`/lesson/${previousLesson.id}`}
                 >
-                  <div>
-                    <p className="type-kicker text-[var(--text-muted)]">Previous</p>
-                    <p className="mt-2 text-sm font-semibold text-[var(--text)]">
-                      {previousLesson.title}
-                    </p>
+                  <div className="flex min-w-0 flex-col gap-100">
+                    <p className="type-kicker">Previous</p>
+                    <p className="text-body-200 font-semibold">{previousLesson.title}</p>
                   </div>
-                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">
-                    Open
-                  </span>
+                  <span className="text-body-200 font-semibold text-foreground-faint">Open</span>
                 </Link>
               ) : (
-                <div className="surface-panel-muted p-4 text-sm text-[var(--text-muted)]">
+                <div className="rounded-300 border border-border-strong bg-surface-raised p-400 text-body-200 text-foreground-faint">
                   Start of course.
                 </div>
               )}
 
               {nextLesson ? (
                 <Link
-                  className="surface-panel-muted flex items-center justify-between gap-3 p-4 transition-colors duration-200 hover:bg-[var(--surface-3)]"
+                  className="flex items-center justify-between gap-300 rounded-300 border border-border-strong bg-surface-raised p-400 transition-colors duration-fast hover:bg-surface-interactive-hover"
                   href={`/lesson/${nextLesson.id}`}
                 >
-                  <div>
-                    <p className="type-kicker text-[var(--text-muted)]">Next</p>
-                    <p className="mt-2 text-sm font-semibold text-[var(--text)]">
-                      {nextLesson.title}
-                    </p>
+                  <div className="flex min-w-0 flex-col gap-100">
+                    <p className="type-kicker">Next</p>
+                    <p className="text-body-200 font-semibold">{nextLesson.title}</p>
                   </div>
-                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">
-                    Open
-                  </span>
+                  <span className="text-body-200 font-semibold text-foreground-faint">Open</span>
                 </Link>
               ) : (
-                <div className="surface-panel-muted p-4 text-sm text-[var(--text-muted)]">
+                <div className="rounded-300 border border-border-strong bg-surface-raised p-400 text-body-200 text-foreground-faint">
                   End of course.
                 </div>
               )}
             </div>
-          </div>
+          </Card>
         </section>
 
-        <aside className="space-y-4">
-          <div className="flex items-end justify-between gap-4">
-            <h2 className="type-title-lg text-[var(--text)]">
-              {course?.title ?? 'Current course'}
-            </h2>
-            <Link
-              className="text-sm text-[var(--text-muted)] transition-colors duration-200 hover:text-[var(--text)]"
-              href={course ? `/course/${course.id}` : '/library'}
-            >
-              Open course
-            </Link>
-          </div>
+        <aside className="flex flex-col gap-400">
+          <SectionHeader
+            detail={
+              <ButtonLink
+                href={course ? `/course/${course.id}` : '/library'}
+                size="sm"
+                variant="ghost"
+              >
+                Open course
+              </ButtonLink>
+            }
+            title={course?.title ?? 'Current course'}
+          />
 
-          <div className="space-y-3">
+          <List>
             {queue.map((queueItem) => (
               <LessonRow
                 accessLabel={queueItem.accessLabel}
@@ -621,7 +613,7 @@ export default function LessonPage() {
                 title={queueItem.title}
               />
             ))}
-          </div>
+          </List>
         </aside>
       </div>
     </AppShell>

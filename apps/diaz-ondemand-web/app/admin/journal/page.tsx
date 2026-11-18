@@ -18,14 +18,15 @@ import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { JournalEntryCard } from '@/components/journal-entry-card';
 import { PageHeader } from '@/components/page-header';
-import { PremiumBadge } from '@/components/premium-badge';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+import { Chip, ChipGroup } from '@/components/ui/chip';
+import { Field, Input, Select } from '@/components/ui/field';
+import { List, ListRow } from '@/components/ui/list';
 import { useApiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-shared';
 
 type View = 'trends' | 'members';
-
-const FIELD_CLASSES =
-  'h-[3.25rem] w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]';
 
 const NO_ACCESS = 'You do not have admin access for this area.';
 
@@ -37,9 +38,9 @@ function describeFailure(error: unknown, subject: string) {
 
 function Count({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
-    <div className="min-w-[4.5rem] space-y-1 text-center">
-      <p className={`font-display text-3xl leading-none ${tone}`}>{value}</p>
-      <p className="text-[11px] leading-4 text-[var(--text-muted)]">{label}</p>
+    <div className="flex flex-col items-center gap-100 px-200">
+      <p className={`type-display-500 ${tone}`}>{value}</p>
+      <p className="whitespace-nowrap text-body-100 text-foreground-faint">{label}</p>
     </div>
   );
 }
@@ -83,14 +84,10 @@ function TrendsView() {
   }, [apiFetch, discipline, from, invalidRange, to]);
 
   return (
-    <section className="surface-panel space-y-5 p-5 sm:p-6">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="min-w-0 space-y-2">
-          <label className="type-kicker text-[var(--text-muted)]" htmlFor="trends-discipline">
-            Discipline
-          </label>
-          <select
-            className={FIELD_CLASSES}
+    <section className="flex flex-col gap-500">
+      <Card className="grid gap-400 md:grid-cols-split">
+        <Field className="min-w-0" htmlFor="trends-discipline" label="Discipline">
+          <Select
             id="trends-discipline"
             onChange={(event) => setDiscipline(event.target.value)}
             value={discipline}
@@ -101,71 +98,62 @@ function TrendsView() {
                 {getDisciplineLabel(value)}
               </option>
             ))}
-          </select>
+          </Select>
+        </Field>
+        <div className="grid min-w-0 grid-cols-split gap-400">
+          <Field className="min-w-0" htmlFor="trends-from" label="From">
+            <Input
+              id="trends-from"
+              onChange={(event) => setFrom(event.target.value)}
+              type="date"
+              value={from}
+            />
+          </Field>
+          <Field className="min-w-0" htmlFor="trends-to" label="To">
+            <Input
+              id="trends-to"
+              onChange={(event) => setTo(event.target.value)}
+              type="date"
+              value={to}
+            />
+          </Field>
         </div>
-        <div className="min-w-0 space-y-2">
-          <label className="type-kicker text-[var(--text-muted)]" htmlFor="trends-from">
-            From
-          </label>
-          <input
-            className={FIELD_CLASSES}
-            id="trends-from"
-            onChange={(event) => setFrom(event.target.value)}
-            type="date"
-            value={from}
-          />
-        </div>
-        <div className="min-w-0 space-y-2">
-          <label className="type-kicker text-[var(--text-muted)]" htmlFor="trends-to">
-            To
-          </label>
-          <input
-            className={FIELD_CLASSES}
-            id="trends-to"
-            onChange={(event) => setTo(event.target.value)}
-            type="date"
-            value={to}
-          />
-        </div>
-      </div>
+      </Card>
 
       {invalidRange ? (
-        <p className="text-sm text-[var(--danger)]" role="alert">
+        <p className="text-body-200 text-foreground-critical" role="alert">
           The start date must not be after the end date.
         </p>
       ) : error ? (
-        <p className="text-sm text-[var(--danger)]" role="alert">
+        <p className="text-body-200 text-foreground-critical" role="alert">
           {error}
         </p>
       ) : items === null ? null : items.length === 0 ? (
-        <p className="type-meta text-[var(--text-muted)]">
+        <p className="text-body-200 text-foreground-faint">
           No item has been tagged by {JOURNAL_TRENDS_MIN_MEMBERS} or more members in this range.
         </p>
       ) : (
-        <ol className="space-y-3">
+        <List>
           {items.map((item) => (
-            <li
-              className="surface-panel-muted flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between"
+            <ListRow
+              badges={<Badge label={getDisciplineLabel(item.discipline)} />}
               key={`${item.discipline}:${item.track}`}
-            >
-              <div className="min-w-0 space-y-2">
-                <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-                  {getJournalTrackLabel(item.discipline, item.track)}
-                </h3>
-                <PremiumBadge label={getDisciplineLabel(item.discipline)} />
-              </div>
-              <div className="flex shrink-0 justify-around gap-2 sm:justify-end">
-                <Count
-                  label="Didn't work"
-                  tone="text-[var(--danger)]"
-                  value={item.didNotWorkCount}
-                />
-                <Count label="Worked" tone="text-[var(--progress)]" value={item.workedCount} />
-                <Count label="Members" tone="text-[var(--text)]" value={item.memberCount} />
-              </div>
-            </li>
+              stack
+              title={getJournalTrackLabel(item.discipline, item.track)}
+              trailing={
+                <>
+                  <Count
+                    label="Didn't work"
+                    tone="text-foreground-critical"
+                    value={item.didNotWorkCount}
+                  />
+                  <Count label="Worked" tone="text-foreground-success" value={item.workedCount} />
+                  <Count label="Members" tone="text-foreground-primary" value={item.memberCount} />
+                </>
+              }
+            />
           ))}
-        </ol>
+        </List>
       )}
     </section>
   );
@@ -227,40 +215,38 @@ function MembersView() {
   }, [apiFetch, memberId]);
 
   return (
-    <section className="surface-panel space-y-5 p-5 sm:p-6">
+    <section className="flex flex-col gap-500">
       {members?.length === 0 ? (
-        <p className="type-meta text-[var(--text-muted)]">No member has a journal entry yet.</p>
+        <p className="text-body-200 text-foreground-faint">No member has a journal entry yet.</p>
       ) : (
-        <div className="max-w-xl space-y-2">
-          <label className="type-kicker text-[var(--text-muted)]" htmlFor="journal-member">
-            Member
-          </label>
-          <select
-            className={FIELD_CLASSES}
-            id="journal-member"
-            onChange={(event) => setMemberId(event.target.value)}
-            value={memberId}
-          >
-            <option value="">Choose a member</option>
-            {members?.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.label} ({member.entryCount})
-              </option>
-            ))}
-          </select>
-        </div>
+        <Card>
+          <Field className="max-w-reading" htmlFor="journal-member" label="Member">
+            <Select
+              id="journal-member"
+              onChange={(event) => setMemberId(event.target.value)}
+              value={memberId}
+            >
+              <option value="">Choose a member</option>
+              {members?.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.label} ({member.entryCount})
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </Card>
       )}
 
       {error ? (
-        <p className="text-sm text-[var(--danger)]" role="alert">
+        <p className="text-body-200 text-foreground-critical" role="alert">
           {error}
         </p>
       ) : null}
 
       {detail ? (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-400">
           {detail.entries.length === 0 ? (
-            <p className="type-meta text-[var(--text-muted)]">This member has no entries.</p>
+            <p className="text-body-200 text-foreground-faint">This member has no entries.</p>
           ) : (
             detail.entries.map((entry) => <JournalEntryCard entry={entry} key={entry.id} />)
           )}
@@ -300,31 +286,16 @@ export default function AdminJournalPage() {
   }
 
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <PageHeader
         actions={
-          <div
-            aria-label="Journal views"
-            className="inline-flex rounded-full border border-white/10 bg-white/5 p-1"
-            role="group"
-          >
+          <ChipGroup label="Journal views">
             {(['trends', 'members'] as const).map((value) => (
-              <button
-                aria-pressed={view === value}
-                className={[
-                  'rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors duration-200',
-                  view === value
-                    ? 'bg-[var(--accent)] text-[var(--text)]'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text)]',
-                ].join(' ')}
-                key={value}
-                onClick={() => setView(value)}
-                type="button"
-              >
+              <Chip key={value} onClick={() => setView(value)} pressed={view === value}>
                 {value === 'trends' ? 'Trends' : 'Members'}
-              </button>
+              </Chip>
             ))}
-          </div>
+          </ChipGroup>
         }
         title="Journal"
       />

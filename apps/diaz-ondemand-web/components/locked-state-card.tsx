@@ -1,27 +1,22 @@
-import Link from 'next/link';
-import { PremiumBadge } from './premium-badge';
+import { Badge } from '@/components/ui/badge';
+import { ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
 
 export function LockedStateCard() {
   return (
-    <div className="surface-panel relative overflow-hidden p-8 sm:p-10">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(242,193,78,0.18),transparent_24%)]" />
-      <div className="relative space-y-8">
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <PremiumBadge label="Premium lesson" tone="premium" />
-            <PremiumBadge label="Monthly access" />
-          </div>
-          <h1 className="type-title-xl max-w-3xl text-[var(--text)]">
-            Unlock the full training library
-          </h1>
+    <Card className="flex flex-col gap-600" variant="emphasis">
+      <div className="flex flex-col gap-400">
+        <div className="flex flex-wrap gap-200">
+          <Badge label="Premium lesson" variant="premium" />
+          <Badge label="Monthly access" />
         </div>
-        <Link
-          className="inline-flex items-center rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-          href="/subscribe"
-        >
-          Go Premium
-        </Link>
+        <h1 className="type-display-700 max-w-reading">Unlock the full training library</h1>
       </div>
-    </div>
+      <CardActions>
+        <ButtonLink href="/subscribe" size="lg" variant="primary">
+          Go premium
+        </ButtonLink>
+      </CardActions>
+    </Card>
   );
 }

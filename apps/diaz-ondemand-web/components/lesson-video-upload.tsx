@@ -8,7 +8,8 @@ import {
   type AdminLessonUploadDto,
 } from '@diaz/shared';
 import { LessonVideoStateNote } from '@/components/lesson-video-state';
-import { ProgressBar } from '@/components/progress-bar';
+import { buttonClassName } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { useApiClient } from '@/lib/api-client';
 import { uploadFileToMux } from '@/lib/mux-direct-upload';
 
@@ -177,13 +178,13 @@ export function LessonVideoUpload({
       : 'Upload video';
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-col gap-300">
+      <div className="flex flex-wrap items-center gap-300">
         <label
-          className={[
-            'inline-flex cursor-pointer items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10',
-            disabled ? 'cursor-not-allowed opacity-60' : '',
-          ].join(' ')}
+          className={buttonClassName({
+            variant: 'secondary',
+            className: disabled ? 'pointer-events-none opacity-disabled' : 'cursor-pointer',
+          })}
         >
           {buttonLabel}
           <input
@@ -195,7 +196,7 @@ export function LessonVideoUpload({
             type="file"
           />
         </label>
-        <span className="type-meta text-[var(--text-muted)]">
+        <span className="text-body-200 text-foreground-faint">
           {disabledReason ??
             (lesson.accessLevel === 'PAID'
               ? 'Premium lesson: the asset is created signed-only.'
@@ -203,24 +204,24 @@ export function LessonVideoUpload({
         </span>
       </div>
       {phase.kind === 'uploading' ? (
-        <ProgressBar label="Sending to Mux" value={phase.fraction * 100} />
+        <Progress label="Sending to Mux" value={phase.fraction * 100} />
       ) : null}
       {phase.kind === 'error' ? (
-        <p className="type-meta text-[var(--danger)]">{phase.message}</p>
+        <p className="text-body-200 text-foreground-critical">{phase.message}</p>
       ) : null}
       {outstanding && pollingExpired ? (
-        <p className="type-meta text-[var(--text-muted)]">
+        <p className="text-body-200 text-foreground-faint">
           Mux is still processing this video. Reload the page to check again.
         </p>
       ) : null}
       {state === LessonVideoState.READY && !busy ? (
-        <p className="type-meta text-[var(--text-muted)]">
+        <p className="text-body-200 text-foreground-faint">
           Replacing the video retires the current playback ID the moment Mux receives the new file,
           and members see the not-filmed state until the new asset is ready. The previous asset
           stays in the Mux account.
         </p>
       ) : null}
-      <LessonVideoStateNote className="type-meta text-[var(--text-muted)]" lesson={lesson} />
+      <LessonVideoStateNote className="text-body-200 text-foreground-faint" lesson={lesson} />
     </div>
   );
 }

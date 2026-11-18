@@ -256,19 +256,21 @@ Communicate clearly.
 
 ## Billing and tests
 
-Most of the API suite mocks Prisma. Three suites in `apps/api/src/tests` deliberately do not,
+Most of the API suite mocks Prisma. Four suites in `apps/api/src/tests` deliberately do not,
 because what they cover is invisible to a mocked client: `billing-lifecycle.db.test.ts`, for the
 unique-constraint violations below, `mux-ingestion.db.test.ts`, for the `Lesson` CHECK
-constraint, and `journal.db.test.ts`, for the Trends SQL and the cascades. All need
+constraint, `admin-members.db.test.ts`, for access changes committing with their audit row,
+and `journal.db.test.ts`, for the Trends SQL and the cascades. All four need
 `TEST_DATABASE_URL` pointing at a migrated Postgres, and skip without it
 (but fail the run on CI). See the Tests section of README.md for the exact commands.
 
 Two billing invariants that are easy to break by accident:
 - A member has *many* `Subscription` rows over time, never one. Cancel-then-resubscribe issues a
   new Stripe subscription id.
-- The `Entitlement` is always derived from the stored subscription rows, never written straight
-  from the Stripe event being handled. See `resolveStripeEntitlement` in
-  `apps/api/src/common/entitlement.ts`.
+- The `Entitlement` is always derived from the stored subscription rows and the member's ban
+  (`User.bannedAt`), never written straight from the Stripe event being handled. See
+  `resolveStripeEntitlement` in `apps/api/src/common/entitlement.ts` and
+  `syncEntitlementFromSubscriptions` in `apps/api/src/billing/entitlement-sync.ts`.
 
 ## Security Invariants
 
@@ -390,7 +392,7 @@ the reason it exists is stated with it.
   `/admin/programs`, and a second Save in that window PATCHes it back onto a row that is PAID by
   then: the transition is PAID -> PAID, no clear is due, and the identifier is written straight
   back under a plain "Lesson saved.". An in-flight guard on submit closes the same window from the
-  other side. `apps/diaz-ondemand-web`'s only tests cover `middleware.ts`, so nothing mechanical
+  other side. `apps/diaz-ondemand-web` has no tests of its pages, so nothing mechanical
   guards this: an agent deleting the adoption as a redundant pre-reload write re-opens the leak
   with every check still green, which is why the rule and its tests live in `packages/shared` and pin the rule
   rather than the wiring.

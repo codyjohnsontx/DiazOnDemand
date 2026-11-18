@@ -43,6 +43,18 @@ enum EntitlementSource {
   STRIPE
 }
 
+/// What an admin did to a member's access from the admin members screen.
+/// REVOKE is "Remove access": it ends a manual grant. Rows written before bans
+/// existed may carry a `stripeSubscriptionId`; those withdrew Stripe access,
+/// which is what a ban does now.
+enum MemberAccessAction {
+  GRANT
+  REVOKE
+  RESTORE
+  BAN
+  UNBAN
+}
+
 enum StripeWebhookEventStatus {
   PROCESSED
   FAILED
@@ -61,6 +73,10 @@ model User {
   /// When the member confirmed they are 18 or older, which the journal requires
   /// once. Null until then.
   adultConfirmedAt    DateTime?
+  /// Set while the member is banned: no premium access whatever their
+  /// subscriptions say, and checkout refuses them, until an admin lifts it.
+  /// `MemberAccessAudit` holds who did it and why.
+  bannedAt            DateTime?
   createdAt           DateTime             @default(now())
   progress            Progress[]
   favorites           Favorite[]
@@ -68,6 +84,8 @@ model User {
   entitlement         Entitlement?
   checkoutReservation CheckoutReservation?
   journalEntries      JournalEntry[]
+  accessAudit         MemberAccessAudit[]  @relation("MemberAccessAuditMember")
+  accessAuditActions  MemberAccessAudit[]  @relation("MemberAccessAuditActor")
 }
 
 model Program {
@@ -185,6 +203,10 @@ model Subscription {
   /// `status`, which mirrors Stripe, so a later Stripe event cannot undo it.
   revokedAt            DateTime?
   revokedReason        String?
+  /// No longer read. It recorded an admin withdrawing access before bans existed;
+  /// the member_ban_backfill migration turned every one still in force into
+  /// `User.bannedAt`. Dropped by a later migration.
+  adminRevokedAt       DateTime?
   /// `created` of the newest Stripe event applied to this row. Stripe does not
   /// guarantee delivery order, so an older event must not overwrite a newer one.
   lastEventAt          DateTime?
@@ -243,10 +265,11 @@ model StripeWebhookEvent {
   stripeCreatedAt      DateTime
   error                String?
   attempts             Int                      @default(1)
-  /// Set only on the delivery that raised the "subscription matches no member"
-  /// alert, and only for that subscription. That is what makes the alert fire
-  /// exactly once per subscription instead of on every renewal, while still
-  /// firing when a subscription starts `incomplete` and goes live later.
+  /// Set only on the delivery that raised the alert for a paying subscription
+  /// nobody got access from: one matching no member, or one that joined an admin
+  /// revocation. That is what makes the alert fire exactly once per subscription
+  /// instead of on every renewal, while still firing when a subscription starts
+  /// `incomplete` and goes live later.
   stripeSubscriptionId String?
   receivedAt           DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
@@ -284,4 +307,34 @@ model JournalEntryItem {
 
   @@id([entryId, track])
   @@index([track])
+}
+
+/// Who changed a member's access from the admin members screen, what they did,
+/// why, and when. Append-only: nothing in the API updates or deletes a row.
+///
+/// The before and after values are the stored entitlement around the change, so
+/// a row says what the member could watch on either side of it without having
+/// to replay the history.
+model MemberAccessAudit {
+  id                   String             @id @default(uuid())
+  memberId             String
+  /// Null once the acting admin's own account is deleted, so their history does
+  /// not vanish with them; `actorClerkUserId` still says who it was.
+  actorId              String?
+  actorClerkUserId     String
+  action               MemberAccessAction
+  reason               String?
+  tierBefore           EntitlementTier
+  validUntilBefore     DateTime?
+  tierAfter            EntitlementTier
+  validUntilAfter      DateTime?
+  /// The subscription a REVOKE withdrew or a RESTORE cleared. Null on a REVOKE
+  /// that only ended a manual grant, and on a GRANT.
+  stripeSubscriptionId String?
+  createdAt            DateTime           @default(now())
+  member               User               @relation("MemberAccessAuditMember", fields: [memberId], references: [id], onDelete: Cascade)
+  actor                User?              @relation("MemberAccessAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([memberId, createdAt])
+  @@index([actorId])
 }

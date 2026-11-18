@@ -28,6 +28,8 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
 
 type MockPrismaClient = Partial<{
+  $transaction: ReturnType<typeof vi.fn>;
+  $executeRaw: ReturnType<typeof vi.fn>;
   lesson: {
     findFirst: ReturnType<typeof vi.fn>;
     update?: ReturnType<typeof vi.fn>;
@@ -518,6 +520,11 @@ describe('WebhooksService', () => {
     const entitlementUpsert = vi.fn().mockResolvedValue({});
     const service = new WebhooksService(
       createPrismaService({
+        // The member access lock: run the callback against this same mock.
+        $transaction: vi.fn(function (this: unknown, run: (tx: unknown) => unknown) {
+          return run(this);
+        }),
+        $executeRaw: vi.fn().mockResolvedValue(1),
         stripeWebhookEvent: {
           findUnique: vi
             .fn()
@@ -536,6 +543,8 @@ describe('WebhooksService', () => {
           // No existing entitlement: nothing manual to protect.
           findUnique: vi.fn().mockResolvedValue(options.existingEntitlement ?? null),
         },
+        // A member who is not banned, so the sync derives from the subscriptions.
+        user: { findUnique: vi.fn().mockResolvedValue({ bannedAt: null }) },
       }),
     );
 
@@ -873,6 +882,7 @@ describe('MeService', () => {
             id: 'user-1',
             clerkUserId: 'clerk-1',
             role: 'STUDENT',
+            bannedAt: null,
             entitlement,
             subscriptions,
           }),

@@ -2,12 +2,10 @@
 // transform, the asset transformer and the Expo module mocks; nothing else is added.
 module.exports = {
   preset: 'jest-expo',
-  // React Native's components are required lazily, so a suite's first render is what
-  // Babel-transforms them, inside that test's budget. On a cold transform cache (every
-  // CI run) with turbo running the other workspaces' tests alongside, that one render
-  // has taken over 7s, past Jest's 5s default, while the same test takes under 100ms
-  // warm. The timeout covers the transform; it does not let a hung test hang longer
-  // than this.
+  // React Native's index requires its components lazily, so the first render in each
+  // file pays to transform them inside that test's budget: measured at 0.4s with a warm
+  // cache and up to 16s cold under CPU contention, and CI is always cold. Jest's default 5s
+  // then fails a test with nothing wrong with it.
   testTimeout: 30000,
   moduleNameMapper: {
     // `@diaz/shared` is ESM with an `import`-only `exports` map, which Jest's

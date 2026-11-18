@@ -6,12 +6,13 @@ const SECTIONS = [
     title: 'Your account',
     body: [
       'Sign-in is handled by Clerk, which holds the details you sign in with and uses cookies to keep you signed in. Our database stores the Clerk id for your account, your role and the date the account was created.',
+      'If an admin grants, removes or restores your access, or bans or unbans your account, we record what changed, which admin made the change, the reason they gave and when.',
     ],
   },
   {
     title: 'Billing',
     body: [
-      'Payments are handled by Stripe, and you enter your card details with Stripe rather than with us. We store your Stripe customer and subscription ids, the plan, the subscription status, the billing period end date, and any refund or chargeback that withdrew access.',
+      'Payments are handled by Stripe, and you enter your card details with Stripe rather than with us. We store your Stripe customer and subscription ids, the plan, the subscription status, the billing period end date, and any refund, chargeback or admin action that withdrew access.',
     ],
   },
   {
@@ -32,15 +33,15 @@ const SECTIONS = [
 
 export default function PrivacyPage() {
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <PageHeader title="Privacy" />
 
-      <div className="max-w-3xl space-y-8">
+      <div className="flex max-w-reading flex-col gap-800">
         {SECTIONS.map((section) => (
-          <section className="space-y-3" key={section.title}>
-            <h2 className="type-title-lg text-[var(--text)]">{section.title}</h2>
+          <section className="flex flex-col gap-300" key={section.title}>
+            <h2 className="type-display-500">{section.title}</h2>
             {section.body.map((paragraph) => (
-              <p className="type-body text-[var(--text-muted)]" key={paragraph}>
+              <p className="text-body-300 text-foreground-faint" key={paragraph}>
                 {paragraph}
               </p>
             ))}

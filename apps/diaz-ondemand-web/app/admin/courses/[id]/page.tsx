@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
@@ -15,7 +14,12 @@ import {
 import { AppShell } from '@/components/app-shell';
 import { EmptyState } from '@/components/empty-state';
 import { LessonVideoStateBadge, LessonVideoStateNote } from '@/components/lesson-video-state';
-import { PremiumBadge } from '@/components/premium-badge';
+import { SectionHeader } from '@/components/section-header';
+import { Badge } from '@/components/ui/badge';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
+import { Field, Input } from '@/components/ui/field';
+import { List, ListRow } from '@/components/ui/list';
 import { useApiClient } from '@/lib/api-client';
 
 const VIDEO_PROVIDER_LABELS: Record<VideoProvider, string> = {
@@ -132,83 +136,66 @@ export default function AdminCourseDetailPage() {
 
   const publishedLessons = course.lessons.filter((lesson) => lesson.isPublished).length;
 
+  const premiumLessons = course.lessons.filter((lesson) => lesson.accessLevel === 'PAID').length;
+  const newLessonInputId = 'new-lesson-title';
+
   return (
-    <AppShell className="space-y-8">
-      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-        <section className="surface-panel space-y-5 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <h1 className="font-display text-4xl leading-none text-[var(--text)]">
-              {course.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-2">
-              {program ? <PremiumBadge label={getDisciplineLabel(program.discipline)} /> : null}
-              {program?.isFeaturedDemo ? <PremiumBadge label="Demo" tone="accent" /> : null}
-              <PremiumBadge
+    <AppShell>
+      <div className="grid gap-600 xl:grid-cols-split">
+        <Card className="flex flex-col gap-500 self-start">
+          <div className="flex flex-col gap-300">
+            <h1 className="type-display-500">{course.title}</h1>
+            <div className="flex flex-wrap items-center gap-200">
+              {program ? <Badge label={getDisciplineLabel(program.discipline)} /> : null}
+              {program?.isFeaturedDemo ? <Badge label="Demo" /> : null}
+              <Badge
                 label={course.isPublished ? 'Published' : 'Draft'}
-                tone={course.isPublished ? 'accent' : 'neutral'}
+                variant={course.isPublished ? 'success' : 'neutral'}
               />
             </div>
+            <p className="text-body-200 text-foreground-faint">
+              {`${course.lessons.length} lessons · ${publishedLessons} published · ${premiumLessons} premium`}
+            </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="surface-panel-muted p-4">
-              <p className="type-kicker text-[var(--text-muted)]">Lessons</p>
-              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
-                {course.lessons.length}
-              </p>
-            </div>
-            <div className="surface-panel-muted p-4">
-              <p className="type-kicker text-[var(--text-muted)]">Published</p>
-              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
-                {publishedLessons}
-              </p>
-            </div>
-            <div className="surface-panel-muted p-4">
-              <p className="type-kicker text-[var(--text-muted)]">Premium</p>
-              <p className="mt-3 font-display text-4xl leading-none text-[var(--text)]">
-                {course.lessons.filter((lesson) => lesson.accessLevel === 'PAID').length}
-              </p>
-            </div>
-          </div>
-          <button
-            className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-            onClick={togglePublish}
-            type="button"
-          >
-            {course.isPublished ? 'Move to draft' : 'Publish course'}
-          </button>
-          {status ? <p className="text-sm text-[var(--progress)]">{status}</p> : null}
-        </section>
+          <CardActions>
+            <Button onClick={togglePublish} variant="secondary">
+              {course.isPublished ? 'Move to draft' : 'Publish course'}
+            </Button>
+          </CardActions>
+          {status ? (
+            <p aria-live="polite" className="text-body-200 text-foreground-success">
+              {status}
+            </p>
+          ) : null}
+        </Card>
 
-        <section className="space-y-5">
-          <form className="surface-panel space-y-4 p-6" onSubmit={createLesson}>
-            <h2 className="type-title-lg text-[var(--text)]">Lesson queue</h2>
-            <input
-              className="w-full rounded-[20px] border border-white/10 bg-[var(--surface-2)] px-4 py-3 text-[var(--text)]"
-              placeholder="New lesson title"
-              value={newLessonTitle}
-              onChange={(event) => setNewLessonTitle(event.target.value)}
-            />
-            <button
-              className="inline-flex items-center rounded-full bg-[var(--accent)] px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-[var(--accent-strong)]"
-              type="submit"
-            >
-              Add lesson
-            </button>
+        <section className="flex flex-col gap-400">
+          <SectionHeader title="Lesson queue" />
+          <form onSubmit={createLesson}>
+            <Card className="flex flex-col gap-400">
+              <Field htmlFor={newLessonInputId} label="New lesson">
+                <Input
+                  id={newLessonInputId}
+                  placeholder="New lesson title"
+                  value={newLessonTitle}
+                  onChange={(event) => setNewLessonTitle(event.target.value)}
+                />
+              </Field>
+              <CardActions>
+                <Button type="submit" variant="primary">
+                  Add lesson
+                </Button>
+              </CardActions>
+            </Card>
           </form>
 
-          <div className="space-y-3">
+          <List>
             {[...course.lessons]
               .sort((left, right) => left.orderIndex - right.orderIndex)
               .map((lesson, index, sorted) => (
-                <div
-                  className="surface-panel-muted flex items-center justify-between gap-4 p-4"
-                  key={lesson.id}
-                >
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-display text-2xl leading-tight text-[var(--text)]">
-                        {lesson.title}
-                      </h3>
+                <ListRow
+                  badges={
+                    <>
                       {/*
                         The provider badge names where the video comes from; the
                         state badge beside it says whether there is one. A lesson
@@ -216,64 +203,71 @@ export default function AdminCourseDetailPage() {
                         "No video" badges in a row read as a rendering mistake.
                       */}
                       {lesson.videoProvider !== VideoProvider.NONE ? (
-                        <PremiumBadge label={VIDEO_PROVIDER_LABELS[lesson.videoProvider]} />
+                        <Badge label={VIDEO_PROVIDER_LABELS[lesson.videoProvider]} />
                       ) : null}
                       {hasUnplayableVideoIdentifier(lesson) ? (
-                        <PremiumBadge label="Video ID will not play" tone="premium" />
+                        <Badge label="Video ID will not play" variant="critical" />
                       ) : null}
                       <LessonVideoStateBadge lesson={lesson} />
-                      <PremiumBadge
+                      <Badge
                         label={lesson.accessLevel === 'PAID' ? 'Premium' : 'Free'}
-                        tone={lesson.accessLevel === 'PAID' ? 'premium' : 'accent'}
+                        variant={lesson.accessLevel === 'PAID' ? 'premium' : 'neutral'}
                       />
-                      <PremiumBadge
+                      <Badge
                         label={lesson.isPublished ? 'Published' : 'Draft'}
-                        tone={lesson.isPublished ? 'accent' : 'neutral'}
+                        variant={lesson.isPublished ? 'success' : 'neutral'}
                       />
-                    </div>
-                    <p className="text-sm text-[var(--text-muted)]">
-                      {lesson.curriculum
-                        ? `${formatCurriculumLabel(lesson)} / ${lesson.curriculum.level}`
-                        : 'Curriculum metadata not set'}
+                    </>
+                  }
+                  key={lesson.id}
+                  meta={
+                    lesson.curriculum
+                      ? `${formatCurriculumLabel(lesson)} / ${lesson.curriculum.level}`
+                      : 'Curriculum metadata not set'
+                  }
+                  stack
+                  title={lesson.title}
+                  trailing={
+                    <>
+                      <Button
+                        disabled={index === 0}
+                        onClick={() => void moveLesson(lesson.id, -1)}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        Up
+                      </Button>
+                      <Button
+                        disabled={index === sorted.length - 1}
+                        onClick={() => void moveLesson(lesson.id, 1)}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        Down
+                      </Button>
+                      <ButtonLink
+                        href={`/admin/lessons/${lesson.id}`}
+                        size="sm"
+                        variant="secondary"
+                      >
+                        Edit
+                      </ButtonLink>
+                    </>
+                  }
+                >
+                  {hasUnplayableVideoIdentifier(lesson) ? (
+                    <p className="text-body-200 text-foreground-critical">
+                      The stored video ID will not play. A published lesson with it shows the
+                      not-filmed state.
                     </p>
-                    {hasUnplayableVideoIdentifier(lesson) ? (
-                      <p className="text-sm text-[var(--danger)]">
-                        The stored video ID will not play. A published lesson with it shows the
-                        not-filmed state.
-                      </p>
-                    ) : null}
-                    <LessonVideoStateNote
-                      className="text-sm text-[var(--text-muted)]"
-                      lesson={lesson}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="rounded-full border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)] disabled:opacity-35"
-                      disabled={index === 0}
-                      onClick={() => void moveLesson(lesson.id, -1)}
-                      type="button"
-                    >
-                      Up
-                    </button>
-                    <button
-                      className="rounded-full border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)] disabled:opacity-35"
-                      disabled={index === sorted.length - 1}
-                      onClick={() => void moveLesson(lesson.id, 1)}
-                      type="button"
-                    >
-                      Down
-                    </button>
-                    <Link
-                      className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-                      href={`/admin/lessons/${lesson.id}`}
-                    >
-                      Edit
-                    </Link>
-                  </div>
-                </div>
+                  ) : null}
+                  <LessonVideoStateNote
+                    className="text-body-200 text-foreground-faint"
+                    lesson={lesson}
+                  />
+                </ListRow>
               ))}
-          </div>
+          </List>
         </section>
       </div>
     </AppShell>

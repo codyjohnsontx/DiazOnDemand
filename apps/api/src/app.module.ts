@@ -17,6 +17,7 @@ import { AdminJournalController } from './journal/admin-journal.controller.js';
 import { AdminJournalService } from './journal/admin-journal.service.js';
 import { JournalController } from './journal/journal.controller.js';
 import { JournalService } from './journal/journal.service.js';
+import { AdminMembersService } from './admin/admin-members.service.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
 import { BILLING_ALERTER, LoggingBillingAlerter } from './billing/billing-alerter.js';
@@ -46,6 +47,7 @@ import { MuxDirectUploadService } from './mux/mux-direct-upload.service.js';
     AdminService,
     JournalService,
     AdminJournalService,
+    AdminMembersService,
     MuxDirectUploadService,
     BillingService,
     WebhooksService,

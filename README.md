@@ -16,8 +16,9 @@ The three share a Turborepo + pnpm workspace, TypeScript throughout, with shared
 rules in `packages/shared` and the Prisma schema and migrations in `packages/db`.
 
 **Tests:** `pnpm test` runs vitest in the API, shared and web workspaces and Jest (`jest-expo`) in
-mobile. Two API suites run against a real Postgres instead of a mocked Prisma client:
-`apps/api/src/tests/billing-lifecycle.db.test.ts` and `apps/api/src/tests/mux-ingestion.db.test.ts`.
+mobile. Three API suites run against a real Postgres instead of a mocked Prisma client:
+`apps/api/src/tests/billing-lifecycle.db.test.ts`, `apps/api/src/tests/mux-ingestion.db.test.ts`
+and `apps/api/src/tests/admin-members.db.test.ts`.
 See [Tests](#tests) for how to run them.
 
 | Landing                                       | Library                                         |
@@ -54,6 +55,9 @@ Video-on-demand product monorepo for Diaz on Demand. This repo contains:
   a lesson at its saved position
 - Favorites create/list/remove
 - Admin CRUD + publish/unpublish for programs/courses/lessons
+- Admin members screen (`/admin/members`): find a member, see their access and why they have
+  none, grant or remove access, ban a member or lift a ban, restore a refund made by mistake, with
+  an audit trail
 - Entitlement gating for paid lessons (`FREE` vs `PREMIUM`)
 - Stripe checkout session endpoint, and a Stripe billing portal endpoint so members can cancel
 - Stripe webhook handler syncing `Subscription` history + `Entitlement`, including refunds and
@@ -243,6 +247,32 @@ pnpm dev:mobile
 - Web: `pnpm --filter diaz-ondemand-web dev` (`http://localhost:3000`)
 - Mobile: `pnpm --filter mobile dev`
 
+### Web App Design Tokens
+
+The web app is styled the Helios way: one named token set, one small component library, a
+flat look with colour reserved for meaning.
+
+- `apps/diaz-ondemand-web/app/globals.css` holds the token block (`--color-surface-*`,
+  `--color-border-*`, `--color-foreground-*`, the type scale, `--space-*`, `--radius-*`, one
+  elevation, sizes and motion). It is the only place in the web app that holds a raw design
+  value.
+- `apps/diaz-ondemand-web/tailwind.config.ts` maps those tokens into the Tailwind theme by
+  name, replacing the default scales rather than extending them, so `bg-surface-raised`,
+  `text-foreground-faint`, `p-400`, `rounded-200` and `text-display-500` exist and `p-4`,
+  `text-sm`, `rounded-full` and `bg-white/5` do not.
+- `apps/diaz-ondemand-web/components/ui/` is the component library: `Button` / `ButtonLink`
+  (primary, secondary, ghost; sm, md, lg), `Chip`, `Badge` (neutral, premium, success,
+  critical), `Card`, `List` / `ListRow`, `Progress`, and `Field` / `Input` / `Select` /
+  `Textarea` / `Checkbox`. Orange is the one primary action on a screen; green means
+  progress or success; gold means premium; red means critical.
+- `apps/diaz-ondemand-web/lib/design-tokens.ts` mirrors the few token values (colours and
+  the base radius) that Clerk's `appearance.variables` and the Mux player need as literals.
+- `apps/diaz-ondemand-web/tests/design-tokens.test.ts` runs with `pnpm test`, compiles
+  `globals.css` through Tailwind with this config over `app/` and `components/`, and fails
+  if the output holds an arbitrary `-[...]` value, or a raw colour, gradient or blur outside
+  the `:root` token block that Tailwind's own reset does not already carry. It also fails if
+  a mirrored literal drifts from the token in `globals.css`.
+
 ### Vertical Slice Walkthrough
 
 After seed:
@@ -346,7 +376,7 @@ the webhooks have finished - every 4 seconds for the first two minutes, every 30
 that, and not at all after 30 minutes, when the editor says so and asks for a reload. The API chooses the asset's playback policy from the lesson's tier
 before the file exists - `signed` for `PAID`, `public` for `FREE` - and sets the lesson id as the
 asset's `passthrough`. No Mux credential reaches the browser; the route sits behind the same
-`ADMIN`/`COACH` guards as every other admin route, and `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` are
+`ADMIN`/`COACH` guards as the other content admin routes, and `MUX_TOKEN_ID` / `MUX_TOKEN_SECRET` are
 read only on the server, per request, so a process without them still boots and answers this one
 route 503.
 
@@ -477,10 +507,11 @@ until `CLERK_WEBHOOK_SIGNING_SECRET` is set:
 
 Billing endpoints (both Clerk-authenticated):
 
-- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for two
+- `POST /billing/create-checkout-session` - starts a monthly subscription. Returns **409** for three
   different reasons, told apart by a `code` on the body so the client can say the right thing:
-  `subscription_exists` (the member already has an active subscription) and `checkout_in_flight`
-  (a checkout for them is already open). The codes live in `packages/shared/src/schemas.ts`.
+  `subscription_exists` (the member already has an active subscription), `checkout_in_flight`
+  (a checkout for them is already open) and `access_revoked` (the member is banned). The codes live
+  in `packages/shared/src/schemas.ts`.
   Reuses the member's existing Stripe customer, so one person stays one customer in Stripe.
 - `POST /billing/cancel-checkout` - expires the abandoned Stripe session and releases the calling
   member's checkout lock, called by the cancel return page. Holds the lock instead when Stripe
@@ -503,11 +534,12 @@ Stripe webhook endpoint:
   - a `Subscription` row per Stripe subscription. This is a **history**, not one row per member:
     a member who cancels and resubscribes gets a new Stripe subscription id, and both rows are
     kept.
-  - the `Entitlement`, always **derived from the member's stored subscriptions** rather than from
-    the event in hand. `PREMIUM` while any unrevoked subscription is `active`/`trialing`/`past_due`,
-    otherwise `FREE`. `Entitlement.source` records whether Stripe or a human last set it, and a
-    **live** `MANUAL` `PREMIUM` row is left alone, so access collected in person does not vanish the
-    moment a Stripe event touches that member. The column defaults to `MANUAL`, which would have
+  - the `Entitlement`, always **derived from the member's stored subscriptions and their ban**
+    rather than from the event in hand. `FREE` while the member is banned; otherwise `PREMIUM` while
+    any unrevoked subscription is `active`/`trialing`/`past_due`, and `FREE` if none is. `Entitlement.source` records whether Stripe or a human last set it, and a
+    **live** `MANUAL` `PREMIUM` row is left alone while it ends later than the Stripe access, so
+    access collected in person does not vanish the moment a Stripe event touches that member, and a
+    member who pays during a grant is not locked out when it lapses. The column defaults to `MANUAL`, which would have
     relabelled every row Stripe had already written and made that guard protect them from their own
     refunds - so `20260802120000_backfill_entitlement_source` stamps `STRIPE` on the entitlement of
     every user who has a `Subscription` row. That is sound because nothing granted an entitlement by
@@ -586,7 +618,7 @@ One checkout at a time (`CheckoutReservation`):
 
 Giving access back:
 
-- A revocation is cleared on exactly two events, and nothing else. A **genuine paid renewal**
+- A Stripe revocation is cleared in exactly three ways, and nothing else. A **genuine paid renewal**
   (`current_period_end` moving strictly forward) clears a _refund_ revocation; a status of `active`
   is not enough on its own, because `cancel_at_period_end`, a card update and a plan change all
   keep it active.
@@ -595,24 +627,105 @@ Giving access back:
   revocation standing. Without this a chargeback is a one-way door: the revocation is sticky against
   renewals by design, so a member who disputes and loses would keep paying and never get access
   back.
-- Every revocation stores `revokedAt` **and** `revokedReason` together, so a member without access
+- An admin clears a _refund_ revocation from **`/admin/members`** - the immediate way back for a
+  refund issued by mistake. It never clears a chargeback. The entitlement is then re-derived from
+  the subscription rows exactly as the webhook would (`syncEntitlementFromSubscriptions` in
+  `apps/api/src/billing/entitlement-sync.ts`), so a subscription that was also cancelled gets its
+  record cleared and no access back.
+- Every refund or chargeback stores `revokedAt` **and** `revokedReason` together, so a member without access
   can always be shown _why_ ("revoked by refund on <date>") rather than an unexplained gap. The
   rules live in one place, `apps/api/src/billing/subscription-revocation.ts`; the Stripe webhook is
   just its first caller.
-- A revoke is not a one-way door, but only a **genuine renewal** opens it:
-  - Resubscribing always works. A new Stripe subscription id is a new row, which was never revoked.
+- A refund or chargeback is not a one-way door, and among subscription events only a **genuine
+  renewal** opens it:
+  - Resubscribing works after a refund or chargeback. A new Stripe subscription id is a new row,
+    which was never revoked. A ban is the exception: it bars checkout until an admin lifts it.
   - For the same subscription, a **refund** revocation clears only when a later Stripe event moves
     `current_period_end` **strictly forward** - i.e. the member was actually charged again. A live
     status is deliberately _not_ enough: `cancel_at_period_end`, a card update and a plan change all
     keep the status `active`, and treating those as proof would let a refunded member press Cancel
     and keep the period they were refunded for.
   - The cost of that strictness is accepted knowingly: a member refunded **by mistake** stays locked
-    out until their next renewal unless somebody corrects the record by hand.
-  - A **chargeback** revocation is sticky and never clears. The customer forcibly took the money
-    back, so they have to subscribe again. A chargeback landing on a subscription already revoked by
+    out until their next renewal unless an admin restores them from `/admin/members`.
+  - A **chargeback** revocation is sticky: no renewal clears it and neither can an admin. The
+    customer forcibly took the money back, so unless the dispute is won they have to subscribe
+    again. A chargeback landing on a subscription already revoked by
     a refund **upgrades** the stored reason, so the sticky outcome cannot inherit the clearable one.
   - Only an event Stripe generated _after_ the revocation can clear it. The subscription ordering
     guard alone does not cover this, because a revoke does not advance `lastEventAt`.
+
+The admin members screen (`/admin/members`). Its routes are `ADMIN` only, unlike the other admin
+routes, because they move paid access and expose billing identifiers; `COACH` keeps content editing:
+
+- Search matches a Clerk user id, a member id, or a Stripe customer or subscription id. `User`
+  stores no email or name, so these are the identifiers to copy from the Clerk and Stripe
+  dashboards.
+- A member without access is always shown why - banned by a named admin, revoked by refund or
+  chargeback, access removed by a named admin, banned and since lifted, expired, or subscription
+  inactive, each with its date. A ban is the answer whenever one stands, with the reason the admin
+  gave; otherwise whichever happened most recently. A lifted ban counts there only when it ended
+  live access; one that ended nothing is the answer only when nothing else explains it, and a grant
+  that had already lapsed when the ban landed still reads as expired on the grant's end date.
+- **Grant** writes a `MANUAL` premium entitlement with an optional end date. It has to end later
+  than what the member's Stripe subscription grants, because the stored entitlement is always
+  whichever access ends later: `syncEntitlementFromSubscriptions` keeps a live grant only while it
+  outlasts Stripe, and writes the Stripe access once it does not. That is what stops a member who
+  pays during a grant being locked out when it lapses. The cost is that the row holds one end date:
+  once Stripe has taken over, a refund before the grant's end date ends access, and the `GRANT`
+  history entry is what is left to re-grant from. A banned member cannot be granted access until
+  the ban is lifted.
+- There are two ways to take access away, for two different reasons.
+  - **Remove access** is for a member who is not paying. It ends a live manual grant and leaves
+    whatever their subscriptions grant. Nothing is stamped, so checkout stays open and the member
+    gets back in by paying. It is only offered for a manual grant: when a member's access comes
+    from Stripe, the screen names the subscription and says to cancel it in Stripe, because that is
+    the removal a member can pay their way back from. Stripe also does it on its own once it gives
+    up on a failed card (`past_due` still grants; `unpaid` and `canceled` do not).
+  - **Ban member** is for abuse. It sets `User.bannedAt`, and needs a reason. While it is set the
+    member is `FREE` whatever their subscriptions say - a live manual grant included - because
+    `syncEntitlementFromSubscriptions` reads the ban, so no renewal, won dispute, recovered
+    subscription or subscription opened later can give access back. Checkout refuses them with
+    `access_revoked`, and the account page and `/subscribe` show "Premium is not available on this
+    account. Please contact us." in place of checkout. They can still sign in and watch free
+    lessons; the API makes no Clerk write. A ban does not cancel the subscription or stop billing,
+    so cancel in Stripe as well when the member should not be charged. **Lift ban** is the one way
+    back: it clears `bannedAt` and re-derives the entitlement, so a live subscription gives access
+    back at once and otherwise the member can subscribe again. A manual grant the ban ended is not
+    brought back; re-grant from its history entry.
+- Before bans, an admin barred a member by stamping `Subscription.adminRevokedAt` on their rows.
+  The `20261109120001_member_ban_backfill` migration turned every member whose revocation was still
+  in force into a ban dated from their first such revocation: those the stamps were already keeping
+  from all access, so the ban changes nothing they can watch. A member an admin had given access
+  back to - a live manual grant, or a live subscription without the stamp, which only a restore
+  leaves - was not banned and keeps exactly the access they had. Nothing reads that column any
+  more, and a later migration drops it. Their old `REVOKE` history entries, which name a
+  subscription, read "Revoked access" and are where the ban's actor and reason are shown from. Staff
+  should review each of those reasons on the members screen and lift the bans that were not abuse;
+  the lift leaves an `UNBAN` entry saying why. This query lists them, before or after migrating:
+
+  ```sql
+  SELECT u."clerkUserId", a."createdAt", a."actorClerkUserId", a."reason", a."stripeSubscriptionId"
+  FROM "MemberAccessAudit" a
+  JOIN "User" u ON u.id = a."memberId"
+  WHERE a.action = 'REVOKE' AND a."stripeSubscriptionId" IS NOT NULL
+  ORDER BY a."createdAt";
+  ```
+
+- **Restore access** on a subscription clears a refund revocation, as described above. Under a ban
+  it clears the record and gives nothing back until the ban is lifted.
+- Every grant, removal, ban, lifted ban and restore is one transaction with a `MemberAccessAudit`
+  row - actor, member, action, reason, the stored access before and after, and when - shown as the
+  member's history. An acting admin's rows outlive their own account.
+- That transaction holds the member's access lock (`withMemberAccessLock` in
+  `apps/api/src/billing/member-access-lock.ts`, a transaction-scoped Postgres advisory lock keyed on
+  the member id), and so does every Stripe webhook that writes a subscription row and re-derives
+  the entitlement. A webhook and an admin change for the same member therefore never interleave:
+  a subscription opened while a ban is being written waits for it and then grants nothing, and a
+  grant is never overwritten by a sync that read the entitlement first.
+- Each change also carries the `accessVersion` of the member detail the admin confirmed against.
+  If the member's access has changed since - another admin, a ban or a lifted ban, a Stripe event,
+  or a grant or paid period running out - the API answers 409 and changes nothing, and the page reloads the member so
+  the confirmation says what would happen now. A malformed request body answers 400.
 
 Delivery safety:
 
@@ -636,8 +749,12 @@ Alerting on billing failure (see `apps/api/src/billing/billing-alerter.ts`):
   charge genuinely carries no invoice link, and a **live** subscription carrying no `userId`
   metadata (one created in the Stripe dashboard or through a Payment Link). Those are processed,
   not rejected - they may be deliberate - but never silently.
-- The unmatched-subscription alert fires **exactly once per subscription**, on the first delivery
-  that shows it actually live. It waits for live rather than firing on creation because a card
+- A subscription opened after a ban alerts too: a checkout left open before the admin banned the
+  member can still complete, and Stripe then bills a member who stays locked out. Staff refund or
+  cancel it in Stripe. Nothing does that automatically, and a subscription the member already had
+  when the admin banned them does not alert, because the ban confirmation said to cancel it.
+- Both of those subscription alerts fire **exactly once per subscription**, on the first delivery
+  that shows it actually live. They wait for live rather than firing on creation because a card
   needing 3D Secure starts `incomplete` and only turns `active` on a later update - money taken,
   nobody granted access. `StripeWebhookEvent.stripeSubscriptionId` is stamped on the delivery that
   raised the alert, which is what keeps renewals and the eventual cancellation quiet.
@@ -1445,10 +1562,10 @@ unset throughout and a non-loopback `DATABASE_URL` so every deployment check was
 
 `pnpm test` runs everything: vitest in `apps/api`, `packages/shared` and `apps/diaz-ondemand-web`,
 and Jest with the `jest-expo` preset in `apps/mobile`, because vitest does not carry React Native's
-transform. The remaining workspaces still have no runner at all. The web suite covers only
-`middleware.ts`: with the coming-soon wall on, every path but `/` must redirect there rather than
-answer 500, which it did while the redirect was a `Response.redirect` whose headers Clerk could
-not append to. The mobile suite is deliberately small, six
+transform. The remaining workspaces still have no runner at all. The web suite covers
+`lib/member-access.ts` and `middleware.ts`, and no pages. For `middleware.ts`: with the coming-soon
+wall on, every path but `/` must redirect there rather than answer 500, which it did while the
+redirect was a `Response.redirect` whose headers Clerk could not append to. The mobile suite is deliberately small, six
 tests, every one of them from the sign-in entry in "Security Invariants": an unknown address
 reaching the same screen a member reaches, the one deliberate asymmetry for a failure the
 provider never answered, the regression path the enumeration defect came back through, the code
@@ -1457,7 +1574,7 @@ is still signed in, and the guard that refuses a second revoke while one is in f
 them needs a simulator, an emulator or a device. Run the suite alone with
 `pnpm --filter mobile test`.
 
-Most of the API suite mocks Prisma. Three suites deliberately do not, because what they cover is
+Most of the API suite mocks Prisma. Four suites deliberately do not, because what they cover is
 invisible to a mocked client:
 
 - `apps/api/src/tests/billing-lifecycle.db.test.ts` - the resubscribe and double-subscription
@@ -1477,8 +1594,13 @@ invisible to a mocked client:
   SQL, and a member's delete reaching the staff views or an account removal reaching the journal
   are cascades. It also drives the Clerk `user.deleted` handler, which must delete that member's
   journal and nothing else. `clerk-webhook.test.ts` is the mocked half: the signature over HTTP.
+- `apps/api/src/tests/admin-members.db.test.ts` - an access change and its audit row have to commit
+  together or not at all, and a refund restore has to land on what the webhook derives from the
+  stored rows. It also drives each admin-versus-webhook race on separate connections, because the
+  member access lock is a Postgres advisory lock that a mocked client cannot take.
+  `member-access.test.ts` is the pure half.
 
-All three run the real services against a real Postgres, and all three have the same contract: they
+All four run the real services against a real Postgres, and all four have the same contract: they
 **skip** unless `TEST_DATABASE_URL` is set, so `pnpm test` still works with no database
 around - except on CI, where a missing `TEST_DATABASE_URL` fails the run rather than silently
 dropping the coverage. CI provides a Postgres service container.

@@ -23,12 +23,15 @@
  */
 import { readFile } from 'node:fs/promises';
 import { PrismaClient } from '@diaz/db';
+import { EntitlementTier, Role } from '@diaz/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Stripe from 'stripe';
+import { AdminMembersService } from '../admin/admin-members.service.js';
 import { BillingService } from '../billing/billing.service.js';
 import { CHECKOUT_RESERVATION_TTL_MS } from '../billing/checkout-reservation.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WebhooksService } from '../webhooks/webhooks.service.js';
+import { membersPage } from './members-page.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -53,6 +56,7 @@ function nextEventTime() {
 }
 
 const DAY = 24 * 60 * 60;
+const EVENT_PREFIX = 'evt_billing-test-';
 
 function subscriptionEvent(
   type:
@@ -71,7 +75,7 @@ function subscriptionEvent(
   },
 ): Stripe.Event {
   return {
-    id: `evt_${type}_${options.subscriptionId}_${options.created ?? eventClock}`,
+    id: `${EVENT_PREFIX}${type}_${options.subscriptionId}_${options.created ?? eventClock}`,
     type,
     created: options.created ?? nextEventTime(),
     data: {
@@ -125,7 +129,7 @@ function chargeEvent(
       : { id: 'dp_test', charge, status: options.disputeStatus ?? 'lost' };
 
   return {
-    id: `evt_${type}_${options.created ?? eventClock}`,
+    id: `${EVENT_PREFIX}${type}_${options.created ?? eventClock}`,
     type,
     created: options.created ?? nextEventTime(),
     data: { object },
@@ -152,40 +156,74 @@ async function subscriptionsOf(userId: string) {
   });
 }
 
-/**
- * The real database, but with `subscription.upsert` failing the first N times.
- * Spying on the Prisma client itself is not an option: its model accessors are
- * lazy getters, so restoring a spy leaves the method undefined for later tests.
- */
-function prismaFailingUpsert(times: number): PrismaService {
-  let remaining = times;
+type ModelMethod = (...args: unknown[]) => unknown;
 
-  return {
-    client: new Proxy(prismaClient!, {
+/**
+ * The real database with some model methods replaced. Spying on the Prisma
+ * client itself is not an option: its model accessors are lazy getters, so
+ * restoring a spy leaves the method undefined for later tests.
+ *
+ * `$transaction` hands its callback a separate client, so the replacement has
+ * to be applied to that one too, or a write made under the member access lock
+ * would reach the real method.
+ */
+function prismaReplacing(
+  replacements: Record<string, Record<string, (original: ModelMethod) => ModelMethod>>,
+): PrismaService {
+  const wrap = <T extends object>(client: T): T =>
+    new Proxy(client, {
       get(target, property, receiver) {
-        if (property !== 'subscription') {
-          return Reflect.get(target, property, receiver);
+        const value = Reflect.get(target, property, receiver) as unknown;
+
+        if (property === '$transaction') {
+          return (run: (tx: object) => unknown, options?: unknown) =>
+            (value as (run: (tx: object) => unknown, options?: unknown) => unknown).call(
+              target,
+              (tx: object) => run(wrap(tx)),
+              options,
+            );
         }
 
-        return new Proxy(target.subscription, {
-          get(model, modelProperty, modelReceiver) {
-            if (modelProperty !== 'upsert') {
-              return Reflect.get(model, modelProperty, modelReceiver);
-            }
+        const methods = typeof property === 'string' ? replacements[property] : undefined;
 
-            return (...args: unknown[]) => {
-              if (remaining > 0) {
-                remaining -= 1;
-                return Promise.reject(new Error('database exploded'));
-              }
+        if (!methods) {
+          return value;
+        }
 
-              return (model.upsert as (...inner: unknown[]) => unknown)(...args);
-            };
+        return new Proxy(value as object, {
+          get(model, method, modelReceiver) {
+            const original = Reflect.get(model, method, modelReceiver) as ModelMethod;
+            const replace = typeof method === 'string' ? methods[method] : undefined;
+
+            return replace ? replace(original.bind(model)) : original;
           },
         });
       },
-    }),
-  } as unknown as PrismaService;
+    });
+
+  return { client: wrap(prismaClient!) } as unknown as PrismaService;
+}
+
+const explode = () => () => Promise.reject(new Error('database exploded'));
+
+/** The real database, but with `subscription.upsert` failing the first N times. */
+function prismaFailingUpsert(times: number): PrismaService {
+  let remaining = times;
+
+  return prismaReplacing({
+    subscription: {
+      upsert:
+        (original) =>
+        (...args) => {
+          if (remaining > 0) {
+            remaining -= 1;
+            return Promise.reject(new Error('database exploded'));
+          }
+
+          return original(...args);
+        },
+    },
+  });
 }
 
 /**
@@ -194,32 +232,10 @@ function prismaFailingUpsert(times: number): PrismaService {
  * for, and the FAILED record cannot be the thing that suppresses it.
  */
 function prismaWithDatabaseDown(): PrismaService {
-  const failWrite = (model: object, method: string) =>
-    new Proxy(model, {
-      get(target, property, receiver) {
-        if (property !== method) {
-          return Reflect.get(target, property, receiver);
-        }
-
-        return () => Promise.reject(new Error('database exploded'));
-      },
-    });
-
-  return {
-    client: new Proxy(prismaClient!, {
-      get(target, property, receiver) {
-        if (property === 'subscription') {
-          return failWrite(target.subscription, 'upsert');
-        }
-
-        if (property === 'stripeWebhookEvent') {
-          return failWrite(target.stripeWebhookEvent, 'upsert');
-        }
-
-        return Reflect.get(target, property, receiver);
-      },
-    }),
-  } as unknown as PrismaService;
+  return prismaReplacing({
+    subscription: { upsert: explode },
+    stripeWebhookEvent: { upsert: explode },
+  });
 }
 
 // One connection for the whole file. Both suites below share `prismaClient`, so
@@ -253,7 +269,9 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
   });
 
   afterEach(async () => {
-    await prismaClient!.stripeWebhookEvent.deleteMany({});
+    await prismaClient!.stripeWebhookEvent.deleteMany({
+      where: { id: { startsWith: EVENT_PREFIX } },
+    });
     await prismaClient!.user.deleteMany({
       where: { clerkUserId: { startsWith: 'billing-test-' } },
     });
@@ -623,6 +641,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
       expect(alerts).toHaveLength(1);
       expect(alerts[0]).toContain('NOT withdrawn');
+      expect(alerts[0]).toContain('/admin/members');
     });
 
     it('leaves access alone and alerts when a chargeback cannot be traced to a subscription', async () => {
@@ -649,6 +668,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
       expect((await entitlementOf(user.id))?.tier).toBe('PREMIUM');
       expect(alerts).toHaveLength(1);
       expect(alerts[0]).toContain('NOT withdrawn');
+      expect(alerts[0]).toContain('/admin/members');
     });
   });
 
@@ -1113,6 +1133,135 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
     });
   });
 
+  describe('a ban survives what Stripe does next', () => {
+    /** Subscribe, then have an admin ban the member. */
+    async function banned(name: string) {
+      const user = await createUser(`billing-test-${name}`);
+      const admin = await createUser(`billing-test-${name}-admin`);
+      const customerId = `cus_${name}`;
+      const subscriptionId = `sub_${name}`;
+      const periodEnd = Math.floor(Date.now() / 1000) + 30 * DAY;
+      const members = membersPage(new AdminMembersService(prisma));
+      const actor = {
+        id: admin.id,
+        clerkUserId: admin.clerkUserId,
+        role: Role.ADMIN,
+        entitlementTier: EntitlementTier.FREE,
+      };
+
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd,
+        }),
+      );
+      await members.banMember(actor, user.id, { reason: 'Banned' });
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+
+      const liftBan = () => members.liftBan(actor, user.id, { reason: null });
+      const restore = async () => {
+        const [row] = await subscriptionsOf(user.id);
+        return members.restoreAccess(actor, user.id, { subscriptionId: row!.id, reason: null });
+      };
+
+      return { user, customerId, subscriptionId, periodEnd, members, liftBan, restore };
+    }
+
+    it('keeps access off through a dispute and the dispute being won', async () => {
+      const { user, customerId, subscriptionId, liftBan } = await banned('admin-dispute');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
+      );
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.closed', {
+          customerId,
+          subscriptionId,
+          disputeStatus: 'won',
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBeNull();
+
+      const detail = await liftBan();
+
+      expect(detail.hasAccess).toBe(true);
+    });
+
+    it('leaves a chargeback standing when the ban is lifted', async () => {
+      const { customerId, subscriptionId, liftBan } = await banned('admin-chargeback');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.dispute.created', { customerId, subscriptionId }),
+      );
+
+      const detail = await liftBan();
+
+      expect(detail.hasAccess).toBe(false);
+      expect(detail.subscriptions[0]).toMatchObject({
+        revokedReason: 'chargeback',
+        restorable: false,
+      });
+    });
+
+    it('records a traced refund, which a restore gives back only once the ban is lifted', async () => {
+      const { user, customerId, subscriptionId, members, liftBan, restore } =
+        await banned('admin-refund');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', { customerId, subscriptionId }),
+      );
+
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBe('refund');
+
+      const before = await members.getMember(user.id);
+      expect(before.subscriptions[0]).toMatchObject({
+        restorable: true,
+        restoreGivesAccess: false,
+      });
+
+      const lifted = await liftBan();
+
+      expect(lifted.hasAccess).toBe(false);
+      expect(lifted.subscriptions[0]).toMatchObject({
+        revokedReason: 'refund',
+        restorable: true,
+        restoreGivesAccess: true,
+      });
+
+      const afterRefund = await restore();
+
+      expect(afterRefund.hasAccess).toBe(true);
+    });
+
+    it('keeps access off when a renewal clears the refund underneath it', async () => {
+      const { user, customerId, subscriptionId, periodEnd } = await banned('admin-renewal');
+
+      await service.handleStripeEvent(
+        chargeEvent('charge.refunded', { customerId, subscriptionId }),
+      );
+      await service.handleStripeEvent(
+        subscriptionEvent('customer.subscription.updated', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: periodEnd + 30 * DAY,
+        }),
+      );
+
+      expect((await entitlementOf(user.id))?.tier).toBe('FREE');
+      const [subscription] = await subscriptionsOf(user.id);
+      expect(subscription?.revokedReason).toBeNull();
+    });
+  });
+
   describe('a member who wins a dispute gets access back', () => {
     /** Subscribe, then lose the money to a chargeback. */
     async function chargedBack(clerkUserId: string, customerId: string, subscriptionId: string) {
@@ -1344,7 +1493,7 @@ describe.skipIf(!prismaClient)('Stripe billing lifecycle (database-backed)', () 
         data: { source: 'MANUAL' },
       });
 
-      await prismaClient!.$executeRawUnsafe(await backfillMigrationSql());
+      await runBackfillMigrationFor(user.id);
 
       await service.handleStripeEvent(
         chargeEvent('charge.refunded', {
@@ -1369,6 +1518,29 @@ async function backfillMigrationSql() {
     ),
     'utf8',
   );
+}
+
+/**
+ * Runs the backfill migration as written, but over one member's entitlement.
+ *
+ * The statement rewrites every `Entitlement` row with a subscription, and the
+ * other database-backed test files share this database and run at the same
+ * time, so running it bare relabelled their members mid-test. A temporary view
+ * named `Entitlement` shadows the table for this transaction only - the
+ * migration names the table unqualified, and the temporary schema is searched
+ * first - and exposes just this member's row, which Postgres updates through
+ * the view. Prisma's own queries name `"public"."Entitlement"` and never see it.
+ */
+async function runBackfillMigrationFor(userId: string) {
+  const sql = await backfillMigrationSql();
+
+  await prismaClient!.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      `CREATE TEMP VIEW "Entitlement" AS SELECT * FROM "public"."Entitlement" WHERE "userId" = '${userId}'`,
+    );
+    await tx.$executeRawUnsafe(sql);
+    await tx.$executeRawUnsafe('DROP VIEW pg_temp."Entitlement"');
+  });
 }
 
 describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
@@ -1403,6 +1575,94 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
     stripeStub.billingPortal.sessions.create.mockReset();
     await prismaClient!.user.deleteMany({
       where: { clerkUserId: { startsWith: 'billing-test-' } },
+    });
+  });
+
+  describe('a ban blocks a new subscription', () => {
+    const webhooks = new WebhooksService(prisma);
+    const members = membersPage(new AdminMembersService(prisma));
+
+    afterEach(async () => {
+      await prismaClient!.stripeWebhookEvent.deleteMany({
+        where: { id: { startsWith: EVENT_PREFIX } },
+      });
+    });
+
+    async function bannedMember(name: string) {
+      const clerkUserId = `billing-test-${name}`;
+      const user = await createUser(clerkUserId);
+      const admin = await createUser(`${clerkUserId}-admin`);
+      const subscriptionId = `sub_${name}`;
+      const customerId = `cus_${name}`;
+      const actor = {
+        id: admin.id,
+        clerkUserId: admin.clerkUserId,
+        role: Role.ADMIN,
+        entitlementTier: EntitlementTier.FREE,
+      };
+
+      await webhooks.handleStripeEvent(
+        subscriptionEvent('customer.subscription.created', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'active',
+          currentPeriodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+        }),
+      );
+      await members.banMember(actor, user.id, { reason: 'Banned' });
+
+      const liftBan = () => members.liftBan(actor, user.id, { reason: null });
+
+      return { clerkUserId, user, subscriptionId, customerId, liftBan };
+    }
+
+    it("refuses while the banned member's subscription is still billing", async () => {
+      const { clerkUserId, liftBan } = await bannedMember('admin-blocked-billing');
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'access_revoked' },
+      });
+      expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
+
+      await liftBan();
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'subscription_exists' },
+      });
+    });
+
+    it('still refuses once that subscription has ended, until the ban is lifted', async () => {
+      const { clerkUserId, user, subscriptionId, customerId, liftBan } =
+        await bannedMember('admin-blocked-ended');
+
+      await webhooks.handleStripeEvent(
+        subscriptionEvent('customer.subscription.deleted', {
+          subscriptionId,
+          customerId,
+          userId: user.id,
+          status: 'canceled',
+        }),
+      );
+
+      await expect(createService().createCheckoutSession(clerkUserId)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'access_revoked' },
+      });
+      expect(stripeStub.checkout.sessions.create).not.toHaveBeenCalled();
+
+      await liftBan();
+      stripeStub.checkout.sessions.create.mockResolvedValue({
+        id: 'cs_admin_restored',
+        url: 'https://checkout.stripe.test/admin-restored',
+      });
+
+      await expect(createService().createCheckoutSession(clerkUserId)).resolves.toMatchObject({
+        url: 'https://checkout.stripe.test/admin-restored',
+      });
+      expect(stripeStub.checkout.sessions.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1735,7 +1995,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       ).not.toBeNull();
 
       await new WebhooksService(prisma).handleStripeEvent({
-        id: 'evt_checkout_completed',
+        id: `${EVENT_PREFIX}checkout_completed`,
         type: 'checkout.session.completed',
         created: nextEventTime(),
         data: { object: { id: 'cs_release', object: 'checkout.session' } },
@@ -1757,7 +2017,7 @@ describe.skipIf(!prismaClient)('BillingService (database-backed)', () => {
       await service.createCheckoutSession('billing-test-reservation-expiry-event');
 
       await new WebhooksService(prisma).handleStripeEvent({
-        id: 'evt_checkout_expired',
+        id: `${EVENT_PREFIX}checkout_expired`,
         type: 'checkout.session.expired',
         created: nextEventTime(),
         data: { object: { id: 'cs_expired', object: 'checkout.session' } },

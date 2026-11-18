@@ -1,32 +1,27 @@
-import Link from 'next/link';
 import { AppShell } from '@/components/app-shell';
 import { PageHeader } from '@/components/page-header';
 import { ReleaseCheckoutReservation } from '@/components/release-checkout-reservation';
+import { ButtonLink } from '@/components/ui/button';
+import { Card, CardActions } from '@/components/ui/card';
 
 export default function SubscribeCancelPage() {
   return (
-    <AppShell className="space-y-8">
+    <AppShell>
       <ReleaseCheckoutReservation />
       <PageHeader
         description="No charge was made. You can return to premium access any time from the same monthly checkout."
         title="Checkout canceled"
       />
-      <div className="surface-panel space-y-6 p-8">
-        <div className="flex flex-wrap gap-3">
-          <Link
-            className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text)] transition-colors duration-200 hover:bg-white/10"
-            href="/subscribe"
-          >
+      <Card>
+        <CardActions>
+          <ButtonLink href="/subscribe" variant="secondary">
             Return to premium
-          </Link>
-          <Link
-            className="inline-flex items-center rounded-full border border-white/10 bg-transparent px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] transition-colors duration-200 hover:border-white/20 hover:text-[var(--text)]"
-            href="/library"
-          >
+          </ButtonLink>
+          <ButtonLink href="/library" variant="ghost">
             Back to library
-          </Link>
-        </div>
-      </div>
+          </ButtonLink>
+        </CardActions>
+      </Card>
     </AppShell>
   );
 }

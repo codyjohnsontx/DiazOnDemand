@@ -15,6 +15,9 @@ import { isLiveStripeSubscription } from '../common/entitlement.js';
  * unexplained absence of access. `revokedAt` carries the Stripe event's
  * `created` stamp rather than the wall clock, so revocations and subscription
  * events can be ordered against each other.
+ *
+ * An admin's decision to bar a member is not a revocation of any one
+ * subscription: it is a ban, `User.bannedAt`, which the entitlement sync reads.
  */
 
 /** A refund can be issued by mistake or as goodwill, so it is not final. */
@@ -24,9 +27,10 @@ export const REVOKE_REASON_REFUND = 'refund';
 export const REVOKE_REASON_CHARGEBACK = 'chargeback';
 
 /**
- * The only reasons access is ever withdrawn. Callers pass one of these rather
- * than a free string, so a typo cannot invent a reason that no release path
- * knows how to clear - which would strand a member with access nothing can
+ * The only values `revokedReason` is ever written with. A ban is not one of
+ * them: it lives on the member. Callers pass one of these
+ * rather than a free string, so a typo cannot invent a reason that no release
+ * path knows how to clear - which would strand a member with access nothing can
  * give back.
  */
 export type RevokeReason = typeof REVOKE_REASON_REFUND | typeof REVOKE_REASON_CHARGEBACK;
@@ -82,7 +86,8 @@ export const NO_REVOCATION: RevocationState = { revokedAt: null, revokedReason: 
  * What winning a dispute should write to the row, or `null` when there is
  * nothing to give back.
  *
- * This is the second and only other way a revocation is cleared. It is
+ * This is the second way a revocation is cleared; an admin restoring a
+ * member (`planManualRelease`) is the third. It is
  * deliberately separate from the renewal rule rather than folded into it: a won
  * dispute is proof the money stayed with Diaz, which the renewal rule cannot
  * observe, and widening that rule to cover it would also hand access back on a
@@ -101,6 +106,26 @@ export function planDisputeWonRelease(current: RevocationState): RevocationState
 }
 
 /**
+ * What an admin restoring a member should write to the row, or `null` when
+ * there is no revocation an admin may clear.
+ *
+ * This is the immediate way back for a refund issued by mistake, which the
+ * renewal rule below deliberately cannot see. It is a person's decision rather
+ * than evidence from Stripe, so the admin members screen records who made it.
+ *
+ * A chargeback is not released. It took the money back by force and clears only
+ * on a won dispute; letting an admin wave it through would hand access back to
+ * somebody who is not paying.
+ */
+export function planManualRelease(current: RevocationState): RevocationState | null {
+  if (current.revokedAt === null || current.revokedReason !== REVOKE_REASON_REFUND) {
+    return null;
+  }
+
+  return NO_REVOCATION;
+}
+
+/**
  * Whether an incoming Stripe subscription event has earned access back.
  *
  * Only a subscription that genuinely renewed does - one whose paid period moved
@@ -110,8 +135,8 @@ export function planDisputeWonRelease(current: RevocationState): RevocationState
  * the period they were refunded for.
  *
  * The cost of that strictness is deliberate and was accepted: a member refunded
- * by mistake stays locked out until their next renewal unless somebody corrects
- * the record by hand.
+ * by mistake stays locked out until their next renewal unless an admin restores
+ * them from the members screen - see `planManualRelease` above.
  */
 export function releasesRevocation(
   current: RevocationSubject,

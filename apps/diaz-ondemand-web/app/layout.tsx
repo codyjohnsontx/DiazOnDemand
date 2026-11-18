@@ -21,10 +21,16 @@ const displayFont = Oswald({
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${bodyFont.variable} ${displayFont.variable} antialiased`}>
+      <body className={`${bodyFont.variable} ${displayFont.variable}`}>
         <AuthProvider>
           {!comingSoonEnabled && <Nav />}
-          <main className={comingSoonEnabled ? 'py-16 sm:py-20' : 'pb-10 pt-36 md:pt-32'}>
+          {/* Outside coming-soon the footer is the last thing on the page, so it carries the
+              clearance for the phone tab bar, which is fixed over the page. */}
+          <main
+            className={
+              comingSoonEnabled ? 'py-1200 md:py-1600' : 'pb-1200 pt-800 md:pb-1600 md:pt-1200'
+            }
+          >
             {children}
           </main>
           {!comingSoonEnabled && <SiteFooter />}
