@@ -37,12 +37,12 @@ Members who work for the school: coaches and admins together.
 _Avoid_: team, employees, operators
 
 **Coach**:
-A staff member who teaches. Coaches manage the library and read the journal's Trends and member journals, but do not change anyone's access.
-_Avoid_: instructor, teacher, trainer, professor
+The narrower staff role, for coaches who do not need unlimited access. A coach manages the library and reads the journal's Trends and member journals, and never changes anyone's access.
+_Avoid_: instructor, teacher, trainer, professor, junior admin
 
 **Admin**:
-A staff member who runs the business side of the product: everything a coach can do, plus changing a member's access and banning members.
-_Avoid_: owner, superuser, manager
+The full-access staff role, held by Diaz and the senior coaches: everything a coach can do, plus changing a member's access and banning members.
+_Avoid_: owner, superuser, manager, senior coach
 
 ### Access and billing
 
