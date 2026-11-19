@@ -15,8 +15,8 @@ The business that owns the content and the schools. Diaz is its owner and the pr
 _Avoid_: the gym, the academy, DMA
 
 **School**:
-One Diaz Martial Arts training location. There are several, and a member may belong to any of them.
-_Avoid_: franchise, location, gym, branch, academy
+One Diaz Martial Arts training location, the main one included. There are several, and a member may belong to any of them; which school a member belongs to is not something the product records yet.
+_Avoid_: franchise, location, gym, branch, academy, home school
 
 **Discipline**:
 One of the martial arts the school teaches: BJJ, Muay Thai or Haganah. Every program, lesson and journal entry belongs to exactly one.
