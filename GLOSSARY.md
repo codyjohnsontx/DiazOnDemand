@@ -78,6 +78,10 @@ _Avoid_: account settings, manage subscription, customer portal
 Premium given to a member by an admin, with or without an end date, for access the school collected for outside Stripe.
 _Avoid_: comp, free premium, override, manual entitlement, in-person subscription
 
+**Revenue**:
+Money Stripe collected for subscriptions, as Stripe reports it. A manual grant is access, not revenue, so what a school collects in person stays outside the product until manual collection is built.
+_Avoid_: income, sales, earnings, MRR, payments, in-person revenue
+
 **Remove access**:
 An admin ending a member's manual grant. It touches nothing the member pays Stripe for.
 _Avoid_: revoke, cancel, downgrade
