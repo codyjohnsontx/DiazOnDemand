@@ -25,8 +25,8 @@ _Avoid_: art, style, martial art, category, sport
 ### People
 
 **Member**:
-A person with a Diaz on Demand account, whatever they pay and whichever school they train at.
-_Avoid_: user, customer, subscriber, account, viewer
+A person with a Diaz on Demand account, whatever they pay and whether or not they train at a school.
+_Avoid_: user, customer, subscriber, account, viewer, gym member
 
 **Student**:
 A member who is not staff. The default role of every new account.
