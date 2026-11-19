@@ -117,12 +117,12 @@ The top-level grouping of the library: an ordered set of courses in one discipli
 _Avoid_: series, track, collection, curriculum
 
 **Course**:
-An ordered set of lessons within a program.
-_Avoid_: module, unit, section, class, track
+An ordered sequence of lessons on one theme within a program, such as Guard Retention - Defense or Stance, Guard & Footwork. It is what a member works through and what a journal entry says worked or did not.
+_Avoid_: track, roadmap, module, unit, section, class, series, curriculum item
 
 **Lesson**:
-The unit a member watches, completes and favorites: one piece of instruction with at most one video.
-_Avoid_: video, episode, class, clip, session
+One numbered step in a course, such as Guard Passing 1: a single piece of instruction with at most one video, which a member watches, completes and favorites.
+_Avoid_: video, episode, class, clip, session, step, part
 
 **Video**:
 The footage attached to a lesson. A lesson exists without one; it is then not yet filmed.
@@ -149,7 +149,7 @@ The honest state of a published lesson that has no video a member can play. It i
 _Avoid_: missing video, broken, placeholder, coming soon
 
 **Demo program**:
-A program whose lessons carry labelled demonstration clips instead of Diaz's own instruction. It shows visitors how a track flows and is never counted as training.
+A program whose lessons carry labelled demonstration clips instead of Diaz's own instruction. It shows visitors how a course flows and is never counted as training.
 _Avoid_: showcase, featured demo, demo track, instructor showcase
 
 **Demo video**:
@@ -175,16 +175,12 @@ _Avoid_: bookmark, saved, like, watchlist
 ### The curriculum
 
 **Curriculum**:
-The school's fixed map of what it teaches, laid out per discipline as phases, tracks, skills and levels. Lessons and journal entries are tagged with it; nobody types it in free text.
+The school's fixed map of what it teaches, laid out per discipline as phases, courses, skills and levels. Lessons and journal entries are tagged with it; nobody types it in free text.
 _Avoid_: syllabus, taxonomy, tags, categories
 
 **Phase**:
-A stage of a discipline's curriculum, such as Fundamentals or Foundations.
+A stage of a discipline's curriculum, such as Fundamentals or Foundations, that groups its courses.
 _Avoid_: stage, module, belt, chapter
-
-**Track**:
-A named theme within a phase, such as Guard Retention - Defense or Stance, Guard & Footwork. It is the thing a journal entry says worked or did not.
-_Avoid_: topic, category, course, subject, curriculum item
 
 **Skill**:
 The attribute a lesson trains within its discipline, such as Timing or Escape.
@@ -205,11 +201,11 @@ A time the member actually trained, on one calendar day in one discipline. The j
 _Avoid_: class, workout, lesson, visit
 
 **Journal entry**:
-One training session as the member wrote it down: the day, the discipline, the tracks they worked on with an outcome each, and an optional note. A member may edit or permanently delete their own.
+One training session as the member wrote it down: the day, the discipline, the courses they worked on with an outcome each, and an optional note. A member may edit or permanently delete their own.
 _Avoid_: post, log, record, session (the session is what happened; the entry is the writing)
 
 **Outcome**:
-The member's verdict on one track in one session: Worked or Didn't work.
+The member's verdict on one course in one session: Worked or Didn't work.
 _Avoid_: rating, result, score, feedback
 
 **Adult confirmation**:
@@ -217,7 +213,7 @@ A member's one-time confirmation that they are 18 or older, required before they
 _Avoid_: age gate, age verification, consent
 
 **Trends**:
-The staff view that adds up outcomes per track across members over a date range. A track appears only once enough different members have tagged it, so one member's week cannot pass for a pattern.
+The staff view that adds up outcomes per course across members over a date range. A course appears only once enough different members have tagged it, so one member's week cannot pass for a pattern.
 _Avoid_: analytics, insights, report, dashboard, stats
 
 **Member journals**:
