@@ -217,6 +217,17 @@ const DEPLOYMENT_REQUIREMENTS: {
     },
   },
   {
+    name: 'CLERK_WEBHOOK_SIGNING_SECRET',
+    reason: 'CLERK_WEBHOOK_SIGNING_SECRET: required on a deployment',
+    satisfy: { CLERK_WEBHOOK_SIGNING_SECRET: 'whsec_clerk' },
+    otherwiseComplete: {
+      DIAZ_INTERNAL_API_KEY: 'internal',
+      MUX_WEBHOOK_SECRET: 'whsec_mux',
+      MUX_SIGNING_KEY_ID: 'key',
+      MUX_SIGNING_KEY_PRIVATE: 'private',
+    },
+  },
+  {
     name: 'DIAZ_INTERNAL_API_KEY',
     reason: 'DIAZ_INTERNAL_API_KEY: required on a deployment',
     satisfy: { DIAZ_INTERNAL_API_KEY: 'internal' },
@@ -398,6 +409,7 @@ describe('Mux signing key startup refusal', () => {
           MUX_SIGNING_KEY_PRIVATE: 'private',
           MUX_WEBHOOK_SECRET: 'whsec_mux',
           DIAZ_INTERNAL_API_KEY: 'internal',
+          CLERK_WEBHOOK_SIGNING_SECRET: 'whsec_clerk',
         }),
       ),
     ).not.toThrow();
@@ -454,6 +466,7 @@ describe('existing startup refusals', () => {
           MUX_SIGNING_KEY_ID: 'key',
           MUX_SIGNING_KEY_PRIVATE: 'private',
           DIAZ_INTERNAL_API_KEY: 'internal',
+          CLERK_WEBHOOK_SIGNING_SECRET: 'whsec_clerk',
         }),
       ),
     ).not.toThrow();
@@ -510,6 +523,19 @@ describe('existing startup refusals', () => {
     ).toThrow(/MUX_WEBHOOK_SECRET: required on a deployment/);
   });
 
+  it('requires the Clerk webhook signing secret on a deployment', () => {
+    expect(() => validateApiEnv(envWithoutBypass({ NODE_ENV: 'production' }))).toThrow(
+      /CLERK_WEBHOOK_SIGNING_SECRET: required on a deployment/,
+    );
+    expect(() => validateApiEnv(envWithoutBypass({ DATABASE_URL: REMOTE_DB }))).toThrow(
+      /CLERK_WEBHOOK_SIGNING_SECRET: required on a deployment/,
+    );
+  });
+
+  it('does not require the Clerk webhook signing secret against a local database', () => {
+    expect(() => validateApiEnv(envWithoutBypass())).not.toThrow();
+  });
+
   it('requires the internal API key on a deployment', () => {
     expect(() => validateApiEnv(envWithoutBypass({ NODE_ENV: 'production' }))).toThrow(
       /DIAZ_INTERNAL_API_KEY: required on a deployment/,
@@ -533,7 +559,7 @@ describe('a deployment started without NODE_ENV', () => {
     STRIPE_PRICE_ID_MONTHLY: 'price_monthly',
   });
 
-  it('is refused for each of the three requirements at once', () => {
+  it('is refused for each of the four requirements at once', () => {
     let message = '';
 
     try {
@@ -545,15 +571,17 @@ describe('a deployment started without NODE_ENV', () => {
     expect(message).toMatch(/MUX_WEBHOOK_SECRET: required on a deployment/);
     expect(message).toMatch(/STRIPE_WEBHOOK_SECRET: required on a deployment/);
     expect(message).toMatch(/DIAZ_INTERNAL_API_KEY: required on a deployment/);
+    expect(message).toMatch(/CLERK_WEBHOOK_SIGNING_SECRET: required on a deployment/);
   });
 
-  it('starts once all three are supplied', () => {
+  it('starts once all four are supplied', () => {
     expect(() =>
       validateApiEnv({
         ...startedWithoutNodeEnv,
         MUX_WEBHOOK_SECRET: 'whsec_mux',
         STRIPE_WEBHOOK_SECRET: 'whsec_stripe',
         DIAZ_INTERNAL_API_KEY: 'internal',
+        CLERK_WEBHOOK_SIGNING_SECRET: 'whsec_clerk',
       }),
     ).not.toThrow();
   });

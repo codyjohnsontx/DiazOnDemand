@@ -12,13 +12,14 @@ import { ApiError } from '@/lib/api-shared';
 
 const links = [
   { href: '/library', label: 'Library' },
+  { href: '/journal', label: 'Journal' },
   { href: '/favorites', label: 'Favorites' },
   { href: '/subscribe', label: 'Premium' },
   { href: '/account', label: 'Account' },
 ];
 
 /**
- * One sticky top bar: the wordmark, the four links from tablet width up, and the Account
+ * One sticky top bar: the wordmark, the links from tablet width up, and the Account
  * (or Sign in) button. At phone width the links move to a fixed, bordered tab bar along the
  * bottom edge; the main element in app/layout.tsx pads for it.
  */
@@ -86,9 +87,11 @@ export function TopNav() {
         </div>
       </header>
 
+      {/* Body letter-spacing, not caps: with caps spacing five labels overrun their columns at
+          320px and run into each other. */}
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-nav grid min-h-tabbar grid-cols-4 border-t border-border-primary bg-surface-primary p-200 shadow-overlay md:hidden"
+        className="fixed inset-x-0 bottom-0 z-nav grid min-h-tabbar grid-cols-5 border-t border-border-primary bg-surface-primary p-200 shadow-overlay md:hidden"
       >
         {links.map((link) => {
           const active = isActive(link.href);
@@ -97,7 +100,7 @@ export function TopNav() {
             <Link
               aria-current={active ? 'page' : undefined}
               className={[
-                'flex items-center justify-center rounded-200 text-body-100 font-semibold uppercase tracking-caps transition-colors duration-fast',
+                'flex items-center justify-center rounded-200 text-body-100 font-semibold uppercase tracking-body transition-colors duration-fast',
                 active
                   ? 'bg-surface-interactive-active text-foreground-primary'
                   : 'text-foreground-faint',

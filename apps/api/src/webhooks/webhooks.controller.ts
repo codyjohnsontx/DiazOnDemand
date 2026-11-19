@@ -48,4 +48,27 @@ export class WebhooksController {
     await this.webhooksService.handleMuxWebhook(req.body);
     return { received: true };
   }
+
+  @Post('clerk')
+  async clerk(
+    @Req() req: Request,
+    @Headers('svix-id') id: string | undefined,
+    @Headers('svix-timestamp') timestamp: string | undefined,
+    @Headers('svix-signature') signature: string | undefined,
+  ) {
+    if (!id || !timestamp || !signature || !req.rawBody) {
+      throw new BadRequestException('Missing svix headers or raw body');
+    }
+
+    try {
+      this.webhooksService.verifyClerkSignature(req.rawBody, { id, timestamp, signature });
+    } catch (error) {
+      throw new BadRequestException(`Webhook error: ${(error as Error).message}`);
+    }
+
+    // Deliberately outside the try, as above: a verified delete that fails to
+    // persist must surface as a 5xx so Clerk retries it.
+    await this.webhooksService.handleClerkWebhook(req.body);
+    return { received: true };
+  }
 }

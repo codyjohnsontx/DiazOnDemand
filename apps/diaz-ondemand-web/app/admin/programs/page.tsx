@@ -100,10 +100,17 @@ export default function AdminProgramsPage() {
     <AppShell>
       <PageHeader
         actions={
-          role === Role.ADMIN ? (
-            <ButtonLink href="/admin/members" variant="secondary">
-              Members
-            </ButtonLink>
+          role === Role.ADMIN || role === Role.COACH ? (
+            <>
+              <ButtonLink href="/admin/journal" variant="secondary">
+                Journal
+              </ButtonLink>
+              {role === Role.ADMIN ? (
+                <ButtonLink href="/admin/members" variant="secondary">
+                  Members
+                </ButtonLink>
+              ) : null}
+            </>
           ) : undefined
         }
         title="Programs"

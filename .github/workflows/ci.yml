@@ -10,7 +10,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
 
-    # Two suites run against a real database on purpose: the resubscribe and
+    # Some suites run against a real database on purpose: the resubscribe and
     # double-checkout defects were unique-constraint violations, and the Mux
     # awaiting-playback state was refused by a CHECK constraint - neither of
     # which a mocked Prisma client can raise. See the Tests section of README.md.

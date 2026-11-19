@@ -1,0 +1,53 @@
+import { AppShell } from '@/components/app-shell';
+import { PageHeader } from '@/components/page-header';
+
+const SECTIONS = [
+  {
+    title: 'Your account',
+    body: [
+      'Sign-in is handled by Clerk, which holds the details you sign in with and uses cookies to keep you signed in. Our database stores the Clerk id for your account, your role and the date the account was created.',
+      'If an admin grants, removes or restores your access, or bans or unbans your account, we record what changed, which admin made the change, the reason they gave and when.',
+    ],
+  },
+  {
+    title: 'Billing',
+    body: [
+      'Payments are handled by Stripe, and you enter your card details with Stripe rather than with us. We store your Stripe customer and subscription ids, the plan, the subscription status, the billing period end date, and any refund, chargeback or admin action that withdrew access.',
+    ],
+  },
+  {
+    title: 'Progress and favorites',
+    body: [
+      'We store how far you have watched each lesson, whether you completed it, and the lessons you favorite. Videos are delivered by Mux and YouTube, which receive the requests your browser or app makes to play them.',
+    ],
+  },
+  {
+    title: 'Journal entries',
+    body: [
+      'If you use the journal we store each entry: the date, the discipline, the curriculum items you marked, how each one went, and any note you wrote. We also store the date you confirmed you are 18 or older.',
+      'Coaches and admins can read journal entries for coaching and curriculum.',
+      'You can edit or delete your own entries. A deleted entry is gone permanently, for staff too. Deleting your account permanently deletes your journal entries and notes.',
+    ],
+  },
+];
+
+export default function PrivacyPage() {
+  return (
+    <AppShell>
+      <PageHeader title="Privacy" />
+
+      <div className="flex max-w-reading flex-col gap-800">
+        {SECTIONS.map((section) => (
+          <section className="flex flex-col gap-300" key={section.title}>
+            <h2 className="type-display-500">{section.title}</h2>
+            {section.body.map((paragraph) => (
+              <p className="text-body-300 text-foreground-faint" key={paragraph}>
+                {paragraph}
+              </p>
+            ))}
+          </section>
+        ))}
+      </div>
+    </AppShell>
+  );
+}

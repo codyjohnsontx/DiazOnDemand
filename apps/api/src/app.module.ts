@@ -13,6 +13,10 @@ import { MeController } from './me/me.controller.js';
 import { MeService } from './me/me.service.js';
 import { AdminController } from './admin/admin.controller.js';
 import { AdminService } from './admin/admin.service.js';
+import { AdminJournalController } from './journal/admin-journal.controller.js';
+import { AdminJournalService } from './journal/admin-journal.service.js';
+import { JournalController } from './journal/journal.controller.js';
+import { JournalService } from './journal/journal.service.js';
 import { AdminMembersService } from './admin/admin-members.service.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
@@ -30,6 +34,8 @@ import { MuxDirectUploadService } from './mux/mux-direct-upload.service.js';
     FavoritesController,
     MeController,
     AdminController,
+    JournalController,
+    AdminJournalController,
     BillingController,
     WebhooksController,
   ],
@@ -39,6 +45,8 @@ import { MuxDirectUploadService } from './mux/mux-direct-upload.service.js';
     FavoritesService,
     MeService,
     AdminService,
+    JournalService,
+    AdminJournalService,
     AdminMembersService,
     MuxDirectUploadService,
     BillingService,
