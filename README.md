@@ -430,15 +430,15 @@ state with Mux's message. Webhook _transport_ was simulated for that run - see "
 
 ### Member Journal
 
-Premium members log a session at `/journal`: a date, a discipline, the curriculum tracks they
-worked on, each marked worked or didn't work, and an optional note. It is web only. Tags are track
-ids from `packages/shared/src/curriculum.ts`, validated against that catalog on every write.
+Every signed-in member, free or premium, logs a session at `/journal`: a date, a discipline, the
+curriculum tracks they worked on, each marked worked or didn't work, and an optional note. It is
+web only. Tags are track ids from `packages/shared/src/curriculum.ts`, validated against that
+catalog on every write.
 
-- **Writing** (`POST /journal`, `PATCH /journal/:id`) needs the signed-in user's resolved premium
-  tier, the same value that gates a paid lesson, plus the one-time 18+ confirmation
-  (`POST /journal/adult-confirmation`). Without premium the API answers 402, without the
-  confirmation 403. A member who loses premium keeps their entries.
-- **Reading and deleting** (`GET /journal`, `DELETE /journal/:id`) need neither. A delete is
+- **Writing** (`POST /journal`, `PATCH /journal/:id`) needs only the one-time 18+ confirmation
+  (`POST /journal/adult-confirmation`); without it the API answers 403. The journal is not a
+  premium feature, and the entitlement tier plays no part in it.
+- **Reading and deleting** (`GET /journal`, `DELETE /journal/:id`) do not need it. A delete is
   permanent, for staff too.
 - **Deleting an account** in Clerk deletes that member's journal. Clerk sends `user.deleted` to
   `POST /webhooks/clerk`, which verifies the Svix signature with `CLERK_WEBHOOK_SIGNING_SECRET`

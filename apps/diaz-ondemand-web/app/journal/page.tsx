@@ -10,7 +10,6 @@ import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useApiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-shared';
 
 export default function JournalPage() {
   const apiFetch = useApiClient();
@@ -55,13 +54,7 @@ export default function JournalPage() {
       await apiFetch(path, { method, body: JSON.stringify(payload) });
       await load();
       return true;
-    } catch (requestError) {
-      // Access can end while a form is open. This swaps it for the subscribe path.
-      if (requestError instanceof ApiError && requestError.status === 402) {
-        setOverview((current) => current && { ...current, canWrite: false });
-        return false;
-      }
-
+    } catch {
       setError('Your entry could not be saved. Try again.');
       return false;
     }
@@ -94,8 +87,6 @@ export default function JournalPage() {
     return null;
   }
 
-  const showAdultGate = overview.canWrite && !overview.adultConfirmed;
-  const showForm = overview.canWrite && overview.adultConfirmed;
   const errorMessage = error ? (
     <p
       aria-atomic="true"
@@ -111,7 +102,7 @@ export default function JournalPage() {
     <AppShell>
       <PageHeader title="Journal" />
 
-      {showAdultGate ? (
+      {overview.adultConfirmed ? null : (
         <Card className="flex flex-col gap-600" variant="emphasis">
           <h2 className="type-display-500">Are you 18 or older?</h2>
           {errorMessage}
@@ -121,39 +112,24 @@ export default function JournalPage() {
             </Button>
           </div>
         </Card>
-      ) : null}
+      )}
 
-      {!overview.canWrite ? (
-        <EmptyState
-          ctaHref="/subscribe"
-          ctaLabel="Go Premium"
-          title="Journal is a Premium feature"
-        />
-      ) : null}
-
-      {showAdultGate ? null : (
-        <section
-          className={
-            showForm ? 'grid items-start gap-600 xl:grid-cols-split' : 'flex flex-col gap-600'
-          }
-        >
-          {showForm ? (
-            <Card className="flex flex-col gap-600" variant="emphasis">
-              <h2 className="type-display-500">New entry</h2>
-              <JournalEntryForm
-                onSubmit={(payload) => save('/journal', 'POST', payload)}
-                submitLabel="Save entry"
-              />
-              {editingId ? null : errorMessage}
-            </Card>
-          ) : null}
+      {overview.adultConfirmed ? (
+        <section className="grid items-start gap-600 xl:grid-cols-split">
+          <Card className="flex flex-col gap-600" variant="emphasis">
+            <h2 className="type-display-500">New entry</h2>
+            <JournalEntryForm
+              onSubmit={(payload) => save('/journal', 'POST', payload)}
+              submitLabel="Save entry"
+            />
+            {editingId ? null : errorMessage}
+          </Card>
 
           {overview.entries.length > 0 ? (
             <div className="flex flex-col gap-400">
               <h2 className="type-display-500">Your entries</h2>
-              {showForm ? null : errorMessage}
               {overview.entries.map((entry) =>
-                showForm && editingId === entry.id ? (
+                editingId === entry.id ? (
                   <Card className="flex flex-col gap-500" key={entry.id} padding="compact">
                     <h3 className="type-display-400">Edit entry</h3>
                     <JournalEntryForm
@@ -197,18 +173,16 @@ export default function JournalPage() {
                         </>
                       ) : (
                         <>
-                          {showForm ? (
-                            <Button
-                              onClick={() => {
-                                setDeletingId(null);
-                                setEditingId(entry.id);
-                                setError(null);
-                              }}
-                              size="sm"
-                            >
-                              Edit
-                            </Button>
-                          ) : null}
+                          <Button
+                            onClick={() => {
+                              setDeletingId(null);
+                              setEditingId(entry.id);
+                              setError(null);
+                            }}
+                            size="sm"
+                          >
+                            Edit
+                          </Button>
                           <Button
                             onClick={() => {
                               setEditingId(null);
@@ -228,11 +202,11 @@ export default function JournalPage() {
                 ),
               )}
             </div>
-          ) : showForm ? (
+          ) : (
             <EmptyState title="No entries yet" />
-          ) : null}
+          )}
         </section>
-      )}
+      ) : null}
     </AppShell>
   );
 }

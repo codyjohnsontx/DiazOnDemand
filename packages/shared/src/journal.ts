@@ -108,7 +108,6 @@ export type JournalEntryDto = {
 
 export type JournalOverviewDto = {
   adultConfirmed: boolean;
-  canWrite: boolean;
   entries: JournalEntryDto[];
 };
 
