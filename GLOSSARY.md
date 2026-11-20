@@ -91,7 +91,7 @@ Access being withdrawn from one subscription because its payment was refunded in
 _Avoid_: ban, cancellation, suspension, removal
 
 **Restore**:
-An admin clearing a revocation that followed a refund made by mistake. A chargeback cannot be restored; the member pays again instead.
+An admin clearing a revocation that followed a refund made by mistake. An admin cannot restore a chargeback; it clears only when Stripe reports the dispute won.
 _Avoid_: reinstate, undo, re-grant
 
 **Ban**:
