@@ -28,12 +28,14 @@ export class JournalService {
       where: { id: user.id },
       select: {
         adultConfirmedAt: true,
+        bannedAt: true,
         journalEntries: { include: journalEntryInclude, orderBy: [...journalEntryOrder] },
       },
     });
 
     return {
       adultConfirmed: row.adultConfirmedAt !== null,
+      canWrite: row.bannedAt === null,
       entries: row.journalEntries.map(mapJournalEntry),
     };
   }

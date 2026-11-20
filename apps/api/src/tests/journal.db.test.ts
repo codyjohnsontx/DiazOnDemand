@@ -177,6 +177,7 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
     const overview = await journal.overview(free);
 
     expect(overview.adultConfirmed).toBe(true);
+    expect(overview.canWrite).toBe(true);
     expect(overview.entries).toHaveLength(1);
     expect(overview.entries[0]?.items).toEqual([
       { track: TRACK, outcome: JournalOutcome.DID_NOT_WORK },
@@ -194,7 +195,7 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
     await banMember(member);
 
     expect(await statusOf(journal.create(member, entryFor(JournalOutcome.WORKED)))).toBe(403);
-    expect((await journal.overview(member)).entries).toEqual([]);
+    expect(await journal.overview(member)).toMatchObject({ canWrite: false, entries: [] });
   });
 
   it('answers 403 when a banned member edits an entry, and still lets them read and delete', async () => {

@@ -438,7 +438,8 @@ catalog on every write.
 - **Writing** (`POST /journal`, `PATCH /journal/:id`) needs only the one-time 18+ confirmation
   (`POST /journal/adult-confirmation`); without it the API answers 403. The journal is not a
   premium feature, and the entitlement tier plays no part in it. A ban (`User.bannedAt`) also
-  blocks writing: a banned member gets 403 on both routes.
+  blocks writing: a banned member gets 403 on both routes, and `GET /journal` answers
+  `canWrite: false`, so the page hides the entry form and the Edit buttons.
 - **Reading and deleting** (`GET /journal`, `DELETE /journal/:id`) need neither, so a banned
   member can still read and delete their entries. A delete is permanent, for staff too.
 - **Deleting an account** in Clerk deletes that member's journal. Clerk sends `user.deleted` to
