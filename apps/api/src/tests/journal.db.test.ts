@@ -73,7 +73,7 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
   const staff = new AdminJournalService(prisma);
   const createdUserIds: string[] = [];
 
-  async function createMember({ adult = true, premium = true } = {}): Promise<AuthUser> {
+  async function createMember({ adult = true, premium = false } = {}): Promise<AuthUser> {
     const user = await prismaClient!.user.create({
       data: {
         clerkUserId: `journal_test_${randomUUID()}`,
@@ -140,7 +140,7 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
     expect((await journal.overview(owner)).entries).toHaveLength(1);
   });
 
-  it('requires premium and the 18+ confirmation to write, and neither to read or delete', async () => {
+  it('lets a free member write once 18+ is confirmed, and read and delete', async () => {
     const unconfirmed = await createMember({ adult: false });
 
     expect(await statusOf(journal.create(unconfirmed, entryFor(JournalOutcome.WORKED)))).toBe(403);
@@ -156,18 +156,12 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
 
     expect(secondConfirmation.adultConfirmedAt).toEqual(firstConfirmation.adultConfirmedAt);
 
-    const entry = await journal.create(unconfirmed, entryFor(JournalOutcome.WORKED));
-
-    // Through the real auth path, so this is the tier a revocation actually leaves
-    // the member with rather than one this test asserted for itself.
-    await prismaClient!.entitlement.update({
-      where: { userId: unconfirmed.id },
-      data: { tier: DbEntitlementTier.FREE, validUntil: null },
-    });
+    // Through the real auth path, so this is the tier a free member actually
+    // resolves to rather than one this test asserted for itself.
     process.env.DEV_BYPASS_AUTH = 'true';
     const previousUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = 'postgresql://localhost:5432/test';
-    const revoked = await new AuthService(prisma)
+    const free = await new AuthService(prisma)
       .authenticateRequest({
         headers: { 'x-dev-user-id': unconfirmed.clerkUserId },
       } as unknown as RequestWithUser)
@@ -176,16 +170,48 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
         process.env.DATABASE_URL = previousUrl;
       });
 
-    const overview = await journal.overview(revoked);
+    expect(free.entitlementTier).toBe(EntitlementTier.FREE);
 
-    expect(overview).toMatchObject({ adultConfirmed: true, canWrite: false });
+    const entry = await journal.create(free, entryFor(JournalOutcome.WORKED));
+    await journal.update(free, entry.id, entryFor(JournalOutcome.DID_NOT_WORK));
+    const overview = await journal.overview(free);
+
+    expect(overview.adultConfirmed).toBe(true);
+    expect(overview.canWrite).toBe(true);
     expect(overview.entries).toHaveLength(1);
-    expect(await statusOf(journal.create(revoked, entryFor(JournalOutcome.WORKED)))).toBe(402);
-    expect(await statusOf(journal.update(revoked, entry.id, entryFor(JournalOutcome.WORKED)))).toBe(
-      402,
-    );
-    expect(await statusOf(journal.remove(revoked.id, entry.id))).toBe('ok');
-    expect((await journal.overview(revoked)).entries).toEqual([]);
+    expect(overview.entries[0]?.items).toEqual([
+      { track: TRACK, outcome: JournalOutcome.DID_NOT_WORK },
+    ]);
+    expect(await statusOf(journal.remove(free.id, entry.id))).toBe('ok');
+    expect((await journal.overview(free)).entries).toEqual([]);
+  });
+
+  async function banMember(member: AuthUser) {
+    await prismaClient!.user.update({ where: { id: member.id }, data: { bannedAt: new Date() } });
+  }
+
+  it('answers 403 when a banned member creates an entry', async () => {
+    const member = await createMember();
+    await banMember(member);
+
+    expect(await statusOf(journal.create(member, entryFor(JournalOutcome.WORKED)))).toBe(403);
+    expect(await journal.overview(member)).toMatchObject({ canWrite: false, entries: [] });
+  });
+
+  it('answers 403 when a banned member edits an entry, and still lets them read and delete', async () => {
+    const member = await createMember();
+    const entry = await journal.create(member, entryFor(JournalOutcome.WORKED));
+    await banMember(member);
+
+    expect(
+      await statusOf(journal.update(member, entry.id, entryFor(JournalOutcome.DID_NOT_WORK))),
+    ).toBe(403);
+
+    const { entries } = await journal.overview(member);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.items).toEqual([{ track: TRACK, outcome: JournalOutcome.WORKED }]);
+    expect(await statusOf(journal.remove(member.id, entry.id))).toBe('ok');
+    expect((await journal.overview(member)).entries).toEqual([]);
   });
 
   describe('Trends', () => {
@@ -271,7 +297,7 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
 
   it("deletes only the deleted member's journal when Clerk deletes the account", async () => {
     const webhooks = new WebhooksService(prisma);
-    const member = await createMember();
+    const member = await createMember({ premium: true });
     const other = await createMember();
     const entries = [
       await journal.create(member, entryFor(JournalOutcome.WORKED)),

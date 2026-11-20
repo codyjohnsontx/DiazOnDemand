@@ -56,8 +56,7 @@ export default function JournalPage() {
       await load();
       return true;
     } catch (requestError) {
-      // Access can end while a form is open. This swaps it for the subscribe path.
-      if (requestError instanceof ApiError && requestError.status === 402) {
+      if (requestError instanceof ApiError && requestError.status === 403) {
         setOverview((current) => current && { ...current, canWrite: false });
         return false;
       }
@@ -124,11 +123,7 @@ export default function JournalPage() {
       ) : null}
 
       {!overview.canWrite ? (
-        <EmptyState
-          ctaHref="/subscribe"
-          ctaLabel="Go Premium"
-          title="Journal is a Premium feature"
-        />
+        <EmptyState title="New journal entries are not available on this account" />
       ) : null}
 
       {showAdultGate ? null : (

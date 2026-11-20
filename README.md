@@ -430,16 +430,18 @@ state with Mux's message. Webhook _transport_ was simulated for that run - see "
 
 ### Member Journal
 
-Premium members log a session at `/journal`: a date, a discipline, the curriculum tracks they
-worked on, each marked worked or didn't work, and an optional note. It is web only. Tags are track
-ids from `packages/shared/src/curriculum.ts`, validated against that catalog on every write.
+Every signed-in member, free or premium, logs a session at `/journal`: a date, a discipline, the
+curriculum tracks they worked on, each marked worked or didn't work, and an optional note. It is
+web only. Tags are track ids from `packages/shared/src/curriculum.ts`, validated against that
+catalog on every write.
 
-- **Writing** (`POST /journal`, `PATCH /journal/:id`) needs the signed-in user's resolved premium
-  tier, the same value that gates a paid lesson, plus the one-time 18+ confirmation
-  (`POST /journal/adult-confirmation`). Without premium the API answers 402, without the
-  confirmation 403. A member who loses premium keeps their entries.
-- **Reading and deleting** (`GET /journal`, `DELETE /journal/:id`) need neither. A delete is
-  permanent, for staff too.
+- **Writing** (`POST /journal`, `PATCH /journal/:id`) needs only the one-time 18+ confirmation
+  (`POST /journal/adult-confirmation`); without it the API answers 403. The journal is not a
+  premium feature, and the entitlement tier plays no part in it. A ban (`User.bannedAt`) also
+  blocks writing: a banned member gets 403 on both routes, and `GET /journal` answers
+  `canWrite: false`, so the page hides the entry form and the Edit buttons.
+- **Reading and deleting** (`GET /journal`, `DELETE /journal/:id`) need neither, so a banned
+  member can still read and delete their entries. A delete is permanent, for staff too.
 - **Deleting an account** in Clerk deletes that member's journal. Clerk sends `user.deleted` to
   `POST /webhooks/clerk`, which verifies the Svix signature with `CLERK_WEBHOOK_SIGNING_SECRET`
   and deletes every entry and note for that Clerk id - and nothing else: the `User` row, billing,
@@ -687,7 +689,8 @@ routes, because they move paid access and expose billing identifiers; `COACH` ke
     subscription or subscription opened later can give access back. Checkout refuses them with
     `access_revoked`, and the account page and `/subscribe` show "Premium is not available on this
     account. Please contact us." in place of checkout. They can still sign in and watch free
-    lessons; the API makes no Clerk write. A ban does not cancel the subscription or stop billing,
+    lessons, and read and delete their journal but not add to or edit it; the API makes no Clerk
+    write. A ban does not cancel the subscription or stop billing,
     so cancel in Stripe as well when the member should not be charged. **Lift ban** is the one way
     back: it clears `bannedAt` and re-derives the entitlement, so a live subscription gives access
     back at once and otherwise the member can subscribe again. A manual grant the ban ended is not

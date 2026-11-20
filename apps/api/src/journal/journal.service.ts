@@ -1,5 +1,5 @@
-import { ForbiddenException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
-import { EntitlementTier, type JournalEntryDto, type JournalEntryWriteDto } from '@diaz/shared';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import type { JournalEntryDto, JournalEntryWriteDto } from '@diaz/shared';
 import { Prisma } from '@diaz/db';
 import type { AuthUser } from '../common/request-with-user.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -23,19 +23,19 @@ function writableFields({ sessionDate, discipline, note }: JournalEntryWriteDto)
 export class JournalService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Reading needs no premium: a member who lost access keeps their entries. */
   async overview(user: AuthUser) {
     const row = await this.prisma.client.user.findUniqueOrThrow({
       where: { id: user.id },
       select: {
         adultConfirmedAt: true,
+        bannedAt: true,
         journalEntries: { include: journalEntryInclude, orderBy: [...journalEntryOrder] },
       },
     });
 
     return {
       adultConfirmed: row.adultConfirmedAt !== null,
-      canWrite: user.entitlementTier === EntitlementTier.PREMIUM,
+      canWrite: row.bannedAt === null,
       entries: row.journalEntries.map(mapJournalEntry),
     };
   }
@@ -95,7 +95,7 @@ export class JournalService {
     }
   }
 
-  /** Permanent, for staff too. Needs no premium, so a lapsed member can still remove entries. */
+  /** Permanent, for staff too. */
   async remove(userId: string, entryId: string) {
     const { count } = await this.prisma.client.journalEntry.deleteMany({
       where: { id: entryId, userId },
@@ -109,19 +109,18 @@ export class JournalService {
   }
 
   /**
-   * `entitlementTier` is what the auth guard resolved for this request, the same
-   * value that gates a paid lesson, so an expired or revoked member fails here
-   * with no journal-specific rule to keep in step.
+   * Open to every signed-in member, free or premium, once they have confirmed
+   * they are 18+, unless they are banned.
    */
   private async assertCanWrite(user: AuthUser) {
-    if (user.entitlementTier !== EntitlementTier.PREMIUM) {
-      throw new HttpException('Premium subscription required', 402);
-    }
-
     const row = await this.prisma.client.user.findUniqueOrThrow({
       where: { id: user.id },
-      select: { adultConfirmedAt: true },
+      select: { adultConfirmedAt: true, bannedAt: true },
     });
+
+    if (row.bannedAt !== null) {
+      throw new ForbiddenException('Banned members cannot write to the journal');
+    }
 
     if (row.adultConfirmedAt === null) {
       throw new ForbiddenException('18+ confirmation required');
