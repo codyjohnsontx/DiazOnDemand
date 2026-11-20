@@ -1,0 +1,3 @@
+# Entitlement is derived from stored subscriptions and the ban, never from the Stripe event in hand
+
+Stripe delivers webhook events late, repeated and out of order, and a member accumulates many subscriptions over time because every cancel-and-resubscribe starts a new one. So the product records each event's effect on the one subscription it names and then recomputes the member's entitlement from every stored subscription plus whether the member is banned, instead of writing whatever entitlement the event in hand seems to imply. The simpler event-driven write was rejected because a stale "cancelled" arriving after a fresh "active" would strip a paying member of Premium.

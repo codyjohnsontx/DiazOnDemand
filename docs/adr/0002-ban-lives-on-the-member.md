@@ -1,0 +1,3 @@
+# A ban lives on the member, not on a subscription, and does not stop Stripe billing
+
+A ban marks the member and makes them Free whatever their subscriptions say, so no renewal or resubscription event can quietly undo it, and a banned member cannot start a checkout. The product deliberately does not cancel the member's Stripe subscription on the admin's behalf: a ban is a decision about access, and the money is the owner's to settle in Stripe, where a full refund or chargeback then shows up as a revocation of that one subscription. Modelling a ban as a revoked subscription was rejected because the next payment would silently lift it.
