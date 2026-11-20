@@ -185,6 +185,34 @@ describe.skipIf(!prismaClient)('member journal (database-backed)', () => {
     expect((await journal.overview(free)).entries).toEqual([]);
   });
 
+  async function banMember(member: AuthUser) {
+    await prismaClient!.user.update({ where: { id: member.id }, data: { bannedAt: new Date() } });
+  }
+
+  it('answers 403 when a banned member creates an entry', async () => {
+    const member = await createMember();
+    await banMember(member);
+
+    expect(await statusOf(journal.create(member, entryFor(JournalOutcome.WORKED)))).toBe(403);
+    expect((await journal.overview(member)).entries).toEqual([]);
+  });
+
+  it('answers 403 when a banned member edits an entry, and still lets them read and delete', async () => {
+    const member = await createMember();
+    const entry = await journal.create(member, entryFor(JournalOutcome.WORKED));
+    await banMember(member);
+
+    expect(
+      await statusOf(journal.update(member, entry.id, entryFor(JournalOutcome.DID_NOT_WORK))),
+    ).toBe(403);
+
+    const { entries } = await journal.overview(member);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.items).toEqual([{ track: TRACK, outcome: JournalOutcome.WORKED }]);
+    expect(await statusOf(journal.remove(member.id, entry.id))).toBe('ok');
+    expect((await journal.overview(member)).entries).toEqual([]);
+  });
+
   describe('Trends', () => {
     const range = { from: '2031-03-01', to: '2031-03-31' };
     const inRange = { sessionDate: '2026-01-15' };

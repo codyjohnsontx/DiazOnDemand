@@ -106,12 +106,19 @@ export class JournalService {
     return { deleted: true };
   }
 
-  /** Open to every signed-in member, free or premium, once they have confirmed they are 18+. */
+  /**
+   * Open to every signed-in member, free or premium, once they have confirmed
+   * they are 18+, unless they are banned.
+   */
   private async assertCanWrite(user: AuthUser) {
     const row = await this.prisma.client.user.findUniqueOrThrow({
       where: { id: user.id },
-      select: { adultConfirmedAt: true },
+      select: { adultConfirmedAt: true, bannedAt: true },
     });
+
+    if (row.bannedAt !== null) {
+      throw new ForbiddenException('Banned members cannot write to the journal');
+    }
 
     if (row.adultConfirmedAt === null) {
       throw new ForbiddenException('18+ confirmation required');
